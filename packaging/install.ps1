@@ -136,7 +136,10 @@ function Get-BelayInstallDir {
         $k = Get-ItemProperty $r -ErrorAction SilentlyContinue |
              Where-Object { $_.DisplayName -like 'Belay*' -and $_.InstallLocation } |
              Select-Object -First 1
-        if ($k) { return $k.InstallLocation.TrimEnd('\') }
+        # NSIS writes InstallLocation QUOTED (e.g. "C:\Users\...\Belay"). The
+        # literal quotes make Join-Path parse the drive as `"C` and throw
+        # DriveNotFound, so strip surrounding quotes/whitespace and the trailing \.
+        if ($k) { return $k.InstallLocation.Trim().Trim('"').Trim().TrimEnd('\') }
     }
     return $null
 }
@@ -144,8 +147,10 @@ $installDir = Get-BelayInstallDir
 
 # --- optional: machine-wide firewall/boot-start service (elevates) ------------
 if ($WithService) {
-    $belayExe = if ($installDir) { Join-Path $installDir 'belay.exe' } else { $null }
-    if ($belayExe -and (Test-Path $belayExe)) {
+    # Build the path by string (NOT Join-Path, which resolves the drive and can
+    # throw on an unusual path); $installDir is already quote-stripped above.
+    $belayExe = if ($installDir) { "$installDir\belay.exe" } else { $null }
+    if ($belayExe -and (Test-Path -LiteralPath $belayExe)) {
         Write-Step 'Registering the Belay service (requires Administrator)'
         try {
             Start-Process -FilePath $belayExe -ArgumentList 'install-service', '--enable' -Verb RunAs -Wait
@@ -158,10 +163,14 @@ if ($WithService) {
 }
 
 # --- launch + next steps ------------------------------------------------------
-$appExe = if ($installDir) { Join-Path $installDir 'Belay.exe' } else { $null }
-if (-not $NoLaunch -and $appExe -and (Test-Path $appExe)) {
+# The install already SUCCEEDED above (the installer exited 0); everything here
+# is best-effort convenience, so a path/launch hiccup must never surface as a
+# failure. Build the exe path by string and guard the launch.
+$appExe = if ($installDir) { "$installDir\Belay.exe" } else { $null }
+if (-not $NoLaunch -and $appExe -and (Test-Path -LiteralPath $appExe)) {
     Write-Step 'Launching Belay'
-    Start-Process -FilePath $appExe | Out-Null
+    try { Start-Process -FilePath $appExe | Out-Null }
+    catch { Write-Warn2 "could not auto-launch Belay ($($_.Exception.Message)); open it from the Start Menu." }
 }
 
 Write-Host ''
