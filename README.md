@@ -81,9 +81,25 @@ timeout. Run with `--observe` first to tune in log-only mode before enforcing.
 
 ## Install
 
+**Linux & macOS:**
+
 ```bash
 curl -fsSL https://dl.belay.secblok.io/install.sh | bash
 ```
+
+**Windows** (PowerShell 5.1+):
+
+```powershell
+irm https://dl.belay.secblok.io/install.ps1 | iex
+```
+
+The Windows one-liner downloads the verified desktop installer, checks its SHA-256,
+and runs it with a progress bar (no clicks) — adding a **Start Menu entry and a
+Desktop shortcut**, then launching Belay. To pin it to the taskbar, right-click the
+running app and choose *Pin to taskbar*. Add `-WithService` to also register the
+boot-start firewall service (prompts for Administrator). The installer is currently
+**unsigned** while a code-signing certificate is pending, so SmartScreen may show a
+*"More info → Run anyway"* prompt.
 
 Downloads the verified static binary for your OS/arch from the SECBLOK CDN
 (`dl.belay.secblok.io`, falling back to GitHub Releases) — checking its SHA-256
@@ -146,7 +162,7 @@ x86_64-unknown-linux-musl`), which needs the musl toolchain — install `musl-to
 | **macOS x86_64** (Intel)      | **Released (v0.1.0)** |
 | **macOS aarch64** (Apple Silicon) | **Released (v0.1.0)** |
 | **Linux aarch64**             | Coming soon — not in v0.1.0 yet |
-| **Windows**                   | In progress — supported in-tree (named-pipe transport, SCM service, desktop app); the signed installer is pending a code-signing certificate |
+| **Windows**                   | Preview — one-line PowerShell install (`irm …/install.ps1 \| iex`) delivers the desktop app with Start Menu + desktop shortcuts (named-pipe transport, SCM service, desktop app). The installer is currently **unsigned** (SmartScreen may warn) pending a code-signing certificate. |
 
 ## Documentation
 
