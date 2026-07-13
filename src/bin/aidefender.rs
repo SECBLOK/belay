@@ -1720,6 +1720,57 @@ fn install_user_home(os: &str, user: &str) -> String {
     }
 }
 
+/// Resolve a username to its `(uid, gid)` via `getpwnam`. Unix-only.
+#[cfg(unix)]
+fn user_ids(name: &str) -> Option<(u32, u32)> {
+    let c = std::ffi::CString::new(name).ok()?;
+    // SAFETY: getpwnam returns a pointer into a libc-owned static buffer (fine
+    // for this one-shot CLI); null when the user is unknown.
+    unsafe {
+        let pw = libc::getpwnam(c.as_ptr());
+        if pw.is_null() {
+            None
+        } else {
+            Some(((*pw).pw_uid, (*pw).pw_gid))
+        }
+    }
+}
+
+/// Best-effort `chown(path, uid, gid)`. Unix-only; failure is ignored.
+#[cfg(unix)]
+fn chown_path(path: &std::path::Path, uid: u32, gid: u32) {
+    use std::os::unix::ffi::OsStrExt;
+    if let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) {
+        // SAFETY: plain chown(2); we ignore the result (best-effort).
+        unsafe {
+            libc::chown(c.as_ptr(), uid, gid);
+        }
+    }
+}
+
+/// `install-service` runs under `sudo` (root euid) to write the boot unit, so the
+/// `run_protect` hook re-point wrote the user's `~/.claude/settings*` as ROOT.
+/// Chown those files back to the invoking user so the user (and their Claude Code,
+/// which runs as that user) can manage their own hook. Mirrors "daemon runs as the
+/// invoking user, not root". Best-effort, Unix-only; touches only `settings*` files
+/// so unrelated `~/.claude` content is never disturbed.
+#[cfg(unix)]
+fn chown_claude_settings_to_user(home: &str, user: &str) {
+    let (uid, gid) = match user_ids(user) {
+        Some(ids) => ids,
+        None => return,
+    };
+    let cdir = std::path::Path::new(home).join(".claude");
+    let Ok(entries) = std::fs::read_dir(&cdir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with("settings") {
+            chown_path(&entry.path(), uid, gid);
+        }
+    }
+}
+
 // AGPL-3.0 source-availability is satisfied by the public repo, but GPL-3.0
 // (rustables) §4-5 and CC-BY-SA-4.0 / CC-BY-4.0 (bundled advisory data) require
 // the license text + attribution to ACCOMPANY the conveyed binary. Embed them at
@@ -1919,6 +1970,10 @@ fn run_install_service(
         std::env::set_var("BELAY_BIN", &plan.exec_start);
         println!("Re-pointing the Claude Code hook at {} ...", plan.exec_start);
         let _ = belay_manage::protect::run_protect("claude-code", false, Some(&home));
+        // Under sudo, run_protect wrote ~/.claude/settings* as root; chown them back
+        // to the invoking user so they can manage their own hook. Best-effort.
+        #[cfg(unix)]
+        chown_claude_settings_to_user(&home, &user);
     }
 
     // 10. Wait for the daemon socket to appear.
@@ -2564,6 +2619,28 @@ mod win_service;
 #[cfg(test)]
 mod tests {
     use super::{Cli, Cmd};
+
+    #[cfg(unix)]
+    #[test]
+    fn chown_helpers_resolve_and_are_safe() {
+        // user_ids resolves a real user (uid matches getuid) and returns None for an
+        // unknown user (fail-safe: chown_claude_settings_to_user then no-ops rather
+        // than chowning to a bogus id). chown to our own ids must not abort the caller.
+        let uid = unsafe { libc::getuid() };
+        let name = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_default();
+        if !name.is_empty() {
+            if let Some((u, _g)) = super::user_ids(&name) {
+                assert_eq!(u, uid, "resolved uid for the current user must match getuid()");
+            }
+        }
+        assert_eq!(super::user_ids("belay-no-such-user-xyzzy"), None);
+        let tmp = std::env::temp_dir().join(format!("belay-chown-test-{}", std::process::id()));
+        std::fs::write(&tmp, b"x").unwrap();
+        super::chown_path(&tmp, uid, unsafe { libc::getgid() });
+        std::fs::remove_file(&tmp).ok();
+    }
 
     /// Phase 3 Task 1: the hidden `--scm` flag on `daemon` parses to `true`, and
     /// its absence defaults to `false`. Cross-platform (pure clap parse; no SCM).

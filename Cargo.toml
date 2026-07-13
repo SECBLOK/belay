@@ -100,6 +100,11 @@ belay-transport = { path = "transport" }
 # transport crate's windows-sys 0.59 (one version in the tree).
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console"] }
 
+# Unix: chown the user's ~/.claude settings back to the invoking user after
+# `install-service` (run under sudo, root euid) re-points the hook as root.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # Phase 13 Task 2: HTTP mock for the `push` wire test (already a scanner dep).
 httpmock = "0.7"

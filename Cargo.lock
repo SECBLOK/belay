@@ -631,6 +631,7 @@ dependencies = [
  "clap",
  "hostname",
  "httpmock",
+ "libc",
  "reqwest 0.12.28",
  "scanner",
  "serde_json",

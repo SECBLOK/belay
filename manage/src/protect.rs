@@ -66,20 +66,29 @@ pub fn protect(agent: &DetectedAgent) -> Result<(), String> {
             })?;
             let pre = hook_command(&exe, "pretooluse");
             let post = hook_command(&exe, "posttooluse");
-            let mut refused = false;
-            for p in &agent.settings_paths {
-                if !install(Path::new(p), &pre, &post) {
-                    refused = true;
+            // Claude Code MERGES hooks from EVERY settings file it loads (user
+            // ~/.claude/settings.json, settings.local.json, and the project
+            // .claude/settings.json). A belay hook present in more than one fires
+            // multiple times per tool call - duplicate approval prompts. So install
+            // into exactly ONE canonical file (the first / highest-precedence path)
+            // and strip any belay hook from the rest, so the gate fires exactly once
+            // regardless of prior state (idempotent across re-runs).
+            match agent.settings_paths.split_first() {
+                None => Ok(()),
+                Some((primary, rest)) => {
+                    for p in rest {
+                        uninstall(Path::new(p));
+                    }
+                    if install(Path::new(primary), &pre, &post) {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "refused to modify an existing settings file for '{}' that is not \
+                             valid JSON — nothing was changed (fix or remove the file and retry)",
+                            agent.name
+                        ))
+                    }
                 }
-            }
-            if refused {
-                Err(format!(
-                    "refused to modify an existing settings file for '{}' that is not \
-                     valid JSON — nothing was changed (fix or remove the file and retry)",
-                    agent.name
-                ))
-            } else {
-                Ok(())
             }
         }
         "mcp-proxy" => {
@@ -307,5 +316,45 @@ mod tests {
         assert_eq!(spaced, "\"/home/a b/belay\" hook posttooluse");
         // Not the bare name that fails with "belay: not found".
         assert!(!cmd.starts_with("belay "));
+    }
+
+    #[test]
+    fn protect_hook_installs_into_one_file_and_dedups_the_rest() {
+        // Regression: protect() used to install the belay hook into EVERY settings
+        // file, and Claude Code merges hooks from all of them -> the gate fired
+        // multiple times per tool call (duplicate approval prompts). It must install
+        // into exactly ONE file and strip belay from the rest.
+        let tmp = tempfile::tempdir().unwrap();
+        let primary = tmp.path().join("settings.json");
+        let secondary = tmp.path().join("settings.local.json");
+        // Pre-seed the SECONDARY with a belay hook (the already-duplicated state);
+        // primary starts as an empty object.
+        let pre = hook_command("/usr/local/bin/belay", "pretooluse");
+        let post = hook_command("/usr/local/bin/belay", "posttooluse");
+        assert!(install(&secondary, &pre, &post));
+        std::fs::write(&primary, "{}").unwrap();
+
+        let agent = DetectedAgent {
+            name: "claude-code".into(),
+            settings_paths: vec![
+                primary.to_string_lossy().into_owned(),
+                secondary.to_string_lossy().into_owned(),
+            ],
+            risky_flags: vec![],
+            interception: "hook".into(),
+            mcp_config_paths: vec![],
+            mcp_servers: vec![],
+            skills: vec![],
+            protected: false,
+        };
+        protect(&agent).expect("protect should succeed");
+
+        let has_hook =
+            |p: &std::path::Path| std::fs::read_to_string(p).unwrap().contains("hook pretooluse");
+        assert!(has_hook(&primary), "primary must carry the belay hook");
+        assert!(
+            !has_hook(&secondary),
+            "secondary must be stripped (no duplicate)"
+        );
     }
 }
