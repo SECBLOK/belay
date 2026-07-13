@@ -425,6 +425,15 @@ struct FallbackVerdict {
     explain: Option<Value>,
 }
 
+/// True for hook events that fire AFTER a tool executed (Claude `PostToolUse`,
+/// Hermes `post_tool`). These run post-execution, so they cannot gate or block —
+/// and the daemon parks on any ASK verdict regardless of event, so re-running the
+/// gate for them would park a DUPLICATE approval for a call the user already
+/// decided at PreToolUse. They must never touch the parking gate.
+fn is_post_event(event: Option<&str>) -> bool {
+    matches!(event, Some("posttooluse") | Some("hermes-posttool"))
+}
+
 /// PreToolUse thin UDS client (was `belay-hook`'s `fn main()`).
 ///
 /// Reads the hook request as JSON from stdin, asks the daemon over the UDS for
@@ -440,6 +449,17 @@ pub fn run_hook(event: Option<&str>) -> ! {
     // {"decision":"block"}, cursor {"permission":"deny"}). The gate verdict is
     // identical — only the terminal emit (and, for cursor, the INPUT shape) differ.
     let fmt = hook_fmt(event);
+
+    // PostToolUse (and Hermes's post_tool) runs AFTER the tool executed: it cannot
+    // gate or block, and the daemon parks on any ASK verdict regardless of event.
+    // Re-running the gate here fired a SECOND approval prompt for a call already
+    // decided at PreToolUse — two independent parks whose conflicting replies made
+    // the acted-on choice nondeterministic. It does no audit/redaction either, so
+    // emit a no-op allow and exit BEFORE touching the parking gate.
+    if is_post_event(event) {
+        do_emit(fmt, "allow", "");
+    }
+
     // Cursor's payload uses per-event field names; normalize it to the gate's
     // {tool_name, tool_input} shape BEFORE any parsing, so the shell/file
     // controls actually evaluate instead of decoding empty and default-allowing.
@@ -460,7 +480,7 @@ pub fn run_hook(event: Option<&str>) -> ! {
         .ok()
         .and_then(|v| v.get("tool_input").cloned())
         .unwrap_or(Value::Null);
-    let audit = event != Some("posttooluse") && event != Some("hermes-posttool");
+    let audit = !is_post_event(event);
 
     if let Some(v) = try_socket(&stdin) {
         let decision = v.get("decision").and_then(|d| d.as_str()).unwrap_or("deny");
@@ -542,6 +562,22 @@ pub fn gate() -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn post_events_never_gate() {
+        // Regression: the daemon parks on any ASK verdict regardless of event, and
+        // run_hook used to re-run the gate for PostToolUse too, firing a SECOND
+        // approval prompt for an already-decided call (conflicting replies made the
+        // outcome nondeterministic). Post events must be classified as post so
+        // run_hook no-ops before the parking gate.
+        assert!(is_post_event(Some("posttooluse")));
+        assert!(is_post_event(Some("hermes-posttool")));
+        // Pre / gate / cursor events DO gate — they must not be treated as post.
+        assert!(!is_post_event(Some("pretooluse")));
+        assert!(!is_post_event(Some("hermes-pretool")));
+        assert!(!is_post_event(Some("beforeShellExecution")));
+        assert!(!is_post_event(None)); // `belay gate` one-shot verdict
+    }
 
     #[test]
     fn hermes_response_blocks_on_deny_and_is_silent_on_allow() {
