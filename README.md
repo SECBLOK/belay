@@ -58,6 +58,14 @@ timeout. Run with `--observe` first to tune in log-only mode before enforcing.
   persistence, priv-esc, recon, config-tamper, plus **arm→sink** and **"lethal-trifecta"**
   session correlation.
 - **Human-in-the-loop approvals** — Allow / Deny in the terminal or the desktop app; timeout denies.
+- **Chat approvals** — when a call is an *Ask*, Belay can send the prompt to a chat channel
+  and take your Allow / Deny reply back. Two-way on **Telegram, Discord, WhatsApp, Matrix,
+  Mattermost, and Slack**; notify-only on **ntfy, Teams, WeCom, and webhooks**. Enrolment is a
+  one-time pairing code, and it is **default-deny** — only enrolled approvers can approve.
+- **Explain & Advise** — every verdict carries a plain-English "why is this risky / what to do"
+  explanation. An **optional** AI explainer (OFF by default, bring-your-own-key: local Ollama or
+  a cloud provider) can add a second opinion. It is advisory only — it never makes or changes a
+  decision, and secrets/paths are redacted before anything is sent.
 - **Static pre-install scanner** (`scan`) — patterns, AST, taint, YARA, and OSV analyzers
   with provenance-weighted scoring and **SARIF** output for CI. An optional `--llm` cascade
   can filter false positives; with no API keys it runs fully local and heuristic-only.
@@ -65,7 +73,9 @@ timeout. Run with `--observe` first to tune in log-only mode before enforcing.
   (SHA-256 manifest over findings + SARIF).
 - **Honeypot canaries** — decoy credential files that trip a Critical verdict on read or egress.
 - **Host control** — a native Rust firewall and a bundled per-ecosystem vulnerability DB,
-  with **no external tools** and **no NVD key required**.
+  with **no external tools** and **no NVD key required**. The vuln DB surfaces **CISA KEV**
+  (known-exploited) badges and **EPSS** exploit-probability scores, and outbound destinations
+  can be annotated with reverse-DNS + ASN / owner / country (display-only — never gates).
 - **Desktop app** (Tauri 2) — system-tray status, live audit tailing, and privacy-safe
   notifications (category only — never your paths or commands).
 
@@ -92,10 +102,10 @@ Uninstall anytime with `belay uninstall` (add `--purge` to also remove `~/.belay
 
 ## Quick start
 
-```bash
-# Build the single static binary
-cargo build --release --bin belay
+Once installed (see [Install](#install) above), drive Belay with the `belay` binary
+already on your `PATH`:
 
+```bash
 # 1. See which agents are installed
 belay detect
 
@@ -109,17 +119,39 @@ belay protect <agent>
 belay serve
 ```
 
+Review activity with `belay status` (the last audit rows) and `belay logs` (a longer
+tail).
+
 > `belay serve` exposes a **local API + SSE backend on `127.0.0.1`** — it is not a
 > web dashboard. The **desktop app** is the user interface. Enable boot-start with
 > `belay install-service --enable` (systemd / launchd).
+
+### Build from source
+
+Contributors can build the single static binary from a checkout:
+
+```bash
+cargo build --release --bin belay
+```
+
+The primary Linux target is a fully-static **musl** build (`--target
+x86_64-unknown-linux-musl`), which needs the musl toolchain — install `musl-tools`
+(Debian/Ubuntu: `sudo apt install musl-tools`) so `musl-gcc` is available.
 
 ## Platform support
 
 | Platform | Status |
 |----------|--------|
-| **Linux**   | Primary target — full host control (firewall, eBPF); musl static build |
-| **macOS**   | Builds out of the box; Linux-only enforcement compiles inert and degrades cleanly |
-| **Windows** | In progress — not yet end-to-end |
+| **Linux x86_64**              | **Released (v0.1.0)** — primary target with full host control (firewall, eBPF). Fully-static musl build runs on **any** libc (glibc or musl). |
+| **macOS x86_64** (Intel)      | **Released (v0.1.0)** |
+| **macOS aarch64** (Apple Silicon) | **Released (v0.1.0)** |
+| **Linux aarch64**             | Coming soon — not in v0.1.0 yet |
+| **Windows**                   | In progress — supported in-tree (named-pipe transport, SCM service, desktop app); the signed installer is pending a code-signing certificate |
+
+## Documentation
+
+Full docs live at **https://belay.secblok.io/doc** (landing page:
+https://belay.secblok.io) — guides, the complete CLI reference, and configuration.
 
 ## Editions & licensing
 
