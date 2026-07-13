@@ -136,15 +136,22 @@ fn hook_socket_path() -> String {
     crate::paths::socket_path()
 }
 
-fn emit(decision: &str, reason: &str) -> ! {
-    let out = json!({
+/// The Claude/codex PreToolUse `hookSpecificOutput` verdict payload. Pure (no
+/// I/O) so the wire shape - crucially the `hookEventName` - stays unit-tested:
+/// this is a PreToolUse-only shape and must never be emitted from a post event
+/// (see `post_event_stdout`).
+fn claude_pre_response(decision: &str, reason: &str) -> Value {
+    json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": decision,
             "permissionDecisionReason": reason,
         }
-    });
-    println!("{out}");
+    })
+}
+
+fn emit(decision: &str, reason: &str) -> ! {
+    println!("{}", claude_pre_response(decision, reason));
     std::process::exit(0);
 }
 
@@ -434,6 +441,22 @@ fn is_post_event(event: Option<&str>) -> bool {
     matches!(event, Some("posttooluse") | Some("hermes-posttool"))
 }
 
+/// What a post-event hook writes to stdout: NOTHING.
+///
+/// PostToolUse / hermes post_tool run AFTER the tool executed and cannot gate.
+/// The gate's terminal emit for Claude is a PreToolUse-shaped payload
+/// (`hookSpecificOutput.hookEventName = "PreToolUse"`). Printing THAT from a
+/// PostToolUse hook makes Claude Code reject the hook with "expected
+/// 'PostToolUse' but got 'PreToolUse'", and that hook error nudges the agent to
+/// RETRY the tool call - firing a SECOND PreToolUse approval for a call the user
+/// already decided (the duplicate alert seen only on Allow; a Deny blocks the
+/// tool so PostToolUse never fires). An empty stdout + exit 0 is the valid no-op
+/// for both Claude PostToolUse and hermes post_tool, so a post event emits
+/// nothing. Pure so the regression stays unit-tested.
+fn post_event_stdout() -> Option<String> {
+    None
+}
+
 /// PreToolUse thin UDS client (was `belay-hook`'s `fn main()`).
 ///
 /// Reads the hook request as JSON from stdin, asks the daemon over the UDS for
@@ -453,11 +476,19 @@ pub fn run_hook(event: Option<&str>) -> ! {
     // PostToolUse (and Hermes's post_tool) runs AFTER the tool executed: it cannot
     // gate or block, and the daemon parks on any ASK verdict regardless of event.
     // Re-running the gate here fired a SECOND approval prompt for a call already
-    // decided at PreToolUse — two independent parks whose conflicting replies made
-    // the acted-on choice nondeterministic. It does no audit/redaction either, so
-    // emit a no-op allow and exit BEFORE touching the parking gate.
+    // decided at PreToolUse. It does no audit/redaction either, so emit the
+    // post-event no-op (nothing) and exit BEFORE touching the parking gate.
+    //
+    // Emitting the PreToolUse-shaped allow payload here (the old `do_emit(fmt,
+    // "allow", "")`) was itself the duplicate's cause: Claude Code rejected the
+    // wrong `hookEventName` ("expected 'PostToolUse' but got 'PreToolUse'"), and
+    // that hook error made the agent retry the call, re-parking a second time on
+    // every Allow. See `post_event_stdout`.
     if is_post_event(event) {
-        do_emit(fmt, "allow", "");
+        if let Some(s) = post_event_stdout() {
+            println!("{s}");
+        }
+        std::process::exit(0);
     }
 
     // Cursor's payload uses per-event field names; normalize it to the gate's
@@ -577,6 +608,21 @@ mod tests {
         assert!(!is_post_event(Some("hermes-pretool")));
         assert!(!is_post_event(Some("beforeShellExecution")));
         assert!(!is_post_event(None)); // `belay gate` one-shot verdict
+    }
+
+    #[test]
+    fn post_event_emits_nothing() {
+        // Regression: a post event used to emit the PreToolUse-shaped allow
+        // payload (`hookSpecificOutput.hookEventName = "PreToolUse"`). Claude Code
+        // rejects that on a PostToolUse hook ("expected 'PostToolUse' but got
+        // 'PreToolUse'"), and the resulting hook error made the agent RETRY the
+        // call - a SECOND PreToolUse approval on every Allow (Deny blocks the tool
+        // so PostToolUse never fires: the Allow=2 / Deny=1 asymmetry). A post event
+        // must write nothing to stdout.
+        assert_eq!(post_event_stdout(), None);
+        // The PreToolUse emit shape, by contrast, MUST carry PreToolUse - it is
+        // only ever reached on pre/gate events, never a post event.
+        assert_eq!(claude_pre_response("allow", "")["hookSpecificOutput"]["hookEventName"], "PreToolUse");
     }
 
     #[test]
