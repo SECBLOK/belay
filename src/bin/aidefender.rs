@@ -1736,14 +1736,16 @@ fn user_ids(name: &str) -> Option<(u32, u32)> {
     }
 }
 
-/// Best-effort `chown(path, uid, gid)`. Unix-only; failure is ignored.
+/// Best-effort `lchown(path, uid, gid)` - NEVER dereferences symlinks, so a
+/// root-run caller cannot be tricked into chowning a symlink's target (a local
+/// privilege escalation). Unix-only; failure is ignored.
 #[cfg(unix)]
-fn chown_path(path: &std::path::Path, uid: u32, gid: u32) {
+fn lchown_path(path: &std::path::Path, uid: u32, gid: u32) {
     use std::os::unix::ffi::OsStrExt;
     if let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) {
-        // SAFETY: plain chown(2); we ignore the result (best-effort).
+        // SAFETY: plain lchown(2); result ignored (best-effort).
         unsafe {
-            libc::chown(c.as_ptr(), uid, gid);
+            libc::lchown(c.as_ptr(), uid, gid);
         }
     }
 }
@@ -1760,13 +1762,28 @@ fn chown_claude_settings_to_user(home: &str, user: &str) {
         Some(ids) => ids,
         None => return,
     };
+    use std::os::unix::fs::MetadataExt;
     let cdir = std::path::Path::new(home).join(".claude");
     let Ok(entries) = std::fs::read_dir(&cdir) else {
         return;
     };
     for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().starts_with("settings") {
-            chown_path(&entry.path(), uid, gid);
+        if !entry.file_name().to_string_lossy().starts_with("settings") {
+            continue;
+        }
+        // Only fix REGULAR files that install-service (as root) actually created,
+        // i.e. currently root-owned. symlink_metadata is an lstat (no symlink
+        // follow); together with lchown below this closes the symlink-follow
+        // privilege-escalation window - a local attacker planting
+        // ~/.claude/settings-x -> a root-owned file cannot steal its ownership,
+        // and we never touch a file we did not create.
+        let should_fix = entry
+            .path()
+            .symlink_metadata()
+            .map(|m| m.file_type().is_file() && m.uid() == 0)
+            .unwrap_or(false);
+        if should_fix {
+            lchown_path(&entry.path(), uid, gid);
         }
     }
 }
@@ -2638,7 +2655,7 @@ mod tests {
         assert_eq!(super::user_ids("belay-no-such-user-xyzzy"), None);
         let tmp = std::env::temp_dir().join(format!("belay-chown-test-{}", std::process::id()));
         std::fs::write(&tmp, b"x").unwrap();
-        super::chown_path(&tmp, uid, unsafe { libc::getgid() });
+        super::lchown_path(&tmp, uid, unsafe { libc::getgid() });
         std::fs::remove_file(&tmp).ok();
     }
 
