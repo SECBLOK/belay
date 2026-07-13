@@ -1,0 +1,44 @@
+name: DCO
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  dco:
+    name: Signed-off-by check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check DCO trailers
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+
+          missing=()
+          while IFS= read -r sha; do
+            msg=$(git log -1 --format='%B' "$sha")
+            if ! printf '%s\n' "$msg" | grep -qE '^Signed-off-by: .+ <.+@.+>$'; then
+              missing+=("$sha")
+            fi
+          done < <(git log --format='%H' "${base}..${head}")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "DCO check failed: the following commits are missing a Signed-off-by trailer:"
+            for sha in "${missing[@]}"; do
+              echo "  $sha  $(git log -1 --format='%s' "$sha")"
+            done
+            echo ""
+            echo "Each commit must contain a trailer of the form:"
+            echo "  Signed-off-by: Full Name <email@example.com>"
+            echo ""
+            echo "Use 'git commit -s' for new commits, or"
+            echo "'git rebase --signoff HEAD~N' to retrofit existing ones."
+            exit 1
+          fi
+
+          echo "DCO OK: all commits carry a Signed-off-by trailer."

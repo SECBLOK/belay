@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Font stacks */
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  --heading: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+
+  /* Legacy index.css vars (used by some components) */
+  --text: #636366;
+  --text-h: #1C1C1E;
+  --bg: #FFFFFF;
+  --border: rgba(0,0,0,0.08);
+  --code-bg: #EBEBED;
+  --accent: #0A66D6;
+  --accent-bg: rgba(10,102,214,0.12);
+  --accent-border: rgba(10,102,214,0.40);
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 1px rgba(0,0,0,0.04);
+
+  font: 15px/1.5 var(--sans);
+  letter-spacing: 0.1px;
+  color-scheme: light;
+  color: var(--text-primary, #1C1C1E);
+  background: var(--surface-base, #F5F5F7);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  @media (max-width: 1024px) {
+    font-size: 14px;
+  }
+}
+
+#root {
+  /* NOTE: `width: 1126px` + `text-align: center` were leftover Vite/React
+     scaffold defaults from project init, never intended for this app (a
+     full-window desktop shell, not a centered marketing-style landing page).
+     `text-align: center` in particular is INHERITED, so it silently cascaded
+     into every plain <p>/<h2> across every tab that wasn't itself a flex/grid
+     context — e.g. the Messaging tab's Inbound-receiver/Approvers/Pair cards
+     rendered inconsistently centered vs. left-aligned depending on incidental
+     layout, not by design. Removed; browser default (left, for LTR) is correct
+     for a settings/dashboard app like this one. */
+  max-width: 100%;
+  margin: 0 auto;
+  border-inline: 1px solid var(--border);
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: 56px;
+  letter-spacing: -1.68px;
+  margin: 32px 0;
+  @media (max-width: 1024px) {
+    font-size: 36px;
+    margin: 20px 0;
+  }
+}
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+  letter-spacing: -0.24px;
+  margin: 0 0 8px;
+  @media (max-width: 1024px) {
+    font-size: 20px;
+  }
+}
+p {
+  margin: 0;
+}
+
+code,
+.counter {
+  font-family: var(--mono);
+  display: inline-flex;
+  border-radius: 4px;
+  color: var(--text-h);
+}
+
+code {
+  font-size: 15px;
+  line-height: 135%;
+  padding: 4px 8px;
+  background: var(--code-bg);
+}
+
+/* Live Timeline: subtle entrance for newly-arrived event nodes */
+@keyframes tl-enter {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tl-enter { animation: tl-enter 250ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .tl-enter { animation: none; }
+}
+
+/* Approval alert flare (Explain & Advise, Task 9).
+   Restrained, severity-tiered, and reduced-motion-safe: ALL motion lives inside
+   `prefers-reduced-motion: no-preference`, so there is no opacity/scale base
+   state outside the query — under reduce the card is fully visible and static.
+   The Critical accent is a single, short, ≤3-iteration ring pulse (no loop, no
+   flashing); non-critical cards get only the gentle entrance. */
+@keyframes alert-enter {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes alert-critical-pulse {
+  0%   { box-shadow: var(--shadow-modal), 0 0 0 0 rgba(255, 59, 48, 0.45); }
+  100% { box-shadow: var(--shadow-modal), 0 0 0 12px rgba(255, 59, 48, 0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .alert-enter { animation: alert-enter 220ms ease-out both; }
+  .alert-critical-pulse { animation: alert-critical-pulse 1200ms ease-out 2; }
+}

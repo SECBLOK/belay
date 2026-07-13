@@ -1,0 +1,18 @@
+[package]
+license = "AGPL-3.0-or-later"
+name = "belay-manage"
+version = "0.1.0"
+edition = "2021"
+description = "Belay management commands — posture checks, detect, protect/unprotect, monitor"
+
+[dependencies]
+scanner = { path = "../scanner" }
+regex = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"

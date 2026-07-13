@@ -1,0 +1,113 @@
+name: Release CLI
+
+# Builds the unified `belay` binary for every supported release target,
+# renames each to `belay-<target>`, generates a combined SHA256SUMS, and
+# attaches everything to the GitHub Release for the pushed tag.
+#
+# This is the exact artifact source `packaging/install.sh` downloads from:
+#   https://github.com/<repo>/releases/latest/download/belay-<target>
+#   https://github.com/<repo>/releases/latest/download/SHA256SUMS
+#
+# NOTE: for the `curl | bash` one-liner to resolve, these assets must be
+# published on the PUBLIC SECBLOK/belay repo's Releases, not just here.
+# This workflow file lives in the private dev repo and is carried over to the
+# public mirror by packaging/sync-to-public.sh; it is the public repo's own
+# tag push (`git tag vX.Y.Z && git push --tags` against SECBLOK/belay)
+# that actually runs this workflow and creates the public release the
+# install script downloads from.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64 musl: built on the ubuntu host with musl-tools installed
+          # (see the musl-tools step below and .cargo/config.toml, which points
+          # the target's C compiler at musl-gcc so aws-lc-sys links cleanly).
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          # aarch64-unknown-linux-musl is intentionally not built here yet: it
+          # needs a `cross` (Docker) toolchain and has not been verified against
+          # the aws-lc-sys musl link path. Shipping x86_64-linux + both macOS is
+          # the documented minimum bar; add aarch64-linux in a follow-up once
+          # its build is confirmed green.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # musl-gcc for the x86_64 musl target: compiles the C deps (including
+      # aws-lc-sys, pulled in by the ai/netenrich features) against musl's own
+      # headers, avoiding the glibc-2.38 `__isoc23_*` link failure. See
+      # .cargo/config.toml. macOS runners skip this.
+      - name: Install musl-tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} --bin belay --features channels,ai,netenrich
+
+      - name: Stage release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/belay" "dist/belay-${{ matrix.target }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: belay-${{ matrix.target }}
+          path: dist/belay-${{ matrix.target }}
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all built assets
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten + checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find artifacts -type f -name 'belay-*' -exec cp {} out/ \;
+          cd out
+          sha256sum belay-* > SHA256SUMS
+          ls -la
+
+      - name: Attach binaries + checksums to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/belay-*
+            out/SHA256SUMS

@@ -1,0 +1,16 @@
+[package]
+license = "AGPL-3.0-or-later"
+name = "belay-auth"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jsonwebtoken = "9"
+argon2 = { version = "0.5", features = ["std"] }
+password-hash = { version = "0.5", features = ["getrandom"] }
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+thiserror = "1"
+
+[dev-dependencies]
+serde_json = "1"

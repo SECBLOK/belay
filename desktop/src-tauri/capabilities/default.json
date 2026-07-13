@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the Belay main window",
+  "windows": ["main", "popover", "toast"],
+  "permissions": ["core:default", "core:event:default", "core:window:default", "core:app:default", "notification:default", "autostart:default", "updater:default"]
+}

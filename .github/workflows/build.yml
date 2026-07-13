@@ -1,0 +1,102 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Build the unified binary with DEFAULT features. On macOS this proves the
+      # macOS-specific code compiles: the getpeereid(2) peer_uid arm
+      # (daemon/src/ipc.rs) and the inert `fw` partition (firewall feature stays
+      # on but rustables/nfq are target-gated out and the code degrades).
+      - name: Build belay (default features)
+        run: cargo build --bin belay
+
+      # Platform-independent unit tests: daemon lib + the CLI binary
+      # (install-service planning, audit summaries, hook-path guards, etc.).
+      - name: Test daemon
+        run: cargo test -p belayd --lib
+
+      - name: Test belay binary
+        run: cargo test --bin belay
+
+      - name: Test transport crate (unix impl)
+        run: cargo test -p belay-transport
+
+  # Windows port: the transport crate, the `belayd` daemon library, AND the
+  # unified `belay` binary (daemon+scanner+server+manage+channels) all compile
+  # on real Windows (msvc). Transport = raw Win32 named-pipe impl (DACL + peer-SID,
+  # windows-sys 0.59). Daemon/server/manage = the Phase-4 compile-unlock + the
+  # server/manage cfg-gating (nix/firewall/os::unix gated, %PROGRAMDATA% paths,
+  # WinKiller). Runtime hardening (SCM service, Tauri bundle) is still Windows-only WIP.
+  windows:
+    name: windows (transport + daemon + binary)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build + test transport (Win32 named-pipe impl)
+        run: cargo test -p belay-transport
+
+      # Phase 4 compile-unlock gate: the daemon library must keep building on
+      # Windows (msvc). Guards against a new ungated os::unix / nix use regressing it.
+      - name: Build daemon (Windows/msvc)
+        run: cargo build -p belayd
+
+      # The daemon test binary must also compile on Windows (the unix-only test
+      # sites are #[cfg(unix)]-gated). Compile-only: some tests are Unix-specific.
+      - name: Compile daemon test binary (Windows/msvc)
+        run: cargo test --no-run -p belayd
+
+      # The full unified binary must compile on Windows: this transitively builds
+      # scanner + server + manage + channels for msvc — the linchpin that lets the
+      # Phase 3 (SCM) and Phase 5 (desktop) branches compile once rebased.
+      - name: Build unified belay binary (Windows/msvc)
+        run: cargo build --bin belay
+
+      # Root-binary unit tests must also pass on Windows (install-service planning,
+      # --scm flag parsing, audit summaries). A build-only check misses host-path
+      # semantics bugs like Path::is_absolute() rejecting a Unix path on Windows.
+      - name: Test unified belay binary (Windows/msvc)
+        run: cargo test -p belay
+
+  # License compliance: every dependency's license must be compatible with
+  # Belay's AGPL-3.0-or-later distribution (see deny.toml). Fails the build
+  # on any GPL-2.0-only / SSPL / unknown-licensed crate entering the tree.
+  licenses:
+    name: license compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check dependency licenses
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses

@@ -1,0 +1,46 @@
+import { useState } from "react";
+import Posture from "./views/Posture";
+import Findings from "./views/Findings";
+import Timeline from "./views/Timeline";
+import Scan from "./views/Scan";
+import Agents from "./views/Agents";
+import Host from "./views/Host";
+import Ai from "./views/Ai";
+import Messaging from "./views/Messaging";
+import ApprovalSurface from "./components/ApprovalSurface";
+import Welcome from "./components/Welcome";
+import DetectionBanner from "./components/DetectionBanner";
+import Sidebar from "./components/Sidebar";
+
+type Tab =
+  | "posture" | "findings" | "timeline" | "scan" | "agents" | "host" | "ai" | "messaging"
+  ;
+
+export default function App() {
+  const [tab, setTab] = useState<Tab>("posture");
+  return (
+    <div className="flex h-screen bg-[var(--surface-base)] text-[var(--text-primary)] overflow-hidden">
+      <Sidebar tab={tab} onNavigate={setTab} />
+      <main className="flex-1 overflow-y-auto min-w-0">
+        {tab === "posture" && (
+          <>
+            <DetectionBanner onNavigate={setTab} />
+            <Posture />
+          </>
+        )}
+        {tab === "findings" && <Findings />}
+        {tab === "timeline" && <Timeline />}
+        {tab === "scan" && <Scan />}
+        {tab === "agents" && <Agents />}
+        {tab === "host" && <Host />}
+        {tab === "ai" && <Ai />}
+        {tab === "messaging" && <Messaging />}
+      </main>
+      {/* Single approval overlay: polls getPending() under Tauri only (self-guarded).
+          Supersedes the former DecisionModal (deleted) — no more duplicate polls. */}
+      <ApprovalSurface />
+      {/* First-run welcome overlay: gated by localStorage flag; renders nothing on repeat visits. */}
+      <Welcome />
+    </div>
+  );
+}

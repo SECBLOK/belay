@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+~/.belay/
+*.db
+audit.ndjson
+.DS_Store
+.coverage
+web/node_modules/
+web/dist/
+
+# build artifacts / local tooling
+/target/
+.claude/
+
+# desktop: tauri updater signing keys + node deps (NEVER commit the private key)
+desktop/.tauri/
+desktop/node_modules/
+desktop/src-tauri/target/
+
+# Tauri sidecar binaries (built from `cargo build --release --bin belay`, regenerated)
+desktop/src-tauri/binaries/
+
+# Cloudflare wrangler local cache (R2 uploads for the installer)
+.wrangler/
+

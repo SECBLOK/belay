@@ -1,0 +1,24 @@
+[package]
+license = "AGPL-3.0-or-later"
+name = "belay-channels"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["time", "macros", "rt", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+futures = "0.3"
+# Inbound-webhook signature verification (Phase B): per-platform HMAC over the
+# raw request body (Line/Slack/Twilio/… channel secrets). Pure-Rust, no OpenSSL.
+hmac = "0.12"
+sha2 = { workspace = true }
+# Percent-decode Slack's `payload=<json>` interactivity form body.
+urlencoding = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+wiremock = "0.6"

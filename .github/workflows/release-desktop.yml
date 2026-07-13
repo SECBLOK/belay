@@ -1,0 +1,132 @@
+name: Desktop Installer (Windows)
+
+# Builds the Tauri Windows desktop installer (NSIS) on a Windows runner.
+#  - PRs touching desktop/web + manual dispatch: builds UNSIGNED — a regression
+#    check that the bundle actually builds on Windows.
+#  - When the code-signing secrets are set (WINDOWS_CERTIFICATE [base64 PFX] +
+#    WINDOWS_CERTIFICATE_PASSWORD): Authenticode-signs the installer via signtool.
+#  - On a version tag (v*): also attaches the installer to the GitHub release.
+#
+# Self-sufficient by design (authored on Linux; see the FIRST-RUN checklist in
+# the hand-off spec). It does the frontend + sidecar staging explicitly, then
+# overrides the (bash-only, not cmd-portable) beforeBuildCommand to a no-op,
+# forces `--bundles nsis`, and signs externally with signtool — so it does NOT
+# depend on the Phase-5 branch's bundle.windows config or on beforeBuildCommand
+# being cross-platform.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+  pull_request:
+    paths: ['desktop/**', 'web/**', '.github/workflows/release-desktop.yml']
+
+permissions:
+  contents: write   # only the tag -> release attach step uses it
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Fetch a PREBUILT cargo-tauri (seconds) instead of compiling tauri-cli from
+      # source (~19 min every run — cargo-installed binaries aren't restored by
+      # rust-cache). cargo-binstall downloads tauri-cli's published binary and
+      # falls back to a source build only if no prebuilt exists.
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Fetch prebuilt tauri-cli
+        run: cargo binstall -y tauri-cli --version '^2'
+
+      # Build the React frontend into web/dist (tauri build.frontendDist = ../../web/dist).
+      - name: Build frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      # Stage the unified binary as the Tauri sidecar
+      # (externalBin "binaries/belay" -> binaries/belay-<triple>.exe).
+      - name: Build + stage sidecar
+        run: |
+          triple="$(rustc -vV | sed -n 's/^host: //p')"
+          echo "target triple: $triple"
+          cargo build --release --bin belay
+          mkdir -p desktop/src-tauri/binaries
+          cp "target/release/belay.exe" "desktop/src-tauri/binaries/belay-${triple}.exe"
+
+      # beforeBuildCommand is bash-only and Tauri runs it via cmd on Windows, so
+      # override it to a no-op (we already built the frontend + sidecar). Force the
+      # NSIS bundle regardless of the config's targets list, and skip the updater
+      # artifact (its minisign key is a separate release secret).
+      - name: Build NSIS installer (unsigned)
+        working-directory: desktop/src-tauri
+        run: |
+          echo '{"build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":false}}' > ci-override.json
+          cargo tauri build --bundles nsis --config ci-override.json
+
+      - name: Locate installer
+        id: find
+        run: |
+          f="$(ls desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)"
+          if [ -z "$f" ]; then echo "no NSIS installer produced" >&2; exit 1; fi
+          echo "installer=$f" >> "$GITHUB_OUTPUT"
+          echo "Installer: $f"
+
+      # Secrets can't be referenced in a step `if:`, so map presence to an output here.
+      - name: Detect signing secret
+        id: cert
+        env:
+          CERT: ${{ secrets.WINDOWS_CERTIFICATE }}
+        run: |
+          if [ -n "${CERT:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::WINDOWS_CERTIFICATE secret not set — installer left UNSIGNED (regression build only)."
+          fi
+
+      - name: Authenticode-sign installer
+        if: steps.cert.outputs.present == 'true'
+        shell: pwsh
+        env:
+          CERT: ${{ secrets.WINDOWS_CERTIFICATE }}
+          CERT_PW: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'cs.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT))
+          $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' |
+                       Sort-Object FullName | Select-Object -Last 1).FullName
+          if (-not $signtool) { throw 'signtool.exe not found (install the Windows SDK)' }
+          $installer = '${{ steps.find.outputs.installer }}'
+          & $signtool sign /f $pfx /p $env:CERT_PW /fd sha256 /tr http://timestamp.digicert.com /td sha256 $installer
+          if ($LASTEXITCODE -ne 0) { throw 'signtool sign failed' }
+          & $signtool verify /pa /v $installer
+          if ($LASTEXITCODE -ne 0) { throw 'signtool verify failed' }
+          Remove-Item $pfx -Force
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: belay-desktop-nsis
+          path: ${{ steps.find.outputs.installer }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.find.outputs.installer }}

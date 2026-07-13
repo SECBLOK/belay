@@ -1,0 +1,35 @@
+[package]
+license = "AGPL-3.0-or-later"
+name = "belay-transport"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform local IPC transport for Belay: unix-domain sockets on Unix, named pipes on Windows."
+
+[lib]
+name = "belay_transport"
+path = "src/lib.rs"
+
+# Unix: peer-credential lookup (SO_PEERCRED on Linux, getpeereid(2) on macOS).
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["socket", "user"] }
+
+# Windows: raw Win32 named pipes (blocking, to match the daemon's sync,
+# thread-per-connection model). Raw (not `interprocess`) because the server must
+# set an explicit protected DACL on the pipe, which `interprocess` cannot do.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_System_IO",
+    "Win32_Storage_FileSystem",
+    # LocalSystem peer-auth relaxation: resolve the active console-session
+    # user (WTSGetActiveConsoleSessionId/WTSQueryUserToken) so a user-run
+    # client can reach a daemon running as LocalSystem (Phase 3 SCM service).
+    "Win32_System_RemoteDesktop",
+] }
+
+[dev-dependencies]
+tempfile = "3"

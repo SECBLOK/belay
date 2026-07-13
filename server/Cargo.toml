@@ -1,0 +1,56 @@
+[package]
+license = "AGPL-3.0-or-later"
+name = "belay-server"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+# belay-auth is now a non-optional open dep (single-user auth primitives).
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+indexmap = { version = "2", features = ["serde"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
+anyhow = "1"
+belay-auth = { path = "../auth" }
+belay-transport = { path = "../transport" }
+scanner = { path = "../scanner" }
+# Already a transitive dep via `scanner` (scanner -> belayd); naming it
+# directly lets the host config routes reuse `belayd::host_config` so the
+# ssh-guard / schedule / quarantine defaults never drift from the desktop app.
+belayd = { path = "../daemon" }
+redb = { version = "4", optional = true }
+sha2 = { workspace = true, optional = true }
+# TB-6: pure-Rust (RustCrypto) AEAD for encrypting the OIDC client_secret at rest.
+# The secret must be RECOVERABLE (replayed to the IdP token endpoint), so it is
+# encrypted (not hashed) with a vetted AEAD — never a hand-rolled cipher. Pulled
+# ONLY under `enterprise` (like `reqwest`); the open build links nothing new.
+chacha20poly1305 = { version = "0.10", optional = true }
+# TB-6 Task 2: OIDC discovery (reqwest) + id_token verification (jsonwebtoken,
+# RS256/JWKS). Both pulled ONLY under `enterprise`; the open build links neither.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+jsonwebtoken = { version = "9", optional = true }
+# TB-7: zlib (de)compression for the hosted advisory feed bundle — the SAME
+# convention the daemon consumes. Pulled ONLY under `enterprise`; the open build
+# links nothing new. Also a dev-dep (below) so the feed_api test can decompress.
+flate2 = { version = "1", optional = true }
+
+[dev-dependencies]
+flate2 = "1"
+# reqwest is ALSO a dev-dep (non-optional) so integration tests link it even in
+# the open build; the optional entry above exposes it to `src/` under enterprise.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tower = "0.5"
+tempfile = "3"
+# TB-6 Task 2: sign RS256 test id_tokens from an in-test RSA keypair. Test-only —
+# never enters the shipped binary. `rsa` PEM export feeds EncodingKey::from_rsa_pem.
+rsa = { version = "0.9", features = ["pem"] }
+rand = "0.8"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("enterprise"))'] }

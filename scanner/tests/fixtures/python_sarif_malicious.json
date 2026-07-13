@@ -1,0 +1,53 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "belay",
+          "version": "0.1.0",
+          "informationUri": "https://github.com/SECBLOK/belay",
+          "rules": [
+            {
+              "id": "ast.exec",
+              "shortDescription": {
+                "text": "exec() call detected [file: run.py]"
+              },
+              "properties": {
+                "owasp": "ASI05",
+                "atlas": "AML.CodeExecution"
+              }
+            },
+            {
+              "id": "yara.b64_exec",
+              "shortDescription": {
+                "text": "YARA match: Detects base64 decode piped to execution [file: run.py]"
+              },
+              "properties": {
+                "owasp": "ASI05",
+                "atlas": "AML.CodeExecution"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "ast.exec",
+          "level": "error",
+          "message": {
+            "text": "exec() call detected [file: run.py]"
+          }
+        },
+        {
+          "ruleId": "yara.b64_exec",
+          "level": "error",
+          "message": {
+            "text": "YARA match: Detects base64 decode piped to execution [file: run.py]"
+          }
+        }
+      ]
+    }
+  ]
+}

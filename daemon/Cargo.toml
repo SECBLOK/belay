@@ -1,0 +1,138 @@
+[package]
+license = "AGPL-3.0-or-later"
+name = "belayd"
+version = "0.1.0"
+edition = "2021"
+description = "Belay resident daemon + thin hook client"
+
+[lib]
+name = "belayd"
+path = "src/lib.rs"
+
+[[bin]]
+name = "belayd"
+path = "src/main_daemon.rs"
+
+[[bin]]
+name = "belay-hook"
+path = "src/main_hook.rs"
+
+[features]
+# Default to the firewall + vuln DB so the standalone `belayd` binary
+# behaves like the shipped root `belay` binary (which enables the same).
+# Without `firewall`, the daemon serving the UDS socket returns an empty
+# proposed ruleset ("0 rules · Generated Invalid Date") and cannot apply rules.
+default = ["firewall", "vulndb"]
+ebpf = ["dep:aya", "dep:aya-log", "dep:bytes"]
+vulndb = ["dep:redb"]
+firewall = ["dep:rustables"]
+inline-egress = ["dep:nfq", "dep:trippy-packet", "firewall"]
+# Paid-plane marker: gates the hosted-feed client seam in vuln/mod.rs.
+# Enables reqwest's blocking client for the TB-7 fail-safe hosted-feed client
+# (daemon/src/vuln/feed_client.rs). The `blocking` feature is pulled in ONLY by
+# `enterprise`, so the default (open) build's reqwest is byte-unchanged and the
+# daemon's dependency/attack surface is unchanged unless the paid plane is built.
+# Messaging-based approvals: wire the channels crate's NotificationChannel
+# fan-out into the daemon's ASK park (daemon/src/channels_bridge.rs). Optional +
+# OFF by default so the open/default build and the SECBLOK export are
+# byte-unchanged — no belay_channels / getrandom symbol enters the default
+# binary. `getrandom` supplies the CSPRNG approval-correlation nonce.
+channels = [
+    "dep:belay-channels",
+    "dep:getrandom",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:http-body-util",
+]
+# Optional, off-by-default AI explainer. No client wiring yet (Task 1 of 7 —
+# just the feature gate + config module); enabling it only pulls rig-core into
+# the dependency graph. The default/open build is unaffected.
+ai = ["dep:rig-core"]
+# Optional, off-by-default network-destination enrichment (reverse-DNS +
+# ASN/owner/country via `trippy-dns`). Display-only — never gates any allow/
+# deny/ask decision. Task 1 of 6 (see docs/superpowers/plans/
+# 2026-07-09-trippy-dns-egress-enrichment.md): just the feature gate, the
+# `netenrich` module, and the runtime toggle. Enabling it only pulls
+# trippy-dns (+ hickory-resolver/dns-lookup) into the dependency graph; the
+# default/open build is byte-unaffected.
+netenrich = ["dep:trippy-dns"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+regex = { workspace = true }
+fancy-regex = { workspace = true }
+sha2 = { workspace = true }
+unicode-normalization = { workspace = true }
+# Phase 13 Task 4 (`mcp-proxy`): async stdio MCP shim wrapping a child server.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "sync", "time", "test-util"] }
+aya = { version = "0.13", optional = true }
+aya-log = { version = "0.2", optional = true }
+bytes = { version = "1", optional = true }
+deb-version = "0.1"
+version-compare = "0.2"
+urlencoding = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+redb = { version = "4", optional = true }
+tempfile = "3"
+# Decompress the bundled advisory blob at load time (compressed at build time by
+# build.rs). Pure-Rust miniz_oxide backend — no native zlib dependency.
+flate2 = "1"
+# Messaging-approval channels (opt-in via the `channels` feature). The crate holds
+# the NotificationChannel adapters + Router; the daemon wires the fan-out into the
+# ASK park. getrandom supplies the CSPRNG approval-correlation nonce.
+belay-channels = { path = "../channels", optional = true }
+getrandom = { version = "0.2", optional = true }
+# Phase B inbound-webhook receiver (opt-in, channels only): a tiny hyper HTTP/1
+# server binds loopback and routes /hook/<platform> to the matching InboundVerifier.
+# hyper 1.x is already in the tree via reqwest, so no new major version is pulled.
+hyper = { version = "1", features = ["server", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+# Cross-platform local IPC transport: unix-domain sockets on Unix (identical
+# 0700/0600 lockdown + SO_PEERCRED/getpeereid peer check), named pipes on
+# Windows. The daemon control socket + hook/mcp-proxy clients route through this
+# instead of `std::os::unix::net` so the Windows port has one seam to fill.
+belay-transport = { path = "../transport" }
+# AI explainer (opt-in via the `ai` feature, off by default). No client code
+# uses this yet (Task 1 of 7 only adds the feature gate + config module).
+rig-core = { version = "0.39", default-features = false, features = ["reqwest", "rustls"], optional = true }
+# Network-destination enrichment (opt-in via the `netenrich` feature, off by
+# default): a cheaply-cloneable, caching, forward/reverse DNS + ASN resolver.
+trippy-dns = { version = "0.13", optional = true }
+# Safe IPv4/IPv6 header parsing for the opt-in inline-egress NFQUEUE path
+# (daemon/src/egress/inline.rs). Replaces a hand-rolled parser that only
+# understood IPv4 and silently fail-opened (allowed) all IPv6 egress.
+# `#![forbid(unsafe_code)]`. Optional via `inline-egress` only — the default
+# build's dependency graph is unchanged.
+trippy-packet = { version = "0.13", optional = true }
+
+# nix is only used for POSIX signal delivery (reflex::SignalKiller) and POSIX
+# file-permission checks (hardening::check_file_modes) — both cfg(unix)-gated.
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal"] }
+
+# Win32 primitives needed by later Windows-port tasks; harmless no-op now.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+# Native netfilter/nftables (rustables) + NFQUEUE (nfq) bindings only build on
+# Linux (their build scripts bindgen Linux kernel headers). Gate them by target
+# so the daemon still COMPILES on macOS/Windows. The `firewall`/`inline-egress`
+# features may still be enabled off-Linux; the rustables/nfq-backed code is
+# compiled out via the `fw` cfg (see build.rs) and degrades cleanly.
+[target.'cfg(target_os = "linux")'.dependencies]
+rustables = { version = "0.8", optional = true }
+nfq = { version = "0.2", optional = true }
+
+[build-dependencies]
+# Compress the selected per-ecosystem advisory bundle into OUT_DIR at build time.
+flate2 = "1"
+# Hash rules/catalog.yaml at build time to embed BELAY_CATALOG_SHA256.
+sha2 = "0.10"
+
+[dev-dependencies]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("enterprise"))'] }

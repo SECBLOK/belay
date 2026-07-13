@@ -1,0 +1,114 @@
+Belay
+Copyright (C) 2026 Secblok Pty Ltd
+Contact: hello@secblok.io
+Website: https://www.secblok.io/
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details
+(see the LICENSE file, or <https://www.gnu.org/licenses/>).
+
+------------------------------------------------------------------------------
+SECURITY DISCLAIMER  (read this)
+------------------------------------------------------------------------------
+Belay is a BEST-EFFORT security tool. It monitors and gates the behaviour
+of AI coding agents, but it CANNOT and DOES NOT guarantee that every malicious,
+destructive, or unauthorised action will be detected, blocked, or reported.
+
+It is provided "AS IS", WITHOUT WARRANTY OF ANY KIND. You remain responsible for
+your own systems, data, credentials, and backups. Do not rely on Belay as
+your sole or last line of defence. To the maximum extent permitted by law,
+Secblok Pty Ltd accepts no liability for any loss or damage arising from the use
+of, or inability to use, this software.
+
+------------------------------------------------------------------------------
+COMMERCIAL & ENTERPRISE LICENSING  (open-core)
+------------------------------------------------------------------------------
+Belay is offered under an open-core model and is dual-licensed:
+
+  * The source in this repository is licensed under the GNU AGPL-3.0 (LICENSE).
+  * Secblok Pty Ltd also offers a separate COMMERCIAL LICENSE for:
+      - organisations that cannot comply with the AGPL-3.0 (for example,
+        embedding Belay in a closed-source product or service), and
+      - the proprietary fleet / central-management and compliance components,
+        which are NOT part of this AGPL-licensed repository.
+
+For commercial licensing, enterprise support, or to obtain a license exception,
+contact hello@secblok.io.
+
+Note on closed / commercial builds: the optional `firewall` feature links the
+nftables crate `rustables` (GPL-3.0-or-later, strong copyleft). Any proprietary
+or closed-source build must therefore be compiled with the `firewall` feature
+DISABLED. The AGPL-licensed open build keeps it enabled; GPL-3.0-or-later is
+compatible with AGPL-3.0-or-later, so the standard distribution is consistent.
+
+------------------------------------------------------------------------------
+TRADEMARKS
+------------------------------------------------------------------------------
+"Belay" (formerly "AIDefender") and "Secblok" and the Secblok logo are
+trademarks of Secblok Pty Ltd. The AGPL-3.0 grants rights in the software's
+copyright; it does not grant any right to use these names or marks. See
+https://www.secblok.io/ for the trademark policy.
+
+------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+------------------------------------------------------------------------------
+This software incorporates third-party open-source components, each under its
+own license. For the full set of Rust dependencies and their licenses, see the
+Cargo metadata / dependency manifests and `cargo deny check licenses` (config in
+`deny.toml`). The items below warrant a specific notice:
+
+* rustables, rustables-macros (GPL-3.0-or-later) — used by the optional,
+  default-on Linux `firewall` feature for native nftables control. This is the
+  strongest copyleft dependency in the project. The binary that links it is
+  distributed under AGPL-3.0-or-later (compatible with GPL-3.0-or-later), and
+  the corresponding source is available under those terms (see the repository).
+
+* Credential-content YARA signatures (`scanner/yara_rules/credentials.yar`) —
+  first-party rules. The patterns match well-known PUBLIC credential formats
+  (AWS key prefixes, PEM private-key headers, provider token shapes) — public,
+  uncopyrightable facts used identically across tools such as gitleaks and
+  detect-secrets. No third-party rule file was copied, so no third-party
+  attribution applies.
+
+* Bundled advisory data (`daemon/data/advisories.json`) — vulnerability data
+  derived from the Debian Security Tracker.
+      Source:    https://security-tracker.debian.org/tracker/data/json
+      Project:   https://salsa.debian.org/security-tracker-team/security-tracker
+      Copyright: The Debian Security Tracker contributors (Florian Weimer,
+                 Brian May, Emilio Pozuelo Monfort, and others).
+      License:   GNU General Public License, version 2 or later
+                 (GPL-2.0-or-later). The license text is included at
+                 `LICENSES/GPL-2.0.txt`. GPL-2.0-or-later is compatible with this
+                 project's AGPL-3.0-or-later distribution (via the "or later"
+                 upgrade to v3).
+  The `advisory-gen` tool extracts only factual fields (source package name, CVE
+  identifier, fixed version, severity/urgency, Debian release codename) into an
+  independent JSON schema; `advisories.json` is not a verbatim copy of the
+  upstream data files.
+
+  CVE identifiers and descriptions originate from the CVE Program operated by
+  The MITRE Corporation, used under the CVE Program Terms of Use
+  (https://www.cve.org/Legal/TermsOfUse). "CVE" is a registered trademark of
+  The MITRE Corporation.
+
+* Bundled per-ecosystem advisory data (`daemon/data/advisories.<Ecosystem>.json`,
+  e.g. `advisories.Ubuntu-24.04.json`) — vulnerability data derived from the
+  Open Source Vulnerabilities (OSV) project and its source databases.
+      Source:    https://osv.dev (per-ecosystem feeds at
+                 https://osv-vulnerabilities.storage.googleapis.com/)
+      OSV data:  Licensed CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/).
+      Ubuntu slice: derived from Canonical's Ubuntu Security Notices OSV feed
+                 (https://github.com/canonical/ubuntu-security-notices),
+                 Copyright Canonical Ltd., licensed CC-BY-SA-4.0. The license
+                 text is included at `LICENSES/CC-BY-SA-4.0.txt`.
+  The `advisory-gen` tool extracts only factual fields (source package name, CVE
+  identifier, fixed version, severity) into this project's independent JSON
+  schema; the bundles are not a verbatim copy of the upstream data files. Per
+  CC-BY-SA-4.0, the Ubuntu-derived data and any adaptations are made available
+  under the same license; attribution is provided here.

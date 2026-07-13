@@ -1,0 +1,52 @@
+[package]
+name = "belay-desktop"
+version = "0.1.0"
+edition = "2021"
+# Shipped GUI app: path-depends on the AGPL daemon/server and bundles the AGPL
+# `belay` binary, so it is AGPL by combination.
+license = "AGPL-3.0-or-later"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [], optional = true }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"], optional = true }
+tauri-plugin-notification = { version = "2", optional = true }
+tauri-plugin-autostart = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+# Opens external URLs (Messaging setup-guide / docs links) in the OS's default
+# browser instead of navigating the app's own webview away from the UI. A plain
+# crate (not the tauri-plugin-opener wrapper) so the frontend needs no matching
+# npm package — it just invokes our own `open_external_url` command below,
+# through the @tauri-apps/api core already in web/package.json.
+open = { version = "5", optional = true }
+window-vibrancy = { version = "0.5", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "macros", "fs", "time"], optional = true }
+# Local audit-store data layer (pure Rust, non-optional so the data layer builds
+# under `cargo test --no-default-features`). Reuses the daemon's NDJSON reader and
+# the server's audit-reader (same shapes the web `/api/*` routes return).
+belayd = { path = "../../daemon" }
+belay-server = { path = "../../server" }
+# Phase 5: the IPC client path to the daemon. Reuses the SAME blocking transport
+# (Unix socket / Win32 named pipe with DACL + SECURITY_IMPERSONATION peer-auth)
+# the daemon and its other clients speak, driven from async via spawn_blocking —
+# never a hand-rolled second Windows named-pipe client.
+belay-transport = { path = "../../transport" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = ["tauri-build", "tauri", "tauri-plugin-notification", "tauri-plugin-autostart", "tauri-plugin-updater", "open", "window-vibrancy", "tokio"]
+# Paid fleet view ("My Machines"): pulls the server's enterprise audit
+# aggregation (audit_reader::fleet_summary). OFF by default so the open desktop
+# build never references the gated fleet code.
+
+[lib]
+name = "belay_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("enterprise"))'] }

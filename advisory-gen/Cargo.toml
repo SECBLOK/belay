@@ -1,0 +1,32 @@
+[package]
+license = "AGPL-3.0-or-later"
+name = "advisory-gen"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Vendor build-time tool: regenerates the bundled advisory DB
+# (daemon/data/advisories.json) from key-free distro feeds. NOT a dependency of
+# the shipped `belay` binary — run manually / in CI before a release.
+
+[features]
+# Enterprise enrichment sub-generators (EPSS + CISA-KEV). Deny-listed from the
+# open export; emits the paid enriched bundle. OFF by default.
+
+[dependencies]
+# reqwest blocking + rustls is already built in the workspace (scanner), so this
+# adds no new HTTP stack.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+# OSV bulk feeds ship as a per-ecosystem `all.zip`. Pure-Rust deflate
+# (miniz_oxide backend) keeps the no-native-deps posture.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Enriched-bundle emission reuses the daemon's zlib convention (miniz_oxide backend).
+flate2 = { version = "1", optional = true }
+# EPSS ships as gzip'd CSV (cve,epss,percentile); parse it without hand-rolling.
+csv = { version = "1", optional = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("enrich"))'] }

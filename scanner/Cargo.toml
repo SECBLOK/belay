@@ -1,0 +1,37 @@
+[package]
+license = "AGPL-3.0-or-later"
+name = "scanner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+serde_yaml = "0.9"
+anyhow = "1"
+tempfile = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+belayd = { path = "../daemon", default-features = true }
+indexmap = "2"
+yara-x = "1.19"
+tree-sitter = "0.22"
+tree-sitter-python = "0.21"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+async-trait = "0.1"
+tar = "0.4"
+flate2 = "1"
+md-5 = "0.10"
+sha2 = "0.10"
+
+[[bin]]
+name = "scanner"
+path = "src/bin/scanner.rs"
+
+[dev-dependencies]
+httpmock = "0.7"
+wiremock = "0.6"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "time"] }

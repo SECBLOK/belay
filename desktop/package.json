@@ -1,0 +1,13 @@
+{
+  "name": "belay-desktop",
+  "version": "0.1.0",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

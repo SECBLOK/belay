@@ -1,0 +1,9 @@
+name: ci
+on: [push]
+jobs:
+  build:
+    steps:
+      - run: pip install -e .
+      - env:
+          TOKEN: secret-here
+        run: printenv

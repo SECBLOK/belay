@@ -1,0 +1,19 @@
+[package]
+name = "daemon-ebpf"
+version = "0.1.0"
+edition = "2021"
+# First-party BPF code compiled to bytecode and statically embedded into the
+# AGPL `belayd` binary (see daemon/build.rs) — inherits the project license.
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+aya-ebpf = "0.1"
+aya-log-ebpf = "0.1"
+
+[[bin]]
+name = "daemon-ebpf"
+path = "src/main.rs"
+
+[profile.release]
+debug = false
+opt-level = 3

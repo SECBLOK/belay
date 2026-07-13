@@ -1,0 +1,131 @@
+[workspace]
+resolver = "2"
+members = ["sensor", "daemon", "channels", "server", "auth", "scanner", "manage", "advisory-gen", "transport"]
+exclude = ["daemon-ebpf", "desktop/src-tauri"]
+
+# ──────────────────────────────────────────────────────────────
+# Phase 11 Task 7: the workspace root is ALSO a package whose single binary
+# `belay` collapses every Rust entrypoint behind one clap dispatcher.
+# (A root package that is also a workspace root is valid Cargo.)
+#
+# `belay-sensor` (the `sensor` member) is deliberately NOT depended on
+# here: it is the eBPF userspace loader (Linux/eBPF-specific, best-effort, must
+# never block startup) and stays its own bin. Everything else is folded in.
+# ──────────────────────────────────────────────────────────────
+[package]
+name = "belay"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+license = "AGPL-3.0-or-later"
+description = "Belay — single unified binary (daemon/hook/gate/scan/serve/channels)"
+# Only one Rust source file lives under src/ (src/bin/aidefender.rs). The Python
+# package that formerly occupied the rest of src/ has been deleted (zero-Python
+# product). Auto-discovery of other target kinds stays disabled so Cargo never
+# treats a stray file as a lib/example/etc.
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+[[bin]]
+name = "belay"
+path = "src/bin/aidefender.rs"
+
+[features]
+# The notification-channel crate (Telegram/Discord/WhatsApp) is a library that
+# is not yet wired into the daemon's runtime ASK fan-out, so it is kept OUT of
+# the default build rather than shipped as dead code. Opt in with
+# `--features channels` once the daemon integration lands.
+# The `belayd` dependency below already builds with firewall+vulndb
+# unconditionally (rustables/redb are always linked), so enabling these root
+# features by default costs no extra deps and is required for the host
+# subcommands' real backend paths (firewall apply, NVD vuln scan) to compile
+# into the shipped binary. Headless-VPS users get the full CLI from `cargo build`.
+default = ["firewall", "vulndb"]
+channels = ["dep:belay-channels", "belayd/channels"]
+# Task C8: forward feature flags to the daemon crate so cfg(feature = "firewall")
+# / cfg(feature = "vulndb") in aidefender.rs gates the kernel-dependent paths.
+firewall = ["belayd/firewall"]
+vulndb = ["belayd/vulndb"]
+# Optional AI explainer (BYOK: local Ollama / cloud Anthropic|OpenAI). OFF by
+# default so `cargo build` stays byte-identical for the open library (no rig-core
+# in the default binary); the desktop/product build opts in via
+# desktop/src-tauri/scripts/build-belay.sh so the BYOK settings panel works.
+ai = ["belayd/ai"]
+# Optional destination-owner/ASN/country enrichment (trippy-dns: reverse-DNS +
+# ASN, display-only, never gates a decision). OFF by default so `cargo build`
+# stays byte-identical for the open library (no trippy-dns in the default
+# binary); the desktop/product build opts in via
+# desktop/src-tauri/scripts/build-belay.sh so the DestOwner chip works.
+netenrich = ["belayd/netenrich"]
+# Paid plane: enables the fleet-push client + forwards the server's enterprise
+# routes + activates the daemon's hosted-feed client seam.
+# OFF by default so the open binary has no push/fleet surface.
+
+[dependencies]
+belayd = { path = "daemon", features = ["firewall", "vulndb"] }
+belay-channels = { path = "channels", optional = true }
+belay-server = { path = "server" }
+# Single-user auth primitives — `serve --set-admin` hashes the admin password.
+belay-auth = { path = "auth" }
+scanner = { path = "scanner" }
+belay-manage = { path = "manage" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+anyhow = "1"
+serde_json = { workspace = true }
+# Phase 13 Task 2 (`push`): POST audit rows to a remote ingest endpoint.
+# Async (main is already `#[tokio::main]`); NO `blocking` feature.
+# Optional so the open binary (default) has no HTTP client dep; enabled by `enterprise`.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+# TB-4 (`agent`): the fleet-command agent dispatches to the local daemon over the
+# same cross-platform transport (Unix socket / Windows pipe) the server uses.
+# Optional so the open (default) binary is byte-unchanged; enabled by `enterprise`.
+# (On Windows it is ALSO an unconditional dep below, for the SCM stop handler.)
+belay-transport = { path = "transport", optional = true }
+# Hostname default for `--device-id` — matches Python `socket.gethostname()`.
+hostname = "0.4"
+
+# Phase 3 (Windows port): the SCM install/registration API + the runtime
+# service_dispatcher. Windows-only — the Unix builds carry no extra deps.
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+# The SCM Stop handler (win_service.rs) connects to the daemon's pipe to wake its
+# accept() loop; the root binary must link the transport directly for that.
+belay-transport = { path = "transport" }
+# SetStdHandle: redirect the service's stderr/stdout to a log file, since under
+# the SCM there is no console and eprintln! would otherwise PANIC. Matches the
+# transport crate's windows-sys 0.59 (one version in the tree).
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+[dev-dependencies]
+# Phase 13 Task 2: HTTP mock for the `push` wire test (already a scanner dep).
+httpmock = "0.7"
+tempfile = "3"
+
+# Disk-constrained environment: strip debuginfo so test/dep binaries stay small
+# (reqwest/rustls/wiremock test binaries were ~83M each with debuginfo).
+[profile.dev]
+debug = false
+strip = true
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+regex = "1"
+fancy-regex = "0.13"
+sha2 = "0.10"
+unicode-normalization = "0.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("enterprise"))'] }

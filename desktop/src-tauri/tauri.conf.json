@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Belay",
+  "version": "0.1.0",
+  "identifier": "com.secblok.belay.desktop",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "sh src-tauri/scripts/build-belay.sh debug && (cd ../web && { [ -d node_modules ] || npm ci; }) && npm --prefix ../web run dev",
+    "beforeBuildCommand": "sh src-tauri/scripts/build-belay.sh release && (cd ../web && { [ -d node_modules ] || npm ci; }) && npm --prefix ../web run build"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "Belay", "width": 980, "height": 680, "minWidth": 600, "minHeight": 480, "decorations": true }],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb", "nsis", "dmg", "app"],
+    "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/belay"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "copyright": "Copyright (C) 2026 Secblok Pty Ltd. Belay is licensed under AGPL-3.0-or-later. The bundled belay binary statically links rustables (GPL-3.0-or-later) and embeds vulnerability data derived from the Debian Security Tracker (GPL-2.0-or-later), OSV (CC-BY-4.0), and Canonical Ubuntu USN (CC-BY-SA-4.0). See the bundled NOTICE and LICENSES/ for full terms and attribution.",
+    "resources": {
+      "../../LICENSE": "LICENSE",
+      "../../NOTICE": "NOTICE",
+      "../../LICENSES/GPL-2.0.txt": "LICENSES/GPL-2.0.txt",
+      "../../LICENSES/CC-BY-SA-4.0.txt": "LICENSES/CC-BY-SA-4.0.txt"
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "nsis": { "installMode": "currentUser" },
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": ["https://github.com/SECBLOK/belay/releases/latest/download/latest.json"],
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIxMzBCQTg3QURFRTJGRjEKUldUeEwrNnRoN293SVNRaStBa1R3U3NqVWVUK0dKRlVtOFE5Q3lEWUxvVjY3eWpzekdJbDZSd2EK"
+    }
+  }
+}

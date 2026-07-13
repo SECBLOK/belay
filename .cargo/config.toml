@@ -1,0 +1,18 @@
+# Static musl build for the unified `belay` binary.
+#
+# The C dependencies are compiled by the `cc` crate against the musl target.
+# Point the target's C compiler at `x86_64-linux-musl-gcc` (the `musl-tools`
+# package) rather than the host glibc gcc. This matters once the release
+# features (ai/netenrich) pull in aws-lc-sys: on glibc 2.38+ the host gcc emits
+# references to `__isoc23_sscanf`/`__isoc23_strtol`, symbols musl's libc does
+# not provide, so linking the musl binary fails. musl-gcc compiles that C code
+# against musl's own headers, which keeps the plain scanf/strtol symbols and
+# links cleanly into the static-pie binary.
+#
+#   cargo build --release --target x86_64-unknown-linux-musl --bin belay
+#
+# Requires `musl-tools` installed (apt-get install -y musl-tools); the release
+# CI installs it before building.
+[env]
+CC_x86_64_unknown_linux_musl = "x86_64-linux-musl-gcc"
+CXX_x86_64_unknown_linux_musl = "x86_64-linux-musl-gcc"

@@ -1,0 +1,50 @@
+name: Belay Self-Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  belay-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build belay (single binary)
+        run: cargo build --release --bin belay
+
+      - name: Scan repository
+        run: ./target/release/belay scan . --format sarif > belay.sarif || true
+
+      # Upload to GitHub code scanning (Security tab). Best-effort: requires code
+      # scanning enabled on the repo; `actions: read` (above) lets the action read
+      # its own workflow run. If code scanning is off this step must NOT fail the
+      # job — the SARIF is still preserved as an artifact below.
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: belay.sarif
+        if: always()
+        continue-on-error: true
+
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: belay-sarif
+          path: belay.sarif
+        if: always()

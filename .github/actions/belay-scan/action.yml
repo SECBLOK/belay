@@ -1,0 +1,34 @@
+name: Belay Scan
+description: Scan a directory with Belay and output SARIF
+
+inputs:
+  path:
+    description: Target path to scan
+    required: false
+    default: '.'
+  fail-on:
+    description: Rule ID pattern that causes a non-zero exit (default blocks DO_NOT_INSTALL)
+    required: false
+    default: 'DO_NOT_INSTALL'
+
+outputs:
+  sarif-file:
+    description: Path to the generated SARIF file
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build Belay (single binary)
+      shell: bash
+      run: cargo build --release --bin belay
+
+    - name: Run scan
+      id: scan
+      shell: bash
+      run: |
+        ./target/release/belay scan "${{ inputs.path }}" --format sarif > belay.sarif
+        echo "sarif-file=belay.sarif" >> "$GITHUB_OUTPUT"

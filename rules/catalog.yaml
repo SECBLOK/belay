@@ -1,0 +1,563 @@
+# rules/catalog.yaml — single source of truth for Belay verdicts.
+# Loaded by the Rust daemon (daemon/src/engine/rules.rs).
+# Do not hardcode rules elsewhere.
+version: 1
+rules:
+  # ---- destructive ----
+  - id: destructive.rm_rf
+    category: destructive
+    severity: critical
+    decision: deny
+    owasp: ASI02
+    atlas: AML.Impact
+    reason: recursive force delete of a dangerous target
+    explain:
+      summary: "This tries to force-delete files, possibly your whole home directory or disk."
+      what: "It ran a recursive force-delete (`rm -rf`) against a broad path like `/`, `~`, or `*`."
+      why_risky: "There is no undo. It can wipe your projects, config, or the entire system in seconds."
+      normal_use: "Rarely. Build scripts delete specific build folders — but almost never `/`, `~`, or `$HOME`."
+      suggested_action: "Deny unless you know exactly which folder this was meant to clear."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - 'rm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|-rf|-fr)\b\s*(/|~|\$HOME|\.|\*)(\s|$)'
+        - 'rm\b.*--no-preserve-root'
+  - id: destructive.disk_wipe
+    category: destructive
+    severity: critical
+    decision: deny
+    owasp: ASI02
+    atlas: AML.Impact
+    reason: disk/partition wipe
+    explain:
+      summary: "This tries to erase or reformat a whole disk or partition."
+      what: "It ran a low-level disk command that writes over a raw device or creates a new filesystem on it."
+      why_risky: "It destroys every file on the target device at once, with no recovery."
+      normal_use: "Only during deliberate disk setup or imaging, which is rare on a working machine."
+      suggested_action: "Deny unless you are intentionally partitioning or imaging a drive right now."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '\bdd\b.*of=/dev/(sd|nvme|vd)'
+        - '\bmkfs\.'
+        - '\bwipefs\b'
+  - id: destructive.git_force
+    category: destructive
+    severity: high
+    decision: ask
+    owasp: ASI02
+    atlas: AML
+    reason: git force-push / hard reset
+    explain:
+      summary: "This force-overwrites git history or throws away uncommitted work."
+      what: "It ran a force-push, a hard reset, or a clean that permanently discards local changes."
+      why_risky: "It can erase commits or edits that are not backed up, and rewrite shared branch history for everyone."
+      normal_use: "Occasionally, to fix a personal branch. Force-pushing shared branches like main is unusual."
+      suggested_action: "Allow only if you meant to discard those changes or rewrite that branch."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - 'git\s+push\b.*(--force|-f)\b.*(main|master)'
+        - 'git\s+reset\s+--hard'
+        - 'git\s+clean\s+-[a-z]*f[a-z]*d|-fdx'
+  - id: destructive.db_drop
+    category: destructive
+    severity: critical
+    decision: deny
+    owasp: ASI02
+    atlas: AML.Impact
+    reason: destructive database statement
+    explain:
+      summary: "This runs a database command that deletes tables, rows, or a whole database."
+      what: "It issued a DROP, TRUNCATE, or unrestricted DELETE statement."
+      why_risky: "It can wipe data instantly, and TRUNCATE and DROP usually cannot be rolled back."
+      normal_use: "During migrations or local testing. Rare against real data without a backup."
+      suggested_action: "Deny unless you know this targets a disposable or backed-up database."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '\bDROP\s+(DATABASE|TABLE)\b'
+        - '\bTRUNCATE\b'
+        - 'DELETE\s+FROM\s+\w+\s*;'
+  # ---- egress ----
+  - id: egress.exfil_host
+    category: egress
+    severity: high
+    decision: ask
+    owasp: ASI02/LLM02
+    atlas: AML.Exfiltration
+    reason: outbound to a known exfiltration sink
+    explain:
+      summary: "This sends data to a service commonly used to collect stolen information."
+      what: "It made an outbound connection to a known paste, tunneling, or request-capture host."
+      why_risky: "These services are a favorite way to quietly ship secrets or files off your machine."
+      normal_use: "Sometimes for quick debugging, but rarely a normal part of real work."
+      suggested_action: "Deny unless you personally set up that endpoint for testing."
+    sink: true
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '(curl|wget|nc|http)\b.*(webhook\.site|requestbin|pipedream\.net|ngrok\.io|ngrok-free\.app|burpcollaborator\.net|interactsh\.com|pastebin\.com|transfer\.sh|0x0\.st|hookbin|localtunnel)'
+  - id: egress.post_file
+    category: egress
+    severity: high
+    decision: ask
+    owasp: LLM02
+    atlas: AML.Exfiltration
+    reason: uploads file/secret over the network
+    explain:
+      summary: "This uploads a file or secret over the network."
+      what: "It posted an environment file, key, or credential to a remote server."
+      why_risky: "If those contents are secrets, this hands them to whoever controls the far end."
+      normal_use: "Uploading real credential files off-box is almost never part of ordinary work."
+      suggested_action: "Deny unless you are deliberately transferring that file to a trusted place."
+    sink: true
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - 'curl\b.*(-d|--data(-binary|-raw)?)\s+@?\.?\.?/?\.env'
+        - 'curl\b.*-(d|F)\s+\S*\$[A-Z_]*(KEY|TOKEN|SECRET)'
+        - '(scp|rsync)\b.*(\.env|\.ssh/id_|credentials)'
+  - id: egress.dns_exfil
+    category: egress
+    severity: critical
+    decision: deny
+    owasp: LLM02
+    atlas: AML.ExfilOverDNS
+    reason: DNS-encoded data exfiltration
+    explain:
+      summary: "This looks like it is smuggling data out through DNS lookups."
+      what: "It ran a DNS query built from encoded or base64 data."
+      why_risky: "DNS tunneling hides stolen data inside ordinary-looking lookups to slip past firewalls."
+      normal_use: "Essentially never in day-to-day development."
+      suggested_action: "Deny. Legitimate tasks do not encode data into DNS queries."
+    sink: true
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '(dig|nslookup|host|ping)\b.*\$\(.*base64'
+        - '(dig|nslookup|host)\s+[A-Za-z0-9+/=]{16,}\.'
+  - id: egress.reverse_shell
+    category: egress
+    severity: critical
+    decision: deny
+    owasp: ASI02
+    atlas: AML.ReverseShell
+    reason: reverse shell
+    explain:
+      summary: "This opens a remote shell that lets an outside party control this machine."
+      what: "It set up a reverse shell using a raw TCP socket or a netcat/socat command execution."
+      why_risky: "A reverse shell gives an attacker interactive control of your system."
+      normal_use: "Only in deliberate penetration testing, never in normal use."
+      suggested_action: "Deny unless you are knowingly running an authorized security test."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - 'bash\s+-i\s+>&?\s*/dev/tcp/'
+        - '/dev/tcp/\d'
+        - '\bnc\b.*\s-e\b'
+        - 'socat\b.*EXEC'
+        - 'mkfifo\b.*\bnc\b'
+        - 'python\d?\s+-c\s+.*socket.*connect'
+  # ---- rce ----
+  - id: rce.pipe_to_shell
+    category: rce
+    severity: critical
+    decision: deny
+    owasp: ASI05
+    atlas: AML.CodeExecution
+    reason: downloads and pipes to an interpreter
+    explain:
+      summary: "This downloads code from the internet and runs it immediately."
+      what: "It piped the output of a download straight into a shell or interpreter."
+      why_risky: "You are executing code you never saw; if the source is tampered with, it runs with your privileges."
+      normal_use: "Some install scripts suggest this, but it is a well-known risky pattern."
+      suggested_action: "Prefer downloading, reading, then running. Deny if you do not trust the source."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b'
+        - '(curl|wget)\b[^|]*\|\s*(python\d?|node|ruby|perl)\b'
+  - id: rce.decode_exec
+    category: rce
+    severity: critical
+    decision: deny
+    owasp: ASI05
+    atlas: AML.CodeExecution
+    reason: decode-and-execute
+    explain:
+      summary: "This decodes hidden text and runs it as code."
+      what: "It decoded base64 or built a command dynamically and executed the result."
+      why_risky: "Hiding a command behind decoding is a common way to disguise malicious code."
+      normal_use: "Legitimate scripts rarely need to decode-then-execute obfuscated input."
+      suggested_action: "Deny unless you can see exactly what the decoded command does."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - 'base64\s+-d[^|]*\|\s*(ba|z)?sh'
+        - 'eval\s+"?\$\('
+        - 'python\d?\s+-c\s+.*exec\('
+  - id: rce.untrusted_install
+    category: rce
+    severity: high
+    decision: ask
+    owasp: ASI04
+    atlas: AML.SupplyChain
+    reason: package install (supply-chain risk)
+    explain:
+      summary: "This installs a third-party package that can run its own setup code."
+      what: "It installed a dependency from a public registry, which may run install scripts."
+      why_risky: "A malicious or typo-squatted package can execute code on your machine during install."
+      normal_use: "Very common in development, but each new package is a trust decision."
+      suggested_action: "Allow for packages you recognize; be cautious with unfamiliar names."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '\bnpx\s+-y\b'
+        - '\b(npm|pnpm|yarn)\s+(i|install|add|ci)\b(?!.*--ignore-scripts)'
+        - '\bpip\s+install\b'
+        - '\b(gem|cargo|go)\s+install\b'
+  # ---- persistence ----
+  - id: persist.sudo
+    category: persistence
+    severity: high
+    decision: ask
+    owasp: ASI03
+    atlas: AML.PrivEsc
+    reason: privilege escalation
+    explain:
+      summary: "This runs a command with administrator privileges."
+      what: "It used sudo, doas, or pkexec to elevate to root."
+      why_risky: "Anything run as root can change or damage the whole system, not just your files."
+      normal_use: "Common for installing system software or editing protected files."
+      suggested_action: "Allow if you expected an admin action and trust the command."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '(^|\s)(sudo|doas|pkexec)\b'
+  - id: persist.authorized_keys
+    category: persistence
+    severity: critical
+    decision: deny
+    owasp: ASI03
+    atlas: AML.Persistence
+    reason: writes SSH authorized_keys
+    explain:
+      summary: "This adds an SSH login key, which can create a lasting way back in."
+      what: "It wrote to the SSH authorized_keys file or generated a new SSH key."
+      why_risky: "Adding a key can let someone log in later without a password, even after this session ends."
+      normal_use: "Occasionally when setting up SSH access to a server you own."
+      suggested_action: "Deny unless you are intentionally configuring SSH access right now."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - 'authorized_keys'
+        - 'ssh-keygen\b'
+  - id: persist.scheduler
+    category: persistence
+    severity: high
+    decision: ask
+    owasp: ASI03
+    atlas: AML.Persistence
+    reason: scheduled/persistent task
+    explain:
+      summary: "This sets up a task that keeps running or runs again automatically."
+      what: "It created a cron job, enabled a service, or scheduled a persistent task."
+      why_risky: "Scheduled tasks survive reboots and can quietly re-run code long after you forget them."
+      normal_use: "Legitimate for real background services and maintenance jobs."
+      suggested_action: "Allow only if you meant to install a recurring task."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '\bcrontab\b'
+        - '/etc/cron'
+        - 'systemctl\b.*enable'
+        - 'launchctl\s+load'
+  - id: persist.shell_profile
+    category: persistence
+    severity: high
+    decision: ask
+    owasp: ASI03
+    atlas: AML.Persistence
+    reason: edits shell profile
+    explain:
+      summary: "This edits a shell startup file that runs every time you open a terminal."
+      what: "It modified a login or shell profile script."
+      why_risky: "Code planted here runs automatically on every new shell, a common persistence trick."
+      normal_use: "Common when configuring your environment, aliases, or PATH."
+      suggested_action: "Allow if you are intentionally customizing your shell; review the change otherwise."
+    applies_to: [Write, Edit, Bash]
+    match:
+      path_glob_regex:
+        - '/\.(bashrc|zshrc|bash_profile|profile|zshenv)$|/etc/profile\.d/'
+  # ---- untrusted ingest (prompt-injection vector) ----
+  # Non-blocking on its own (decision: allow); it taints the session so a later
+  # (armed secrets + outbound sink) escalates to correlate.lethal_trifecta.
+  - id: ingest.untrusted_web
+    category: recon
+    severity: info
+    decision: allow
+    owasp: LLM01
+    atlas: AML.LLMPromptInjection
+    reason: ingests untrusted external web content
+    explain:
+      summary: "This pulls in content from an external website."
+      what: "It fetched a web page or file from the internet."
+      why_risky: "Untrusted web content can carry hidden instructions that try to steer the agent. On its own it is allowed, but it puts the session on watch."
+      normal_use: "Very common and usually harmless when reading documentation or APIs."
+      suggested_action: "Fine to allow; just be wary if it is later paired with reading secrets and sending data out."
+    ingest: true
+    applies_to: [WebFetch]
+    match:
+      command_regex:
+        - 'https?://'
+  # ---- recon / tamper ----
+  - id: recon.fs_secret_sweep
+    category: recon
+    severity: high
+    decision: ask
+    owasp: ASI03
+    atlas: AML.Discovery
+    reason: filesystem-wide secret sweep
+    explain:
+      summary: "This searches broadly across the filesystem for secret files."
+      what: "It ran a wide search for things like env files or private keys."
+      why_risky: "Sweeping for credentials is a classic first step before stealing them."
+      normal_use: "Rare. Normal work usually targets a known folder, not the whole disk."
+      suggested_action: "Deny unless you are deliberately auditing where your secrets live."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '\bfind\s+(/|~|\$HOME).*-name\s+[''"]?\*?\.(env|pem)'
+        - '\bfind\b.*id_(rsa|ed25519)'
+  - id: recon.agent_config_read
+    category: recon
+    severity: medium
+    decision: ask
+    owasp: ASI03
+    atlas: AML.DiscoverAgentConfig
+    reason: reads another agent's config/memory
+    explain:
+      summary: "This reads another AI agent's configuration or memory files."
+      what: "It accessed config or memory belonging to a different agent tool."
+      why_risky: "Reading another agent's settings or memory can leak its instructions, keys, or private context."
+      normal_use: "Uncommon; most tasks do not need to inspect other agents' internals."
+      suggested_action: "Allow only if you are intentionally inspecting that tool's setup."
+    applies_to: [Read, Bash, Grep]
+    match:
+      path_glob_regex:
+        - '/\.codex/'
+        - '/\.gemini/'
+        - '/\.aider'
+        - '/\.cursor/'
+        # Another agent's MEMORY.md, but NOT the running agent's own Claude
+        # memory store under ~/.claude/ (self-access is not recon). The negative
+        # lookahead excludes any path containing /.claude/.
+        - '^(?!.*/\.claude/).*MEMORY\.md'
+        - '/\.claude\.json'
+        - 'mcp\.json'
+        # Aegis-derived (MIT): additional AI-agent config dirs
+        - '/\.continue/'
+        - '/\.windsurf/'
+        - 'github-copilot'
+  - id: recon.identity_probe
+    category: recon
+    severity: medium
+    decision: ask
+    owasp: ASI03
+    atlas: AML.CloudDiscovery
+    reason: cloud/identity probe
+    explain:
+      summary: "This checks which cloud or account identity this machine can use."
+      what: "It queried cloud or CLI credentials to see who it is authenticated as."
+      why_risky: "Discovering active cloud identities is an early step in probing what an attacker could reach."
+      normal_use: "Common when legitimately working with cloud accounts."
+      suggested_action: "Allow if you are actively working with that cloud provider."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - 'aws\s+sts\s+get-caller-identity'
+        - 'gcloud\s+auth\s+list'
+        - 'gh\s+auth\s+token'
+        - 'kubectl\s+config\s+view'
+  # Aegis-derived (MIT): probing a local LLM runtime. Only distinctive LLM ports
+  # (Ollama 11434, LM Studio 1234) are matched — common dev ports (8000/8080)
+  # are deliberately excluded to avoid alert fatigue.
+  - id: recon.agent_runtime_discovery
+    category: recon
+    severity: low
+    decision: ask
+    owasp: ASI03
+    atlas: AML.DiscoverAgentConfig
+    reason: probes a local LLM runtime (Ollama/LM Studio)
+    explain:
+      summary: "This probes for a local AI model runtime."
+      what: "It contacted a local model service such as Ollama or LM Studio, or listed its models."
+      why_risky: "Finding local model runtimes can be reconnaissance of what AI tooling is available to abuse."
+      normal_use: "Normal if you actually run local models."
+      suggested_action: "Allow if you use local model runtimes; otherwise review why it is probing."
+    applies_to: [Bash, WebFetch]
+    match:
+      command_regex:
+        - 'localhost:(11434|1234)\b'
+        - '127\.0\.0\.1:(11434|1234)\b'
+        - '\bollama\b\s+(list|ps|show|run)\b'
+  # falcon-mcp-derived insight (MIT): an MCP tool that dynamically dispatches
+  # another tool hides the real operation inside its arguments (e.g. a
+  # `tool_name`/`execute_tool` wrapper). Surfaced via the catch-all Bash
+  # projection of the serialized arguments (see mcp_proxy::effective_calls).
+  - id: mcp.indirection
+    category: recon
+    severity: low
+    decision: ask
+    owasp: ASI03
+    atlas: AML.DiscoverAgentConfig
+    reason: MCP tool dynamically dispatches another tool (hidden operation)
+    explain:
+      summary: "This MCP tool call hides another tool call inside its arguments."
+      what: "It invoked a wrapper tool that dynamically dispatches some other operation by name."
+      why_risky: "The real action is buried in the arguments, which can slip a dangerous operation past a quick look."
+      normal_use: "Some legitimate tools genuinely route to sub-tools this way."
+      suggested_action: "Review what inner operation is actually being requested before allowing."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '"(tool_name|execute_tool|invoke|dispatch)"\s*:'
+  - id: tamper.agent_config_write
+    category: tamper
+    severity: critical
+    decision: deny
+    owasp: ASI04
+    atlas: AML.ModifyAgentConfig
+    reason: modifies agent configuration (hooks/apiKeyHelper/base-url)
+    explain:
+      summary: "This changes an AI agent's configuration or a protected Belay file."
+      what: "It tried to write to agent settings, an API-key helper, a base-URL, or a protected file."
+      why_risky: "Altering agent config can redirect it to a malicious server, disable safeguards, or hijack how it runs."
+      normal_use: "Rare, and normally done by you through the tool's own settings screen."
+      suggested_action: "Deny unless you are deliberately reconfiguring that tool yourself."
+    applies_to: [Write, Edit, Bash]
+    match:
+      path_glob_regex:
+        - '/\.claude/settings(\.local)?\.json$'
+        - 'apiKeyHelper'
+        - 'ANTHROPIC_BASE_URL'
+        - '/\.claude\.json$'
+        - '/\.codex/config\.toml$'
+        - 'belayd$'
+        - 'rules/catalog\.yaml$'
+        - 'audit\.ndjson$'
+  # ---- secrets ----
+  - id: secrets.sensitive_path
+    category: secrets
+    severity: high
+    decision: ask
+    owasp: ASI03/LLM02
+    atlas: AML.T0...CredsFromAgentConfig
+    reason: reads a sensitive credential file
+    explain:
+      summary: "This reads a file that usually holds passwords, keys, or tokens."
+      what: "It opened a known credential or secret file, such as an env file or private key."
+      why_risky: "Once secrets are read they can be copied or sent elsewhere, so this puts the session on alert."
+      normal_use: "Apps read their own env files often; ad-hoc reads of key files are less routine."
+      suggested_action: "Allow if the app legitimately needs it; be cautious if it is unexpected."
+    arms: env
+    applies_to: [Read, Bash, Grep]
+    match:
+      path_glob_regex:
+        - '(?:^|[\s/''"=])\.env(\.[\w.\-]+)?\b'
+        - '/\.aws/credentials'
+        - '/\.ssh/id_(rsa|ed25519|ecdsa|dsa)\b'
+        - '/\.netrc$'
+        - '/\.npmrc$'
+        - '/\.pypirc$'
+        - '/\.config/gh/hosts\.yml'
+        - '/\.kube/config'
+        - '/\.docker/config\.json'
+        - '/\.config/gcloud/'
+        - '/\.azure/'
+        - '/serviceAccount\w*\.json'
+        # Aegis-derived (MIT): additional credential stores
+        - '/\.gnupg/'
+        - '/\.git-credentials\b'
+        - '/\.oci/'
+        - '/\.terraform\.d/credentials'
+        - '/\.gcloud/'
+  - id: secrets.env_dump
+    category: secrets
+    severity: high
+    decision: ask
+    owasp: ASI03
+    atlas: AML.Discovery
+    reason: dumps process environment
+    explain:
+      summary: "This dumps environment variables, which often contain secrets."
+      what: "It printed the process environment or read it from the system."
+      why_risky: "Environment variables frequently hold API keys and tokens, so dumping them exposes credentials."
+      normal_use: "Common for debugging, though usually you check one variable, not the whole set."
+      suggested_action: "Allow for benign debugging; be cautious if the output could be sent out."
+    arms: env
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '\bprintenv\b'
+        - '(^|\s)env(\s|$)'
+        - '/proc/\d+/environ'
+        - 'echo\s+\$[A-Z_]*(KEY|TOKEN|SECRET|PASS)'
+  - id: secrets.grep_hunt
+    category: secrets
+    severity: medium
+    decision: ask
+    owasp: ASI03
+    atlas: AML.Discovery
+    reason: greps filesystem for secrets
+    explain:
+      summary: "This searches your files for things that look like secrets."
+      what: "It searched recursively for patterns like API keys, tokens, or passwords."
+      why_risky: "Hunting for secret-shaped strings is a common way to harvest credentials from a project."
+      normal_use: "Sometimes done legitimately to audit for leaked secrets."
+      suggested_action: "Allow if you are auditing your own code; review if unexpected."
+    arms: generic
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '(grep|rg)\b.*-[a-zA-Z]*(r|R)[a-zA-Z]*\b.*(API_?KEY|SECRET|TOKEN|PASSWORD|PRIVATE KEY)'
+        - '(grep|rg)\b.*(AKIA|sk-ant-|ghp_)'
+  - id: secrets.cred_store
+    category: secrets
+    severity: high
+    decision: ask
+    owasp: ASI03
+    atlas: AML
+    reason: accesses OS/browser credential store
+    explain:
+      summary: "This reads from the operating system or browser credential store."
+      what: "It queried a keychain, secret service, or browser saved-password database."
+      why_risky: "These stores hold saved passwords and tokens, so reading them can expose many accounts at once."
+      normal_use: "Rare for scripts; you normally use saved passwords through the app itself."
+      suggested_action: "Deny unless you are intentionally exporting your own credentials."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - 'security\s+find-(generic|internet)-password'
+        - '\bsecret-tool\s+lookup'
+        - 'Login Data'
+        - 'state\.vscdb'
+allowlist:
+  # Dev-toolchain-aware: benign build/dev commands are suppressed (NexusShield).
+  - id: allow.cargo
+    match: { tool: Bash, command_regex: '^\s*cargo\s+(build|test|check|run|fmt|clippy|doc)\b' }
+  - id: allow.npm
+    match: { tool: Bash, command_regex: '^\s*npm\s+(run|test|ci|build|start)\b' }
+  - id: allow.pnpm
+    match: { tool: Bash, command_regex: '^\s*pnpm\s+(run|test|build|start)\b' }
+  - id: allow.yarn
+    match: { tool: Bash, command_regex: '^\s*yarn\s+(run|test|build|start)\b' }
+  - id: allow.docker
+    match: { tool: Bash, command_regex: '^\s*docker\s+(build|compose\s+build|run\s+--rm)\b' }
+  - id: allow.git
+    match: { tool: Bash, command_regex: '^\s*git\s+(status|diff|log|add|commit|fetch|pull|branch|checkout)\b' }
+  - id: allow.go
+    match: { tool: Bash, command_regex: '^\s*go\s+(build|test|vet|run|fmt)\b' }
+  - id: allow.make
+    match: { tool: Bash, command_regex: '^\s*make\b' }
