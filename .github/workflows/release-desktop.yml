@@ -64,7 +64,10 @@ jobs:
         run: |
           triple="$(rustc -vV | sed -n 's/^host: //p')"
           echo "target triple: $triple"
-          cargo build --release --bin belay
+          # Match the product feature set (build-belay.sh): channels = messaging
+          # approvals, ai = BYOK explainer, netenrich = destination enrichment.
+          # A plain `cargo build` would ship a Windows daemon with none of these.
+          cargo build --release --bin belay --features channels,ai,netenrich
           mkdir -p desktop/src-tauri/binaries
           cp "target/release/belay.exe" "desktop/src-tauri/binaries/belay-${triple}.exe"
 
