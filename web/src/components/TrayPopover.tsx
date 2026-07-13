@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getPosture, getPending } from "../lib/api";
+import { getPosture, getPending, getBootStart, setBootStart } from "../lib/api";
 import { setProtection } from "../lib/ipc";
 import type { PostureSummary } from "../lib/api";
 
@@ -22,13 +22,20 @@ function statusLabel(posture: PostureSummary | null): string {
   return "Protected";
 }
 
+// Belay brand accent (falls back if the CSS var is absent in the popover window).
+const ACCENT = "var(--accent, #0A66D6)";
+
 export default function TrayPopover() {
   const [posture, setPosture] = useState<PostureSummary | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [paused, setPaused] = useState(false);
   const [toggling, setToggling] = useState(false);
+  // Boot-start (autostart): null until loaded; `supported` is false in the web build.
+  const [bootOn, setBootOn] = useState<boolean | null>(null);
+  const [bootSupported, setBootSupported] = useState(true);
+  const [bootBusy, setBootBusy] = useState(false);
 
-  // Load posture + pending on mount.
+  // Load posture + pending + boot-start on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -45,6 +52,15 @@ export default function TrayPopover() {
       } catch {
         // non-fatal; keep 0
       }
+      try {
+        const b = await getBootStart();
+        if (!cancelled) {
+          setBootOn(b.enabled);
+          setBootSupported(b.supported);
+        }
+      } catch {
+        if (!cancelled) setBootSupported(false);
+      }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -60,6 +76,31 @@ export default function TrayPopover() {
     } finally {
       setToggling(false);
     }
+  }
+
+  // Flip boot-start. The OS shows an elevation prompt (UAC / pkexec / osascript);
+  // optimistically reflect the target, then reconcile with the real state after
+  // the user accepts or cancels the prompt.
+  async function handleToggleBoot() {
+    if (bootBusy || bootOn === null || !bootSupported) return;
+    const target = !bootOn;
+    setBootBusy(true);
+    setBootOn(target);
+    try {
+      await setBootStart(target);
+    } catch {
+      setBootOn(!target); // immediate failure (e.g. no elevation helper) → revert
+      setBootBusy(false);
+      return;
+    }
+    const recheck = async () => {
+      try {
+        const b = await getBootStart();
+        setBootOn(b.enabled);
+      } catch { /* keep optimistic */ }
+    };
+    setTimeout(recheck, 3000);
+    setTimeout(() => { recheck(); setBootBusy(false); }, 8000);
   }
 
   async function handleOpenDashboard() {
@@ -84,10 +125,12 @@ export default function TrayPopover() {
         boxShadow: "var(--shadow-popover)",
       }}
     >
-      {/* Header */}
+      {/* Header - branded (accent shield + accent wordmark) */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
-        <span style={{ fontSize: "20px" }}>🛡</span>
-        <span style={{ fontWeight: 700, fontSize: "16px", letterSpacing: "0.02em" }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill={ACCENT} aria-hidden="true">
+          <path d="M12 2 4 5v6c0 5 3.4 8.3 8 11 4.6-2.7 8-6 8-11V5l-8-3z" />
+        </svg>
+        <span style={{ fontWeight: 700, fontSize: "16px", letterSpacing: "0.02em", color: ACCENT }}>
           Belay
         </span>
       </div>
@@ -159,6 +202,58 @@ export default function TrayPopover() {
 
       {/* Actions */}
       <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "20px" }}>
+        {/* Start-on-boot toggle (desktop only; hidden when the OS reports it unsupported) */}
+        {bootSupported && bootOn !== null && (
+          <button
+            data-testid="btn-bootstart"
+            onClick={handleToggleBoot}
+            disabled={bootBusy}
+            aria-pressed={bootOn}
+            title="Run Belay automatically when this computer starts (needs Administrator once)"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              background: "rgba(0,0,0,0.04)",
+              color: "#1C1C1E",
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: "6px",
+              padding: "10px",
+              fontSize: "14px",
+              fontWeight: 500,
+              cursor: bootBusy ? "not-allowed" : "pointer",
+              opacity: bootBusy ? 0.7 : 1,
+            }}
+          >
+            <span>Start on boot</span>
+            <span
+              aria-hidden="true"
+              style={{
+                width: "36px",
+                height: "20px",
+                borderRadius: "9999px",
+                background: bootOn ? ACCENT : "rgba(0,0,0,0.25)",
+                position: "relative",
+                transition: "background 0.15s",
+                flexShrink: 0,
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  top: "2px",
+                  left: bootOn ? "18px" : "2px",
+                  width: "16px",
+                  height: "16px",
+                  borderRadius: "50%",
+                  background: "#FFFFFF",
+                  transition: "left 0.15s",
+                }}
+              />
+            </span>
+          </button>
+        )}
+
         <button
           data-testid="btn-pause"
           onClick={handlePauseResume}
@@ -183,7 +278,7 @@ export default function TrayPopover() {
           data-testid="btn-open-dashboard"
           onClick={handleOpenDashboard}
           style={{
-            background: "var(--accent, #0A66D6)",
+            background: ACCENT,
             color: "#FFFFFF",
             border: "none",
             borderRadius: "6px",
@@ -201,7 +296,7 @@ export default function TrayPopover() {
       {/* Reduced-motion support: disable transitions when requested */}
       <style>{`
         @media (prefers-reduced-motion: reduce) {
-          button { transition: none !important; }
+          button, button * { transition: none !important; }
         }
       `}</style>
     </div>

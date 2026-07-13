@@ -158,7 +158,7 @@ if ($WithService) {
             Write-Warn2 "service registration was cancelled/failed: $($_.Exception.Message). Run later from an elevated prompt: `"$belayExe`" install-service --enable"
         }
     } else {
-        Write-Warn2 'could not locate the installed belay.exe; open Belay and enable boot-start from Settings instead.'
+        Write-Warn2 'could not locate the installed belay.exe; from an elevated prompt run: belay install-service --enable'
     }
 }
 
@@ -179,6 +179,6 @@ Write-Host '  Start Menu   search "Belay"'
 Write-Host '  Desktop      a Belay shortcut was added'
 Write-Host '  Taskbar      right-click Belay (running, or in the Start Menu) -> Pin to taskbar'
 if (-not $WithService) {
-    Write-Host '  Boot-start + firewall (optional): re-run with -WithService, or enable it in Belay > Settings.'
+    Write-Host '  Boot-start + firewall (optional): re-run with -WithService, or toggle "Start on boot" from Belay (dashboard or tray menu).'
 }
 Write-Host ''

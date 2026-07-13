@@ -1799,6 +1799,64 @@ const EMBEDDED_NOTICE: &str = include_str!("../../NOTICE");
 /// `install-service`: stage the binary, write the boot-start unit (or print it),
 /// optionally enable+start it, re-point the Claude Code hook, and wait for the
 /// daemon socket. Folds the seven steps of `packaging/install-system.sh`.
+/// Stop, disable, and remove the boot-start service (unit/plist) - service only,
+/// leaving the staged binary and config in place. The Unix counterpart to the
+/// Windows SCM deregister; used by `install-service --uninstall` and the desktop
+/// "Start on boot" toggle's OFF path. Best-effort per step (a not-installed
+/// service is the common case, not an error); fails only if a file that exists
+/// cannot be removed. Cross-platform-compilable (never reached on Windows, which
+/// returns via run_install_service_windows first).
+fn uninstall_boot_service(os: &str) -> ExitCode {
+    let mut ok = true;
+    match os {
+        "linux" => {
+            let _ = std::process::Command::new("systemctl")
+                .args(["disable", "--now", "belay.service"])
+                .status();
+            let unit = std::path::Path::new("/etc/systemd/system/belay.service");
+            if unit.exists() {
+                if let Err(e) = std::fs::remove_file(unit) {
+                    eprintln!(
+                        "install-service --uninstall: could not remove {}: {e}",
+                        unit.display()
+                    );
+                    ok = false;
+                }
+            }
+            let _ = std::process::Command::new("systemctl")
+                .arg("daemon-reload")
+                .status();
+        }
+        "macos" => {
+            let plist = "/Library/LaunchDaemons/com.secblok.belay.plist";
+            // bootout is the modern unload; unload is the pre-10.11 fallback.
+            let _ = std::process::Command::new("launchctl")
+                .args(["bootout", "system", plist])
+                .status();
+            let _ = std::process::Command::new("launchctl")
+                .args(["unload", plist])
+                .status();
+            let p = std::path::Path::new(plist);
+            if p.exists() {
+                if let Err(e) = std::fs::remove_file(p) {
+                    eprintln!("install-service --uninstall: could not remove {plist}: {e}");
+                    ok = false;
+                }
+            }
+        }
+        _ => {
+            eprintln!("install-service --uninstall: unsupported OS '{os}'");
+            return ExitCode::FAILURE;
+        }
+    }
+    if ok {
+        println!("Belay boot-start service removed (the binary and config are unchanged).");
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
 fn run_install_service(
     user: Option<&str>,
     print: bool,
@@ -1833,14 +1891,14 @@ fn run_install_service(
     if os == "windows" {
         return run_install_service_windows(&current_exe, print, enable, exec_path, uninstall);
     }
-    // Uninstall is only implemented for the Windows SCM path today; on Unix the
-    // unit is removed with the platform tools.
+    // Uninstall: stop + disable the boot-start service and remove its unit/plist
+    // - the Unix analogue of the Windows SCM deregister above, so the GUI
+    // "Start on boot" toggle can turn it OFF symmetrically. Service-only: the
+    // staged binary and ~/.belay config are untouched (that is `belay uninstall`).
+    // Needs privilege (writes under /etc or /Library); the desktop toggle spawns
+    // this elevated, CLI users run it with sudo.
     if uninstall {
-        eprintln!(
-            "install-service --uninstall is currently Windows-only; on {os} remove the unit \
-             manually (e.g. `systemctl disable --now belay` or `launchctl unload …`)."
-        );
-        return ExitCode::FAILURE;
+        return uninstall_boot_service(os);
     }
     // 3. Plan ExecStart + staging.
     let plan = match plan_exec_path(os, &current_exe, exec_path) {

@@ -841,6 +841,124 @@ pub async fn ensure_daemon() {
     }
 }
 
+// ──────────────────────────────────────────────────────────────
+// Boot-start (autostart) toggle - GUI control over the OS service.
+// ──────────────────────────────────────────────────────────────
+// get_boot_start does a read-only OS query (no privilege). set_boot_start runs
+// the existing `belay install-service --enable|--uninstall` ELEVATED, since
+// writing the systemd unit / launchd plist / SCM service needs privilege. The OS
+// shows the elevation prompt (UAC / pkexec / osascript); the state changes only
+// after the user approves it, so the UI re-queries get_boot_start afterwards.
+
+/// True if Belay's boot-start service is currently installed/enabled. Read-only,
+/// no privilege. Paths mirror aidefender.rs (run_install_service /
+/// uninstall_boot_service) and daemon/src/service.rs.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+async fn boot_start_enabled() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = tokio::process::Command::new("systemctl")
+            .args(["is-enabled", "belay.service"])
+            .output()
+            .await
+        {
+            if String::from_utf8_lossy(&out.stdout).trim() == "enabled" {
+                return true;
+            }
+        }
+        std::path::Path::new("/etc/systemd/system/belay.service").exists()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::path::Path::new("/Library/LaunchDaemons/com.secblok.belay.plist").exists()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        tokio::process::Command::new("sc")
+            .args(["query", "Belay"])
+            .output()
+            .await
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        false
+    }
+}
+
+/// Boot-start state for the GUI toggle: `{ enabled, supported }`.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn get_boot_start() -> Value {
+    serde_json::json!({ "enabled": boot_start_enabled().await, "supported": true })
+}
+
+/// Enable/disable boot-start by launching `belay install-service` behind an OS
+/// elevation prompt. Returns once the prompt is launched; the change applies
+/// after the user approves it (the caller re-queries get_boot_start to confirm).
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn set_boot_start(enabled: bool) -> Result<Value, String> {
+    let bin = belay_bin();
+    let bin_s = bin.to_string_lossy().to_string();
+    let action = if enabled { "--enable" } else { "--uninstall" };
+    spawn_elevated_install_service(&bin_s, action)?;
+    Ok(serde_json::json!({ "ok": true, "pending": true }))
+}
+
+/// Launch `belay install-service <action>` with an OS-native elevation prompt
+/// (UAC on Windows, pkexec on Linux, osascript on macOS). Detached: the elevated
+/// process is interactive, so we do not wait on it.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+fn spawn_elevated_install_service(bin: &str, action: &str) -> Result<(), String> {
+    use std::process::Command;
+    #[cfg(target_os = "windows")]
+    {
+        // Start-Process -Verb RunAs triggers the UAC consent dialog. Single-quote
+        // the path (spaces safe) and double any embedded quote for PowerShell.
+        let ps = format!(
+            "Start-Process -FilePath '{}' -ArgumentList 'install-service','{}' -Verb RunAs",
+            bin.replace('\'', "''"),
+            action
+        );
+        Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("could not open the Administrator prompt: {e}"))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("pkexec")
+            .arg(bin)
+            .args(["install-service", action])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| {
+                format!("could not launch pkexec (is a polkit agent running?): {e}. Run manually: sudo {bin} install-service {action}")
+            })
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let inner = format!("{bin} install-service {action}");
+        let script = format!(
+            "do shell script \"{}\" with administrator privileges",
+            inner.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        Command::new("osascript")
+            .args(["-e", &script])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("could not run osascript: {e}"))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (bin, action);
+        Err("boot-start toggle is not supported on this platform".to_string())
+    }
+}
+
 /// Parse `belay scan` stdout into a `ScanResult`.
 ///
 /// The scanner intentionally exits 1 when risk score > 50 while still printing

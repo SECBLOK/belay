@@ -253,6 +253,9 @@ pub fn run() {
             commands::set_channel_enabled,
             commands::set_inbound,
             commands::restart_daemon,
+            // Boot-start (autostart) toggle - tray popover + dashboard.
+            commands::get_boot_start,
+            commands::set_boot_start,
             commands::open_external_url,
             commands::focus_main,
             commands::run_scan,

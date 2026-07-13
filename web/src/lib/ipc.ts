@@ -43,6 +43,13 @@ export const resolve = (
 // Toggle the daemon-held protection flag (Task 7).
 export const setProtection = (on: boolean) => invoke("set_protection", { on });
 
+// Boot-start (autostart) toggle. get is a read-only OS query; set launches an
+// OS elevation prompt (UAC/pkexec/osascript) and returns once launched.
+export const getBootStart = (): Promise<{ enabled: boolean; supported: boolean }> =>
+  invoke("get_boot_start");
+export const setBootStart = (enabled: boolean): Promise<{ ok: boolean; pending: boolean }> =>
+  invoke("set_boot_start", { enabled });
+
 // A hung `invoke` (e.g. the daemon accepted the connection but never replies —
 // `uds::request` has no read timeout) must NOT leave the UI spinning forever.
 // Race every AI IPC read against a fallback so the panel always settles into a

@@ -60,6 +60,17 @@ export interface PostureSummary {
 }
 export const getPosture = (): Promise<PostureSummary> =>
   isTauri() ? ipc.getPosture() : j("/api/posture");
+
+// Boot-start (autostart) state + toggle. Desktop-only: boot-start manages an OS
+// service, which the browser (web `serve`) UI cannot do, so it reports
+// unsupported there. `setBootStart` triggers an OS elevation prompt in the app.
+export interface BootStart { enabled: boolean; supported: boolean }
+export const getBootStart = (): Promise<BootStart> =>
+  isTauri() ? ipc.getBootStart() : Promise.resolve({ enabled: false, supported: false });
+export const setBootStart = (enabled: boolean): Promise<{ ok: boolean; pending: boolean }> =>
+  isTauri()
+    ? ipc.setBootStart(enabled)
+    : Promise.reject(new Error("Start-on-boot is only available in the Belay desktop app."));
 // Curated, rule-specific explanation carried from the daemon verdict
 // (Explain & Advise). All five fields are authored per-rule in the catalog.
 export interface Explain {
