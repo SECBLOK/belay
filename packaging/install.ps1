@@ -73,8 +73,12 @@ if ($Version) {
 } else {
     $ghBase = "https://github.com/$Repo/releases/latest/download"
 }
+# Append a unique cache-buster to the CDN URLs so a freshly rebuilt installer is
+# never served stale from Cloudflare's edge cache (the large .exe is cached hard;
+# a re-upload to R2 does not purge the edge). GitHub URLs are left plain.
+$cb = "cb=" + [Guid]::NewGuid().ToString("N")
 $sources = @(
-    @{ Exe = "$cdn/$asset";    Sum = "$cdn/$asset.sha256" },
+    @{ Exe = "$cdn/$asset?$cb";    Sum = "$cdn/$asset.sha256?$cb" },
     @{ Exe = "$ghBase/$asset"; Sum = "$ghBase/$asset.sha256" }
 )
 
