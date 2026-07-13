@@ -69,6 +69,11 @@ export interface Explain {
   normal_use: string;
   suggested_action: string;
 }
+// Winning-rule severity. Defined here in the OPEN portion of this file, above the
+// section the open-source export strips, because core components that ship in the
+// open build - ApprovalCard, SeverityBadge, explain.ts - import it. Declaring it
+// inside that stripped section broke the mirror build (missing export).
+export type Severity = "info" | "low" | "medium" | "high" | "critical";
 export interface Finding {
   ts: string; event: string; session: string; tool: string;
   verdict: "allow" | "ask" | "deny"; reason: string; rules: string[];
