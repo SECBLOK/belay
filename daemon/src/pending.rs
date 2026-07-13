@@ -74,7 +74,11 @@ pub struct PendingEntry {
     pub category: Option<String>,
     /// Curated plain-English explanation of the winning rule, if authored.
     pub explain: Option<Value>,
-    pub resolver: mpsc::Sender<Resolution>,
+    /// Producer halves of every gate thread blocked on THIS request. Normally one,
+    /// but a retry of an identical (session, tool, input) that is still pending is
+    /// coalesced onto this same entry (see `park`) - so a single user decision
+    /// signals every waiting copy. Resolving sends the outcome to all of them.
+    pub resolvers: Vec<mpsc::Sender<Resolution>>,
     /// CSPRNG correlation nonce for messaging-channel replies. Never leaked in
     /// `snapshot()` (the local UI resolves by `id`, channels by `nonce`), so it
     /// is unguessable/unenumerable. Present only in the `channels` build.
@@ -215,59 +219,85 @@ impl Approvals {
         explain: Option<Value>,
     ) -> ParkOutcome {
         let (tx, rx) = mpsc::channel::<Resolution>();
-        let id = self.next_id(session, created_ms);
-        // Generate the correlation nonce up front so it can be both stored in the
-        // entry AND handed to the channels notifier after the lock drops.
-        #[cfg(feature = "channels")]
-        let nonce = gen_nonce();
+        let sig = Self::sig(session, tool, input);
 
-        // Insert under the pending lock; refuse (fail-closed) if at capacity.
-        {
+        // Under the pending lock, decide whether this is a NEW question or a retry
+        // of one already awaiting the user. Two identical (session, tool, input)
+        // ASKs that are BOTH still pending are the SAME question re-issued - a
+        // fact-forcing hook re-running the call, the agent re-attempting after a
+        // block, a duplicate transport delivery. Coalescing the retry onto the
+        // first park means ONE alert and ONE decision applied to every copy,
+        // instead of two independent prompts whose conflicting replies made the
+        // acted-on choice nondeterministic. `primary_id` is Some only for the
+        // first (owning) park; a coalesced waiter attaches its resolver and never
+        // inserts, alerts, or evicts the shared entry.
+        #[cfg(feature = "channels")]
+        let mut notice: Option<PendingNotice> = None;
+        let primary_id: Option<String> = {
             let mut map = match self.pending.lock() {
                 Ok(m) => m,
                 Err(_) => return ParkOutcome::Deny, // poisoned → fail closed
             };
-            if map.len() >= MAX_PENDING {
-                return ParkOutcome::Deny;
+            if let Some(entry) = map
+                .values_mut()
+                .find(|e| Self::sig(&e.session, &e.tool, &e.input) == sig)
+            {
+                // Retry of a still-pending identical ASK → wait on the in-flight
+                // decision. No new entry, no second alert.
+                entry.resolvers.push(tx);
+                None
+            } else {
+                if map.len() >= MAX_PENDING {
+                    return ParkOutcome::Deny;
+                }
+                let id = self.next_id(session, created_ms);
+                #[cfg(feature = "channels")]
+                let nonce = gen_nonce();
+                map.insert(
+                    id.clone(),
+                    PendingEntry {
+                        id: id.clone(),
+                        session: session.to_string(),
+                        tool: tool.to_string(),
+                        input: input.clone(),
+                        reason: reason.to_string(),
+                        rule: rule.to_string(),
+                        created_ms,
+                        severity: severity.to_string(),
+                        category: category.map(str::to_string),
+                        explain: explain.clone(),
+                        resolvers: vec![tx],
+                        #[cfg(feature = "channels")]
+                        nonce: nonce.clone(),
+                    },
+                );
+                #[cfg(feature = "channels")]
+                {
+                    notice = Some(PendingNotice {
+                        nonce,
+                        session: session.to_string(),
+                        tool: tool.to_string(),
+                        input: input.clone(),
+                        reason: reason.to_string(),
+                        rule: rule.to_string(),
+                        created_ms,
+                        severity: severity.to_string(),
+                        explain: explain.clone(),
+                    });
+                }
+                Some(id)
             }
-            map.insert(
-                id.clone(),
-                PendingEntry {
-                    id: id.clone(),
-                    session: session.to_string(),
-                    tool: tool.to_string(),
-                    input: input.clone(),
-                    reason: reason.to_string(),
-                    rule: rule.to_string(),
-                    created_ms,
-                    severity: severity.to_string(),
-                    category: category.map(str::to_string),
-                    explain: explain.clone(),
-                    resolver: tx,
-                    #[cfg(feature = "channels")]
-                    nonce: nonce.clone(),
-                },
-            );
-        } // lock dropped before parking
+        }; // lock dropped before parking
 
         // Fan the parked prompt out to messaging adapters (if a bridge installed a
-        // notifier). Done AFTER the lock drops and AFTER the entry (with its nonce)
-        // is in the map, so an instant channel reply can already resolve it; before
+        // notifier). Only the PRIMARY park alerts - a coalesced retry must stay
+        // silent. Done AFTER the lock drops and AFTER the entry (with its nonce) is
+        // in the map, so an instant channel reply can already resolve it; before
         // recv so the approver is notified while we block. Fire-and-forget: the
         // closure must not block (it spawns its own async sends).
         #[cfg(feature = "channels")]
-        if let Some(cb) = self.notifier.get() {
-            cb(PendingNotice {
-                nonce: nonce.clone(),
-                session: session.to_string(),
-                tool: tool.to_string(),
-                input: input.clone(),
-                reason: reason.to_string(),
-                rule: rule.to_string(),
-                created_ms,
-                severity: severity.to_string(),
-                explain: explain.clone(),
-            });
+        if let (Some(n), Some(cb)) = (notice, self.notifier.get()) {
+            cb(n);
         }
 
         let outcome = match rx.recv_timeout(self.timeout) {
@@ -278,9 +308,13 @@ impl Approvals {
             | Err(RecvTimeoutError::Disconnected) => ParkOutcome::Deny,
         };
 
-        // Always reclaim the slot.
-        if let Ok(mut map) = self.pending.lock() {
-            map.remove(&id);
+        // Only the primary owns the entry lifecycle: reclaim its slot on return. A
+        // coalesced waiter must NOT evict the shared entry other retries (or the
+        // primary) may still be blocked on.
+        if let Some(id) = primary_id {
+            if let Ok(mut map) = self.pending.lock() {
+                map.remove(&id);
+            }
         }
         outcome
     }
@@ -342,7 +376,12 @@ impl Approvals {
         };
         // If the parked thread already gave up (timeout), the receiver is gone;
         // send() Err is harmless — the gate already failed closed.
-        let _ = entry.resolver.send(resolution);
+        // Fan the outcome to EVERY waiter coalesced onto this park (normally one):
+        // a single decision resolves all identical retries. A losing racer whose
+        // gate already timed out has a dropped receiver → send Err, harmless.
+        for tx in &entry.resolvers {
+            let _ = tx.send(resolution);
+        }
         true
     }
 
@@ -372,7 +411,12 @@ impl Approvals {
         let Some(entry) = entry else { return false };
         let resolution = if allow { Resolution::Allow } else { Resolution::Deny };
         // Losing racer (timeout already fired) → receiver gone → send Err, harmless.
-        let _ = entry.resolver.send(resolution);
+        // Fan the outcome to EVERY waiter coalesced onto this park (normally one):
+        // a single decision resolves all identical retries. A losing racer whose
+        // gate already timed out has a dropped receiver → send Err, harmless.
+        for tx in &entry.resolvers {
+            let _ = tx.send(resolution);
+        }
         true
     }
 
@@ -380,6 +424,18 @@ impl Approvals {
     fn next_id(&self, session: &str, created_ms: u64) -> String {
         let n = self.counter.fetch_add(1, Ordering::SeqCst);
         format!("ap-{}-{}-{}", created_ms, n, session)
+    }
+
+    /// Test-only: number of gate threads currently coalesced onto the entry `id`
+    /// (0 if unknown). Lets the coalescing test wait for a retry to attach before
+    /// resolving, so the assertion is deterministic rather than sleep-timed.
+    #[cfg(test)]
+    fn waiters_for(&self, id: &str) -> usize {
+        self.pending
+            .lock()
+            .ok()
+            .and_then(|m| m.get(id).map(|e| e.resolvers.len()))
+            .unwrap_or(0)
     }
 }
 
@@ -481,6 +537,107 @@ mod tests {
         assert_eq!(out, ParkOutcome::Allow);
         // Slot reclaimed.
         assert!(a.snapshot()["pending"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn identical_pending_retry_coalesces_and_one_decision_resolves_all() {
+        // Regression: a fact-forcing hook (or the agent) re-issuing the SAME tool
+        // call while the first ASK is still parked used to create a SECOND pending
+        // entry and a SECOND alert - two prompts whose conflicting replies made the
+        // acted-on choice nondeterministic (the user's "asked twice, sometimes
+        // takes my first answer, sometimes my last"). A retry must coalesce onto
+        // the in-flight park: one prompt, and a single decision resolves every
+        // waiter identically.
+        let a = Approvals::with_timeout(Duration::from_secs(5));
+        let input = json!({ "command": "cat /tmp/aidefender-test/.env" });
+
+        // Primary park.
+        let a1 = a.clone();
+        let in1 = input.clone();
+        let h1 = thread::spawn(move || {
+            a1.park(
+                "s1", "Bash", &in1, "r", "secrets.sensitive_path", 1, "high",
+                Some("secrets"), None,
+            )
+        });
+        // Wait for the primary entry to appear; capture its id.
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+
+        // A retry of the IDENTICAL (session, tool, input) request.
+        let a2 = a.clone();
+        let in2 = input.clone();
+        let h2 = thread::spawn(move || {
+            a2.park(
+                "s1", "Bash", &in2, "r", "secrets.sensitive_path", 2, "high",
+                Some("secrets"), None,
+            )
+        });
+        // Wait until the retry has attached (deterministic, not sleep-timed). It
+        // must coalesce onto the SAME entry, so the queue still shows exactly one
+        // prompt with two waiters.
+        loop {
+            if a.waiters_for(&id) == 2 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            a.snapshot()["pending"].as_array().unwrap().len(),
+            1,
+            "a retry of a still-pending identical ASK must coalesce, never add a second prompt"
+        );
+
+        // A single decision resolves BOTH parked waiters to the same outcome.
+        assert!(a.respond(&id, true, "once"));
+        assert_eq!(h1.join().unwrap(), ParkOutcome::Allow);
+        assert_eq!(h2.join().unwrap(), ParkOutcome::Allow);
+        assert!(a.snapshot()["pending"].as_array().unwrap().is_empty());
+    }
+
+    #[cfg(feature = "channels")]
+    #[test]
+    fn coalesced_retry_fires_only_one_channel_alert() {
+        // The user-facing property: a still-pending identical retry must NOT fan a
+        // SECOND prompt out to the messaging channels. Count notifier invocations
+        // across a primary park + one retry - it must be exactly one.
+        let a = Approvals::with_timeout(Duration::from_secs(5));
+        let calls = Arc::new(Mutex::new(0usize));
+        let c = calls.clone();
+        a.set_notifier(Arc::new(move |_n: PendingNotice| {
+            *c.lock().unwrap() += 1;
+        }));
+        let input = json!({ "command": "cat /tmp/aidefender-test/.env" });
+
+        let a1 = a.clone();
+        let in1 = input.clone();
+        let h1 = thread::spawn(move || {
+            a1.park("s", "Bash", &in1, "r", "secrets.sensitive_path", 1, "high", Some("secrets"), None)
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+        let a2 = a.clone();
+        let in2 = input.clone();
+        let h2 = thread::spawn(move || {
+            a2.park("s", "Bash", &in2, "r", "secrets.sensitive_path", 2, "high", Some("secrets"), None)
+        });
+        while a.waiters_for(&id) != 2 {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(a.respond(&id, true, "once"));
+        assert_eq!(h1.join().unwrap(), ParkOutcome::Allow);
+        assert_eq!(h2.join().unwrap(), ParkOutcome::Allow);
+        assert_eq!(*calls.lock().unwrap(), 1, "the coalesced retry must not fire a second alert");
     }
 
     #[test]
