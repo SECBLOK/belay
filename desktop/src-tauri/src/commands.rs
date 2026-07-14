@@ -815,6 +815,22 @@ fn belay_bin() -> std::path::PathBuf {
     std::path::PathBuf::from("belay")
 }
 
+/// Build a `tokio::process::Command` that never flashes a console window on
+/// Windows. `belay.exe` and `sc.exe` are console-subsystem binaries, so a GUI
+/// app spawning them with the default flags pops a terminal window for the whole
+/// life of the child - and the read commands the dashboard runs on every tab
+/// switch (detect/scan/status) would each flash one. CREATE_NO_WINDOW
+/// (0x08000000) suppresses it. No-op on non-Windows (returns a plain Command).
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+fn hidden_command<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::Command {
+    // `mut` is only used on Windows (creation_flags); harmless elsewhere.
+    #[allow(unused_mut)]
+    let mut cmd = tokio::process::Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000);
+    cmd
+}
+
 /// On launch, make sure the daemon is reachable; if its UDS socket can't be
 /// connected, spawn `belay daemon` so the host features work out of the box
 /// (status, firewall proposals, scans, approval queue) instead of failing with
@@ -835,13 +851,11 @@ pub async fn ensure_daemon() {
     let bin = belay_bin();
     // Detached: the child keeps running after this handle drops (tokio does not
     // kill on drop by default), and the daemon binds the socket on startup.
-    let mut cmd = tokio::process::Command::new(&bin);
+    // Hidden on Windows (see hidden_command): the console-subsystem belay.exe
+    // would otherwise pop a stray terminal window the user must not close
+    // (closing it kills the daemon).
+    let mut cmd = hidden_command(&bin);
     cmd.arg("daemon");
-    // Windows: run the background daemon HIDDEN (CREATE_NO_WINDOW = 0x08000000).
-    // A GUI app spawning the console-subsystem belay.exe otherwise pops a stray
-    // terminal window the user must not close (closing it kills the daemon).
-    #[cfg(windows)]
-    cmd.creation_flags(0x0800_0000);
     match cmd.spawn() {
         Ok(_child) => eprintln!("belay: auto-started daemon ({bin:?})"),
         Err(e) => eprintln!("belay: could not auto-start daemon ({bin:?}): {e}"),
@@ -881,7 +895,7 @@ async fn boot_start_enabled() -> bool {
     }
     #[cfg(target_os = "windows")]
     {
-        tokio::process::Command::new("sc")
+        hidden_command("sc")
             .args(["query", "Belay"])
             .output()
             .await
@@ -929,8 +943,12 @@ fn spawn_elevated_install_service(bin: &str, action: &str) -> Result<(), String>
             bin.replace('\'', "''"),
             action
         );
+        // Hide the launcher's own console flash; the UAC consent dialog (a
+        // separate secure-desktop prompt from Start-Process -Verb RunAs) still shows.
+        use std::os::windows::process::CommandExt;
         Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps])
+            .creation_flags(0x0800_0000)
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("could not open the Administrator prompt: {e}"))
@@ -1037,7 +1055,7 @@ pub fn parse_scan_output(stdout: &[u8], _status_ok: bool, stderr: &str) -> Resul
 #[tauri::command]
 pub async fn run_scan(target: String) -> Result<ScanResult, String> {
     let bin = belay_bin();
-    let out = tokio::process::Command::new(&bin)
+    let out = hidden_command(&bin)
         .args(["scan", &target, "--format", "json"])
         .output()
         .await
@@ -1051,7 +1069,7 @@ pub async fn run_scan(target: String) -> Result<ScanResult, String> {
 #[tauri::command]
 pub async fn list_agents() -> Result<Vec<DetectedAgentDto>, String> {
     let bin = belay_bin();
-    let out = tokio::process::Command::new(&bin)
+    let out = hidden_command(&bin)
         .args(["detect", "--json"])
         .output()
         .await
@@ -1080,7 +1098,7 @@ pub async fn list_agents() -> Result<Vec<DetectedAgentDto>, String> {
 #[tauri::command]
 pub async fn protect_agent(name: String) -> Result<String, String> {
     let bin = belay_bin();
-    let out = tokio::process::Command::new(&bin)
+    let out = hidden_command(&bin)
         .args(["protect", &name])
         .output()
         .await
@@ -1102,7 +1120,7 @@ pub async fn protect_agent(name: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn unprotect_agent(name: String) -> Result<String, String> {
     let bin = belay_bin();
-    let out = tokio::process::Command::new(&bin)
+    let out = hidden_command(&bin)
         .args(["unprotect", &name])
         .output()
         .await
