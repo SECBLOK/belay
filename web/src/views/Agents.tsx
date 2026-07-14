@@ -197,11 +197,12 @@ function AgentCard({ agent, onRefresh }: AgentCardProps) {
           className="rounded-lg px-3 py-2 text-[11px] leading-relaxed"
           style={{ background: `${C.ask}12`, border: `1px solid ${C.ask}40`, color: "#7A5200" }}
         >
-          <b>Action needed to activate.</b> Codex only runs the Belay hook after you
-          review and trust it (new hooks start as needs-review). Open Codex and trust
-          the Belay hook; until then this agent is <b>not actively protected</b>. Codex
-          hooks also do not cover every command path, so treat this as a strong
-          guardrail, not a guarantee.
+          <b>Action needed to activate.</b> Codex leaves a new hook dormant until you
+          trust it: open the Codex CLI, run <code>/hooks</code>, and trust the Belay
+          hook. Until then this agent is <b>not actively protected</b>. Even once
+          trusted, Codex hooks fire on <b>shell commands, edits, and MCP calls - not
+          plain file reads</b>, and apply only to <b>local tasks, not Codex Cloud</b>
+          runs. Treat this as a strong guardrail, not a guarantee.
         </div>
       )}
 

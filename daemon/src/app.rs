@@ -317,21 +317,32 @@ fn audit_hook(
     }
     let path = hook_audit_path();
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            // Still best-effort (never fails the gate), but no longer silent: a
+            // Windows ACL split (SYSTEM-owned data dir vs user-context hook) would
+            // otherwise drop every row while the gate keeps working - leaving the
+            // dashboard mysteriously empty. Surfacing it makes that diagnosable.
+            eprintln!("belay: audit dir create failed ({}): {e}", parent.display());
+        }
     }
-    if let Ok(mut w) = crate::audit::AuditWriter::open(&path.to_string_lossy()) {
-        let _ = w.append(hook_audit_row(
-            &now_rfc3339(),
-            session,
-            tool,
-            verdict,
-            reason,
-            rules,
-            input,
-            severity,
-            category,
-            explain,
-        ));
+    match crate::audit::AuditWriter::open(&path.to_string_lossy()) {
+        Ok(mut w) => {
+            if let Err(e) = w.append(hook_audit_row(
+                &now_rfc3339(),
+                session,
+                tool,
+                verdict,
+                reason,
+                rules,
+                input,
+                severity,
+                category,
+                explain,
+            )) {
+                eprintln!("belay: audit append failed ({}): {e}", path.display());
+            }
+        }
+        Err(e) => eprintln!("belay: audit open failed ({}): {e}", path.display()),
     }
 }
 
