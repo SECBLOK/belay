@@ -10,6 +10,7 @@ import Messaging from "./views/Messaging";
 import ApprovalSurface from "./components/ApprovalSurface";
 import Welcome from "./components/Welcome";
 import DetectionBanner from "./components/DetectionBanner";
+import UpdateBanner from "./components/UpdateBanner";
 import Sidebar from "./components/Sidebar";
 
 type Tab =
@@ -22,6 +23,8 @@ export default function App() {
     <div className="flex h-screen bg-[var(--surface-base)] text-[var(--text-primary)] overflow-hidden">
       <Sidebar tab={tab} onNavigate={setTab} />
       <main className="flex-1 overflow-y-auto min-w-0">
+        {/* In-app update prompt (desktop only; hidden when no update) */}
+        <UpdateBanner />
         {tab === "posture" && (
           <>
             <DetectionBanner onNavigate={setTab} />

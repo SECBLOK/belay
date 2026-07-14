@@ -256,6 +256,9 @@ pub fn run() {
             // Boot-start (autostart) toggle - tray popover + dashboard.
             commands::get_boot_start,
             commands::set_boot_start,
+            // In-app updater (check + signature-verified install).
+            commands::check_update,
+            commands::install_update,
             commands::open_external_url,
             commands::focus_main,
             commands::run_scan,

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Belay",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "identifier": "com.secblok.belay.desktop",
   "build": {
     "frontendDist": "../../web/dist",
@@ -36,7 +36,7 @@
   "plugins": {
     "updater": {
       "active": true,
-      "endpoints": ["https://github.com/SECBLOK/belay/releases/latest/download/latest.json"],
+      "endpoints": ["https://dl.belay.secblok.io/latest.json"],
       "dialog": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIxMzBCQTg3QURFRTJGRjEKUldUeEwrNnRoN293SVNRaStBa1R3U3NqVWVUK0dKRlVtOFE5Q3lEWUxvVjY3eWpzekdJbDZSd2EK"
     }

@@ -959,6 +959,56 @@ fn spawn_elevated_install_service(bin: &str, action: &str) -> Result<(), String>
     }
 }
 
+// ──────────────────────────────────────────────────────────────
+// In-app updater - check + install, driven by a dashboard banner.
+// ──────────────────────────────────────────────────────────────
+// The updater plugin verifies each update's minisign signature against the
+// pubkey baked into tauri.conf.json before installing, so an unsigned/tampered
+// update is rejected. These wrap the Rust updater API so the frontend can show
+// an "Update available -> Install" prompt without touching plugin permissions.
+
+/// Check the configured endpoint for a newer signed release.
+/// Returns `{ available, version?, current?, notes? }`; fail-soft to unavailable.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn check_update(app: tauri::AppHandle) -> Value {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => return serde_json::json!({ "available": false, "error": e.to_string() }),
+    };
+    match updater.check().await {
+        Ok(Some(u)) => serde_json::json!({
+            "available": true,
+            "version": u.version,
+            "current": u.current_version,
+            "notes": u.body,
+        }),
+        Ok(None) => serde_json::json!({ "available": false }),
+        Err(e) => serde_json::json!({ "available": false, "error": e.to_string() }),
+    }
+}
+
+/// Download + install the available update (signature-verified), then relaunch.
+/// On Windows Tauri quits the app itself before installing, so this call may not
+/// return on the success path.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no update available".to_string())?;
+    update
+        .download_and_install(|_downloaded, _total| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart()
+}
+
 /// Parse `belay scan` stdout into a `ScanResult`.
 ///
 /// The scanner intentionally exits 1 when risk score > 50 while still printing
