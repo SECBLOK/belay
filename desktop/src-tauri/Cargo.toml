@@ -14,6 +14,9 @@ tauri = { version = "2", features = ["tray-icon"], optional = true }
 tauri-plugin-notification = { version = "2", optional = true }
 tauri-plugin-autostart = { version = "2", optional = true }
 tauri-plugin-updater = { version = "2", optional = true }
+# Single-instance: a second launch focuses the running window instead of
+# spawning a duplicate process + tray icon.
+tauri-plugin-single-instance = { version = "2", optional = true }
 # Opens external URLs (Messaging setup-guide / docs links) in the OS's default
 # browser instead of navigating the app's own webview away from the UI. A plain
 # crate (not the tauri-plugin-opener wrapper) so the frontend needs no matching
@@ -39,7 +42,7 @@ belay-transport = { path = "../../transport" }
 tempfile = "3"
 
 [features]
-default = ["tauri-build", "tauri", "tauri-plugin-notification", "tauri-plugin-autostart", "tauri-plugin-updater", "open", "window-vibrancy", "tokio"]
+default = ["tauri-build", "tauri", "tauri-plugin-notification", "tauri-plugin-autostart", "tauri-plugin-updater", "tauri-plugin-single-instance", "open", "window-vibrancy", "tokio"]
 # Paid fleet view ("My Machines"): pulls the server's enterprise audit
 # aggregation (audit_reader::fleet_summary). OFF by default so the open desktop
 # build never references the gated fleet code.

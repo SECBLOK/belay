@@ -78,16 +78,50 @@ pub fn position_toast(win: &tauri::WebviewWindow) {
 /// click toggle are addressed by relying on blur-hide as the primary dismiss
 /// path; the click serves as an open/toggle. No additional debounce is added
 /// (the brief calls it optional and we cannot observe GUI behavior in CI).
+/// Show + focus the main dashboard window (and hide the popover). Works after a
+/// close now that the window is hidden-not-destroyed (close-to-tray in lib.rs).
+#[cfg(feature = "tauri")]
+fn show_main(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.unminimize();
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+    if let Some(pop) = app.get_webview_window("popover") {
+        let _ = pop.hide();
+    }
+}
+
 #[cfg(feature = "tauri")]
 pub fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use tauri::Manager;
 
-    let mut builder = TrayIconBuilder::with_id("belay-tray").tooltip("Belay");
+    // Right-click context menu. Left-click still toggles the popover (below), so
+    // the menu is right-click only (show_menu_on_left_click(false)). "Quit" is
+    // the ONLY way to fully exit now that closing the window hides-to-tray.
+    let open_i = MenuItem::with_id(app, "tray_open", "Open Dashboard", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "tray_quit", "Quit Belay", true, None::<&str>)?;
+    let menu = Menu::with_items(
+        app,
+        &[&open_i, &PredefinedMenuItem::separator(app)?, &quit_i],
+    )?;
+
+    let mut builder = TrayIconBuilder::with_id("belay-tray")
+        .tooltip("Belay")
+        .menu(&menu)
+        .show_menu_on_left_click(false);
     if let Some(icon) = app.default_window_icon().cloned() {
         builder = builder.icon(icon);
     }
     builder
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "tray_open" => show_main(app),
+            "tray_quit" => app.exit(0),
+            _ => {}
+        })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,

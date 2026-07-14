@@ -170,6 +170,17 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // Single-instance MUST be the first plugin: a second launch fires this
+        // callback in the ALREADY-running instance (focus its window) and exits
+        // the duplicate, instead of spawning a second process + tray icon.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.unminimize();
+                let _ = main.show();
+                let _ = main.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -217,6 +228,25 @@ pub fn run() {
                 .build()?;
 
             tray::build_tray(app.handle())?;
+
+            // Close-to-tray: hide the main window on close instead of destroying
+            // it. Destroying left get_webview_window("main") == None, so "Open
+            // dashboard" (focus_main) and the tray could no longer reopen it -
+            // the user had to launch a second Belay. Now closing hides it and it
+            // reopens instantly; full quit is the tray menu's "Quit Belay".
+            {
+                use tauri::Manager;
+                if let Some(main) = app.get_webview_window("main") {
+                    let mc = main.clone();
+                    main.on_window_event(move |e| {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+                            api.prevent_close();
+                            let _ = mc.hide();
+                        }
+                    });
+                }
+            }
+
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(tail_audit(handle));
             // Ensure the resident daemon is running so host features work on a
