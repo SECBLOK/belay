@@ -107,6 +107,14 @@ function AgentCard({ agent, onRefresh }: AgentCardProps) {
   const interceptionLabel =
     INTERCEPTION_LABEL[agent.interception] ?? agent.interception;
 
+  // Codex only ENFORCES an installed hook after the user reviews + trusts it
+  // (new hooks start as "needs review"), and its hook coverage has documented
+  // gaps. So an installed codex hook is NOT proof of active protection - we must
+  // not show a confident green "Protected" for it. The ChatGPT desktop app runs
+  // on the Codex engine too, so this also covers that case.
+  const needsTrust = agent.name === "codex";
+  const protectedActive = !!agent.protected && !needsTrust;
+
   const doProtect = async () => {
     setBusy(true);
     setSuccessMsg(null);
@@ -150,12 +158,20 @@ function AgentCard({ agent, onRefresh }: AgentCardProps) {
           {agent.name}
         </h3>
         <div className="flex items-center gap-2">
-          {agent.protected ? (
+          {protectedActive ? (
             <span
               className="text-[11px] px-2 py-0.5 rounded font-semibold"
               style={{ background: "rgba(27,140,58,0.10)", color: C.allow }}
             >
               ✓ Protected
+            </span>
+          ) : agent.protected && needsTrust ? (
+            <span
+              className="text-[11px] px-2 py-0.5 rounded font-semibold"
+              style={{ background: `${C.ask}1A`, color: C.ask }}
+              title="Hook installed, but Codex won't enforce it until you trust it"
+            >
+              ⚠ Finish in Codex
             </span>
           ) : (
             <span
@@ -173,6 +189,21 @@ function AgentCard({ agent, onRefresh }: AgentCardProps) {
           </span>
         </div>
       </div>
+
+      {/* Codex trust caveat: an installed hook is dormant until trusted, and
+          Codex hook coverage has gaps - never imply blanket protection. */}
+      {needsTrust && agent.protected && (
+        <div
+          className="rounded-lg px-3 py-2 text-[11px] leading-relaxed"
+          style={{ background: `${C.ask}12`, border: `1px solid ${C.ask}40`, color: "#7A5200" }}
+        >
+          <b>Action needed to activate.</b> Codex only runs the Belay hook after you
+          review and trust it (new hooks start as needs-review). Open Codex and trust
+          the Belay hook; until then this agent is <b>not actively protected</b>. Codex
+          hooks also do not cover every command path, so treat this as a strong
+          guardrail, not a guarantee.
+        </div>
+      )}
 
       {/* Settings paths */}
       {agent.settings.length > 0 && (

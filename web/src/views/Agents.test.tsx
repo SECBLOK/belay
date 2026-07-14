@@ -116,6 +116,21 @@ describe("Agents view — protection badge", () => {
     expect(screen.queryByText(/not protected/i)).toBeNull();
   });
 
+  it("does NOT show green '✓ Protected' for a protected codex hook - it needs trust", async () => {
+    // Regression: Codex only enforces a hook after the user trusts it, and its
+    // hook coverage has gaps. A green "Protected" for an installed-but-untrusted
+    // codex hook is false confidence (a beta tester's .env was read while Belay
+    // showed Protected). Codex must show an action-needed state + a caveat.
+    mockListAgents.mockResolvedValue([
+      { ...AGENT_FIXTURE, name: "codex", settings: ["/home/user/.codex/hooks.json"], risky: [], protected: true },
+    ]);
+    render(<Agents />);
+    await waitFor(() => expect(screen.getByText("codex")).toBeTruthy());
+    expect(screen.queryByText(/✓ Protected/)).toBeNull();
+    expect(screen.getByText(/finish in codex/i)).toBeTruthy();
+    expect(screen.getByText(/action needed to activate/i)).toBeTruthy();
+  });
+
   it("shows 'Not protected' when the agent is not protected", async () => {
     mockListAgents.mockResolvedValue([{ ...AGENT_FIXTURE, protected: false }]);
     render(<Agents />);
