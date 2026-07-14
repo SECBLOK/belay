@@ -32,3 +32,6 @@ desktop/src-tauri/binaries/
 # Cloudflare wrangler local cache (R2 uploads for the installer)
 .wrangler/
 
+
+# Agent coordination scratchpad (not tracked)
+TODO.md

@@ -2586,6 +2586,32 @@ fn run_uninstall(purge: bool, yes: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Decide whether `install-service` must stage (copy) the binary to `staged`
+/// before registering the service. Returns false (skip the copy) when the
+/// caller passed `--exec-path` (they assert the binary already lives there,
+/// mirroring the Unix `plan_exec_path` "caller-supplied target: never stage"
+/// rule) or when `staged` resolves to the same real file as `current_exe`.
+/// Copying a running exe onto itself fails with a Windows sharing violation
+/// (os error 32), which is exactly the self-install case that
+/// `belay.exe install-service --exec-path <its own path>` hits. Kept
+/// platform-independent (not `cfg(windows)`) so it is unit-testable on any host.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn should_stage_binary(exec_path: Option<&str>, current_exe: &str, staged: &std::path::Path) -> bool {
+    if exec_path.is_some() {
+        return false;
+    }
+    // current_exe() returns a verbatim `\\?\C:\...` path that won't string-match
+    // a plain --exec-path, so compare canonicalized real files; fall back to a
+    // literal path comparison if either side can't be resolved.
+    match (
+        std::fs::canonicalize(current_exe),
+        std::fs::canonicalize(staged),
+    ) {
+        (Ok(a), Ok(b)) => a != b,
+        _ => std::path::Path::new(current_exe) != staged,
+    }
+}
+
 /// Windows `install-service`: SCM registration (D1). Stages the binary under
 /// `%PROGRAMFILES%\Belay` (unless `--exec-path` overrides), then either
 /// prints the equivalent `sc create` line (`--print`, via `windows_service_spec`
@@ -2638,8 +2664,10 @@ fn run_install_service_windows(
         return ExitCode::SUCCESS;
     }
 
-    // Stage the binary so the service ImagePath survives `cargo clean`.
-    if std::path::Path::new(current_exe) != staged {
+    // Stage the binary so the service ImagePath survives `cargo clean` (a dev
+    // convenience). Skipped for --exec-path installs and self-installs (see
+    // should_stage_binary), which is what avoids the os-error-32 self-copy.
+    if should_stage_binary(exec_path, current_exe, &staged) {
         if let Some(dir) = staged.parent() {
             if let Err(e) = std::fs::create_dir_all(dir) {
                 eprintln!(
@@ -2865,6 +2893,41 @@ mod tests {
     #[test]
     fn plan_exec_path_unsupported_os_err() {
         assert!(super::plan_exec_path("windows", "/x/belay", None).is_err());
+    }
+
+    #[test]
+    fn should_stage_skips_when_exec_path_given() {
+        // --exec-path asserts the binary already lives at the target, so we must
+        // never copy: this is the guard that stops `belay.exe install-service
+        // --exec-path <its own path>` from copying the running exe onto itself
+        // (Windows sharing violation, os error 32). Short-circuits before any
+        // filesystem access, so the Windows-shaped paths are fine to test here.
+        assert!(!super::should_stage_binary(
+            Some(r"C:\Program Files\Belay\belay.exe"),
+            r"C:\Program Files\Belay\belay.exe",
+            std::path::Path::new(r"C:\Program Files\Belay\belay.exe"),
+        ));
+    }
+
+    #[test]
+    fn should_stage_skips_when_target_is_current_exe() {
+        // No --exec-path, but staged canonicalizes to the same real file as the
+        // running exe -> still skip the self-copy.
+        let me = std::env::current_exe().unwrap();
+        let me_str = me.to_string_lossy().into_owned();
+        assert!(!super::should_stage_binary(None, &me_str, &me));
+    }
+
+    #[test]
+    fn should_stage_copies_to_a_distinct_target() {
+        // No --exec-path and a genuinely different destination -> must stage.
+        let me = std::env::current_exe().unwrap();
+        let me_str = me.to_string_lossy().into_owned();
+        let dest = me
+            .parent()
+            .unwrap()
+            .join("belay-not-a-real-staged-target.exe");
+        assert!(super::should_stage_binary(None, &me_str, &dest));
     }
 
     #[test]
