@@ -218,10 +218,26 @@ pub fn py_list_repr(items: &[String]) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn resolve_home(home: Option<&str>) -> String {
-    match home {
-        Some(h) => h.to_owned(),
-        None => std::env::var("HOME").unwrap_or_else(|_| ".".into()),
+    if let Some(h) = home {
+        return h.to_owned();
     }
+    // Windows has no $HOME; the user profile is %USERPROFILE% (fallback
+    // %HOMEDRIVE%%HOMEPATH%). Without this, detection looked under "." and never
+    // found C:\Users\<user>\.claude, so no agents were detected on Windows.
+    #[cfg(windows)]
+    {
+        if let Ok(up) = std::env::var("USERPROFILE") {
+            if !up.is_empty() {
+                return up;
+            }
+        }
+        if let (Ok(hd), Ok(hp)) = (std::env::var("HOMEDRIVE"), std::env::var("HOMEPATH")) {
+            if !hd.is_empty() && !hp.is_empty() {
+                return format!("{hd}{hp}");
+            }
+        }
+    }
+    std::env::var("HOME").unwrap_or_else(|_| ".".into())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -232,21 +248,38 @@ fn resolve_home(home: Option<&str>) -> String {
 /// Mirrors Python's `shutil.which(cmd) is not None`.
 fn which(cmd: &str) -> bool {
     let path_var = std::env::var("PATH").unwrap_or_default();
-    for dir in path_var.split(':') {
-        let candidate = Path::new(dir).join(cmd);
-        if candidate.is_file() {
-            // Check that the file has at least one execute bit set.
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
+    // PATH is ';'-separated on Windows, ':'-separated elsewhere.
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    for dir in path_var.split(sep) {
+        if dir.is_empty() {
+            continue;
+        }
+        #[cfg(windows)]
+        {
+            // Windows executables carry an extension and have no Unix execute
+            // bit, so probe the common suffixes (a subset of %PATHEXT%).
+            for ext in ["", ".exe", ".cmd", ".bat", ".com"] {
+                if Path::new(dir).join(format!("{cmd}{ext}")).is_file() {
+                    return true;
+                }
+            }
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let candidate = Path::new(dir).join(cmd);
+            if candidate.is_file() {
+                // Check that the file has at least one execute bit set.
                 if let Ok(meta) = std::fs::metadata(&candidate) {
                     if meta.permissions().mode() & 0o111 != 0 {
                         return true;
                     }
                 }
             }
-            #[cfg(not(unix))]
-            {
+        }
+        #[cfg(not(any(windows, unix)))]
+        {
+            if Path::new(dir).join(cmd).is_file() {
                 return true;
             }
         }
