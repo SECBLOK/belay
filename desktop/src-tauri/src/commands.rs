@@ -835,7 +835,14 @@ pub async fn ensure_daemon() {
     let bin = belay_bin();
     // Detached: the child keeps running after this handle drops (tokio does not
     // kill on drop by default), and the daemon binds the socket on startup.
-    match tokio::process::Command::new(&bin).arg("daemon").spawn() {
+    let mut cmd = tokio::process::Command::new(&bin);
+    cmd.arg("daemon");
+    // Windows: run the background daemon HIDDEN (CREATE_NO_WINDOW = 0x08000000).
+    // A GUI app spawning the console-subsystem belay.exe otherwise pops a stray
+    // terminal window the user must not close (closing it kills the daemon).
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000);
+    match cmd.spawn() {
         Ok(_child) => eprintln!("belay: auto-started daemon ({bin:?})"),
         Err(e) => eprintln!("belay: could not auto-start daemon ({bin:?}): {e}"),
     }
