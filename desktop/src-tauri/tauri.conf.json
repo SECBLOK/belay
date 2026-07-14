@@ -29,7 +29,7 @@
     "windows": {
       "digestAlgorithm": "sha256",
       "timestampUrl": "http://timestamp.digicert.com",
-      "nsis": { "installMode": "currentUser" },
+      "nsis": { "installMode": "currentUser", "installerHooks": "installer-hooks.nsh" },
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
     }
   },
