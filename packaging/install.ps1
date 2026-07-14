@@ -46,7 +46,10 @@ try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new() } catch {}
 
 function Write-Step($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Write-Warn2($m) { Write-Host "warning: $m" -ForegroundColor Yellow }
-function Die($m) { Write-Host "error: $m" -ForegroundColor Red; exit 1 }
+# Use `throw`, NOT `exit`: when this script runs via `irm | iex` in an
+# interactive PowerShell, `exit` terminates the whole session and closes the
+# window before the user can read the error. `throw` surfaces it and stops.
+function Die($m) { Write-Host "error: $m" -ForegroundColor Red; throw "Belay install aborted (see the error above)." }
 
 # --- platform sanity ----------------------------------------------------------
 # $IsWindows exists only on PowerShell 6+ (it is $null on 5.1, which is always
@@ -73,13 +76,14 @@ if ($Version) {
 } else {
     $ghBase = "https://github.com/$Repo/releases/latest/download"
 }
-# Append a unique cache-buster to the CDN URLs so a freshly rebuilt installer is
-# never served stale from Cloudflare's edge cache (the large .exe is cached hard;
-# a re-upload to R2 does not purge the edge). GitHub URLs are left plain.
-$cb = "cb=" + [Guid]::NewGuid().ToString("N")
+# Append a unique cache-buster so a freshly rebuilt CDN object is never served
+# stale from Cloudflare's edge cache (a re-upload to R2 does not purge the edge).
+# Built by CONCATENATION, not interpolation: "$asset?$cb" mis-parses the "$var?"
+# sequence in PowerShell and drops the filename entirely. GitHub URLs stay plain.
+$cb = "?cb=" + [Guid]::NewGuid().ToString("N")
 $sources = @(
-    @{ Exe = "$cdn/$asset?$cb";    Sum = "$cdn/$asset.sha256?$cb" },
-    @{ Exe = "$ghBase/$asset"; Sum = "$ghBase/$asset.sha256" }
+    @{ Exe = ($cdn + "/" + $asset + $cb);   Sum = ($cdn + "/" + $asset + ".sha256" + $cb) },
+    @{ Exe = ($ghBase + "/" + $asset);      Sum = ($ghBase + "/" + $asset + ".sha256") }
 )
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("belay-" + [Guid]::NewGuid().ToString('N'))
