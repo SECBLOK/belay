@@ -1,6 +1,13 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { it, expect, vi, beforeEach } from "vitest";
 
+// The updater provider fires async checks on mount; stub it so App tests stay
+// deterministic (no act() warnings / flakiness from late state updates).
+vi.mock("./lib/updater", () => ({
+  UpdaterProvider: ({ children }: { children: unknown }) => children,
+  useUpdater: () => ({ supported: false, available: false, checking: false, checkNow: vi.fn(), install: vi.fn() }),
+}));
+
 // Suppress the Welcome overlay in App tests by pre-setting the flag.
 // Without this the overlay mounts and the api mock for listAgents must be present.
 beforeEach(() => {

@@ -11,6 +11,7 @@ import ApprovalSurface from "./components/ApprovalSurface";
 import Welcome from "./components/Welcome";
 import DetectionBanner from "./components/DetectionBanner";
 import UpdateBanner from "./components/UpdateBanner";
+import { UpdaterProvider } from "./lib/updater";
 import Sidebar from "./components/Sidebar";
 
 type Tab =
@@ -20,6 +21,7 @@ type Tab =
 export default function App() {
   const [tab, setTab] = useState<Tab>("posture");
   return (
+    <UpdaterProvider>
     <div className="flex h-screen bg-[var(--surface-base)] text-[var(--text-primary)] overflow-hidden">
       <Sidebar tab={tab} onNavigate={setTab} />
       <main className="flex-1 overflow-y-auto min-w-0">
@@ -45,5 +47,6 @@ export default function App() {
       {/* First-run welcome overlay: gated by localStorage flag; renders nothing on repeat visits. */}
       <Welcome />
     </div>
+    </UpdaterProvider>
   );
 }

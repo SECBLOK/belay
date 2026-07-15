@@ -10,6 +10,7 @@ import { C, tip, Card, StatTile, Empty, useChartReflow } from "../components/das
 import StatusRing, { type RingState } from "../components/StatusRing";
 import ActivityFeed from "../components/ActivityFeed";
 import BootStartToggle from "../components/BootStartToggle";
+import UpdateControl from "../components/UpdateControl";
 import { humanizeRule } from "../lib/humanize";
 
 // Derive the native desktop hero ring state from posture (calm by default):
@@ -200,8 +201,9 @@ export default function Posture() {
         <StatTile label="Blocked" value={p.deny} accent={C.deny} dominant />
       </div>
 
-      {/* Start-on-boot (desktop only; renders nothing in the web build) */}
+      {/* Start-on-boot + update check (desktop only; render nothing in the web build) */}
       <BootStartToggle />
+      <UpdateControl />
 
       {/* Native desktop live feed — verdict-accent rows, newest first */}
       <div className="grid grid-cols-1 gap-4">
