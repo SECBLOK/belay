@@ -14,7 +14,7 @@ exclude = ["daemon-ebpf", "desktop/src-tauri"]
 # ──────────────────────────────────────────────────────────────
 [package]
 name = "belay"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 build = "build.rs"
 license = "AGPL-3.0-or-later"

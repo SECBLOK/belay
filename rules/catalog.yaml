@@ -97,7 +97,7 @@ rules:
     applies_to: [Bash]
     match:
       command_regex:
-        - '(curl|wget|nc|http)\b.*(webhook\.site|requestbin|pipedream\.net|ngrok\.io|ngrok-free\.app|burpcollaborator\.net|interactsh\.com|pastebin\.com|transfer\.sh|0x0\.st|hookbin|localtunnel)'
+        - '(curl|wget|nc|http|iwr|irm|invoke-webrequest|invoke-restmethod|start-bitstransfer)\b.*(webhook\.site|requestbin|pipedream\.net|ngrok\.io|ngrok-free\.app|burpcollaborator\.net|interactsh\.com|pastebin\.com|transfer\.sh|0x0\.st|hookbin|localtunnel)'
   - id: egress.post_file
     category: egress
     severity: high
@@ -118,6 +118,8 @@ rules:
         - 'curl\b.*(-d|--data(-binary|-raw)?)\s+@?\.?\.?/?\.env'
         - 'curl\b.*-(d|F)\s+\S*\$[A-Z_]*(KEY|TOKEN|SECRET)'
         - '(scp|rsync)\b.*(\.env|\.ssh/id_|credentials)'
+        # Windows: Invoke-WebRequest/iwr POSTing a secret file.
+        - '(iwr|irm|invoke-webrequest|invoke-restmethod)\b[^|]*-infile\s+\S*(\.env|\.ssh/id_|credentials)'
   - id: egress.dns_exfil
     category: egress
     severity: critical
@@ -178,6 +180,8 @@ rules:
       command_regex:
         - '(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b'
         - '(curl|wget)\b[^|]*\|\s*(python\d?|node|ruby|perl)\b'
+        # Windows download-and-run: `irm https://... | iex`, `iwr ... | Invoke-Expression`.
+        - '(iwr|irm|curl|wget|invoke-webrequest|invoke-restmethod)\b[^|]*\|\s*(iex|invoke-expression)\b'
   - id: rce.decode_exec
     category: rce
     severity: critical
@@ -197,6 +201,9 @@ rules:
         - 'base64\s+-d[^|]*\|\s*(ba|z)?sh'
         - 'eval\s+"?\$\('
         - 'python\d?\s+-c\s+.*exec\('
+        # Windows: powershell -EncodedCommand/-enc <base64>, and FromBase64String | iex.
+        - 'powershell(\.exe)?\b[^|]*\s-e(nc(odedcommand)?)?\s+[A-Za-z0-9+/=]{16,}'
+        - 'frombase64string\b[^|]*\|\s*(iex|invoke-expression)\b'
   - id: rce.untrusted_install
     category: rce
     severity: high

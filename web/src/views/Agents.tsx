@@ -31,6 +31,19 @@ const RISKY_LABEL: Record<string, string> = {
 
 const DESKTOP_ONLY_MSG = "Available in the Belay desktop app";
 
+// Per-agent clarifier: which desktop chat app (if any) shares this CLI's
+// config/hook file but does NOT actually route its tool calls through it.
+// Confirmed by live Windows reproduction, not assumption - see
+// docs/superpowers/plans/2026-07-15-windows-desktop-app-coverage-gap.md.
+// Only CLIs with a known, verified desktop-app namesake get an entry here;
+// do not add one speculatively.
+const DESKTOP_UNENFORCEABLE: Record<string, string> = {
+  "claude-code":
+    "Enforces the Claude Code CLI. The Claude Desktop app is a separate surface that runs its own tools in a sandbox Belay can't hook - it is not covered, even though it shares no config with this entry.",
+  codex:
+    "Enforces the Codex CLI (once trusted, see below). The ChatGPT desktop app shares this hooks.json file but its agentic mode never invokes it - it is not covered.",
+};
+
 // ── Sub-components ──────────────────────────────────────────────────────────
 
 function RiskyChip({ flag }: { flag: string }) {
@@ -110,8 +123,17 @@ function AgentCard({ agent, onRefresh }: AgentCardProps) {
   // Codex only ENFORCES an installed hook after the user reviews + trusts it
   // (new hooks start as "needs review"), and its hook coverage has documented
   // gaps. So an installed codex hook is NOT proof of active protection - we must
-  // not show a confident green "Protected" for it. The ChatGPT desktop app runs
-  // on the Codex engine too, so this also covers that case.
+  // not show a confident green "Protected" for it.
+  //
+  // NOTE (corrected 2026-07-15, see docs/superpowers/plans/2026-07-15-windows-
+  // desktop-app-coverage-gap.md): this "codex" entry does NOT cover the ChatGPT
+  // desktop app, even though ChatGPT desktop's agentic mode shares ~/.codex's
+  // hooks.json file. A live Windows investigation confirmed ChatGPT desktop
+  // (package OpenAI.Codex, binary ChatGPT.exe) reads and writes that same
+  // hooks.json but its sandboxed tool-execution runtime never invokes it -
+  // zero audit events when it read a test secret file. Do not let this
+  // "codex" card's protected/needsTrust state be read as covering ChatGPT
+  // desktop; see the DESKTOP_UNENFORCEABLE clarifier below.
   const needsTrust = agent.name === "codex";
   const protectedActive = !!agent.protected && !needsTrust;
 
@@ -154,9 +176,16 @@ function AgentCard({ agent, onRefresh }: AgentCardProps) {
     <div className="rounded-xl bg-white p-5 space-y-4" style={{ border: "1px solid rgba(0,0,0,0.08)", boxShadow: "var(--shadow-card)" }}>
       {/* Header row */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <h3 className="text-base font-semibold text-[#1C1C1E] font-mono">
-          {agent.name}
-        </h3>
+        <div>
+          <h3 className="text-base font-semibold text-[#1C1C1E] font-mono">
+            {agent.name}
+          </h3>
+          {DESKTOP_UNENFORCEABLE[agent.name] && (
+            <p className="text-[11px] text-[#8E8E93] mt-0.5 max-w-md leading-snug">
+              {DESKTOP_UNENFORCEABLE[agent.name]}
+            </p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {protectedActive ? (
             <span
@@ -371,6 +400,24 @@ export default function Agents() {
           AI agents found on this computer — their settings and Belay
           protection status.
         </p>
+      </div>
+
+      {/* Persistent, evergreen coverage disclosure - shown regardless of load
+          state since it's not about any one agent's data. Verified by live
+          Windows reproduction, not assumption; see
+          docs/superpowers/plans/2026-07-15-windows-desktop-app-coverage-gap.md. */}
+      <div
+        className="rounded-lg px-3 py-2.5 text-[11px] leading-relaxed"
+        style={{ background: `${C.ask}12`, border: `1px solid ${C.ask}40`, color: "#7A5200" }}
+      >
+        <b>What Belay can and can't enforce.</b> Belay blocks agents that run
+        through a cooperative hook — the <b>Claude Code CLI</b>,{" "}
+        <b>Cursor</b>, and the <b>Codex CLI</b> (once trusted). The{" "}
+        <b>Claude Desktop</b> and <b>ChatGPT desktop</b> apps are detected
+        here, but they run their tools in a separate sandbox that bypasses
+        these hooks, so Belay can't block them yet. Deeper coverage for
+        desktop apps needs OS-level interception (an optional, admin-enabled
+        tier).
       </div>
 
       {state.kind === "loading" && (
