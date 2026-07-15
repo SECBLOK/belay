@@ -22,6 +22,9 @@ rules:
       command_regex:
         - 'rm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|-rf|-fr)\b\s*(/|~|\$HOME|\.|\*)(\s|$)'
         - 'rm\b.*--no-preserve-root'
+        # Windows recursive force-delete of a DANGEROUS root (drive root, userprofile, *).
+        - '(remove-item|ri)\b(?=[^|]*\s-(recurse|r)\b)(?=[^|]*\s-(force|fo|f)\b)[^|]*\s[''"]?([a-z]:/?|~|\$home|\$env:userprofile|\*)([''"\s]|$)'
+        - '\b(rd|rmdir)\b(?=[^|]*\s/s\b)(?=[^|]*\s/q\b)[^|]*\s[''"]?([a-z]:/?|%userprofile%|\*)([''"\s]|$)'
   - id: destructive.disk_wipe
     category: destructive
     severity: critical
@@ -242,6 +245,9 @@ rules:
     match:
       command_regex:
         - '(^|\s)(sudo|doas|pkexec)\b'
+        # Windows elevation (sudo itself already matched by the unix pattern).
+        - 'start-process\b[^|]*-verb\s+runas'
+        - '\brunas\s+/'
   - id: persist.authorized_keys
     category: persistence
     severity: critical
@@ -280,6 +286,12 @@ rules:
         - '/etc/cron'
         - 'systemctl\b.*enable'
         - 'launchctl\s+load'
+        # Windows persistence: scheduled tasks, services, Run keys.
+        - 'schtasks\s+/create\b'
+        - 'register-scheduledtask\b'
+        - '\bnew-service\b'
+        - '\bsc(\.exe)?\s+create\b'
+        - '(reg\s+add|set-itemproperty|new-itemproperty)\b[^|]*/run\b'
   - id: persist.shell_profile
     category: persistence
     severity: high
@@ -297,6 +309,7 @@ rules:
     match:
       path_glob_regex:
         - '/\.(bashrc|zshrc|bash_profile|profile|zshenv)$|/etc/profile\.d/'
+        - 'microsoft\.powershell_profile\.ps1'
   # ---- untrusted ingest (prompt-injection vector) ----
   # Non-blocking on its own (decision: allow); it taints the session so a later
   # (armed secrets + outbound sink) escalates to correlate.lethal_trifecta.
@@ -511,6 +524,8 @@ rules:
         - '(^|\s)env(\s|$)'
         - '/proc/\d+/environ'
         - 'echo\s+\$[A-Z_]*(KEY|TOKEN|SECRET|PASS)'
+        - '(gci|get-childitem|ls|dir)\s+env:'
+        - '\[environment\]::getenvironmentvariables'
   - id: secrets.grep_hunt
     category: secrets
     severity: medium
@@ -530,6 +545,8 @@ rules:
       command_regex:
         - '(grep|rg)\b.*-[a-zA-Z]*(r|R)[a-zA-Z]*\b.*(API_?KEY|SECRET|TOKEN|PASSWORD|PRIVATE KEY)'
         - '(grep|rg)\b.*(AKIA|sk-ant-|ghp_)'
+        - '(select-string|sls|findstr)\b.*(API_?KEY|SECRET|TOKEN|PASSWORD|PRIVATE KEY)'
+        - '(select-string|sls|findstr)\b.*(AKIA|sk-ant-|ghp_)'
   - id: secrets.cred_store
     category: secrets
     severity: high
@@ -550,6 +567,9 @@ rules:
         - '\bsecret-tool\s+lookup'
         - 'Login Data'
         - 'state\.vscdb'
+        - 'cmdkey\s+/list'
+        - '\bvaultcmd\b'
+        - 'get-storedcredential\b'
 allowlist:
   # Dev-toolchain-aware: benign build/dev commands are suppressed (NexusShield).
   - id: allow.cargo

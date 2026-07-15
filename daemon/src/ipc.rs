@@ -329,7 +329,7 @@ pub fn handle_request_approvals(
                     .explain
                     .as_ref()
                     .and_then(|e| serde_json::to_value(e).ok());
-                let outcome = approvals.park(
+                let (outcome, source) = approvals.park_with_source(
                     session,
                     &tc.tool,
                     &tc.input,
@@ -350,6 +350,10 @@ pub fn handle_request_approvals(
                     "session": session,
                     "tool": tc.tool,
                     "decision": decided,
+                    // How the park resolved: local (UI/CLI), channel (messaging),
+                    // timeout / disconnected / map_full / poisoned (fail-closed).
+                    // Makes "who allowed this?" answerable from this one event.
+                    "source": source.label(),
                 }));
                 resp["decision"] = json!(decided);
                 return resp;

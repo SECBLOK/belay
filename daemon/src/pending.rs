@@ -41,11 +41,45 @@ const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 #[cfg(feature = "channels")]
 type NotifierFn = Arc<dyn Fn(PendingNotice) + Send + Sync>;
 
-/// Resolution decision delivered over a pending entry's channel.
+/// Where a park's decision came from. Recorded in the `approval.resolved` audit
+/// event so "who allowed/denied this?" is answerable from a single line rather
+/// than by correlating `approval.respond` by id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolveSource {
+    /// Local operator via IPC `respond` (desktop UI / CLI).
+    Local,
+    /// Messaging-channel reply via `respond_by_nonce` (authorized principal).
+    Channel,
+    /// Park timeout elapsed with no decision → fail-closed deny.
+    Timeout,
+    /// Every resolver dropped before deciding → fail-closed deny.
+    Disconnected,
+    /// Pending map at capacity; refused without parking → deny.
+    MapFull,
+    /// Pending lock poisoned → fail-closed deny.
+    Poisoned,
+}
+
+impl ResolveSource {
+    /// Stable lowercase wire label for the audit event.
+    pub fn label(self) -> &'static str {
+        match self {
+            ResolveSource::Local => "local",
+            ResolveSource::Channel => "channel",
+            ResolveSource::Timeout => "timeout",
+            ResolveSource::Disconnected => "disconnected",
+            ResolveSource::MapFull => "map_full",
+            ResolveSource::Poisoned => "poisoned",
+        }
+    }
+}
+
+/// Resolution decision delivered over a pending entry's channel, tagged with the
+/// source that produced it (`Local` from IPC, `Channel` from a messaging reply).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resolution {
-    Allow,
-    Deny,
+    Allow(ResolveSource),
+    Deny(ResolveSource),
 }
 
 /// Outcome of parking a request — what the gate path returns to the client.
@@ -201,10 +235,8 @@ impl Approvals {
     }
 
     /// Park a would-ask request until the user resolves it or the timeout fires.
-    ///
-    /// FAIL-CLOSED: map-full → `Deny` (not enqueued); timeout/disconnect → `Deny`;
-    /// only an explicit `Resolution::Allow` returns `Allow`. The entry is always
-    /// removed from the map before returning.
+    /// Thin wrapper over [`park_with_source`] for callers that don't need to know
+    /// how the decision was reached.
     #[allow(clippy::too_many_arguments)]
     pub fn park(
         &self,
@@ -218,6 +250,31 @@ impl Approvals {
         category: Option<&str>,
         explain: Option<Value>,
     ) -> ParkOutcome {
+        self.park_with_source(
+            session, tool, input, reason, rule, created_ms, severity, category, explain,
+        )
+        .0
+    }
+
+    /// Park a would-ask request, returning both the outcome and the SOURCE that
+    /// produced it (for the `approval.resolved` audit event).
+    ///
+    /// FAIL-CLOSED: map-full → `Deny` (not enqueued); timeout/disconnect → `Deny`;
+    /// only an explicit `Resolution::Allow` returns `Allow`. The entry is always
+    /// removed from the map before returning.
+    #[allow(clippy::too_many_arguments)]
+    pub fn park_with_source(
+        &self,
+        session: &str,
+        tool: &str,
+        input: &Value,
+        reason: &str,
+        rule: &str,
+        created_ms: u64,
+        severity: &str,
+        category: Option<&str>,
+        explain: Option<Value>,
+    ) -> (ParkOutcome, ResolveSource) {
         let (tx, rx) = mpsc::channel::<Resolution>();
         let sig = Self::sig(session, tool, input);
 
@@ -236,7 +293,8 @@ impl Approvals {
         let primary_id: Option<String> = {
             let mut map = match self.pending.lock() {
                 Ok(m) => m,
-                Err(_) => return ParkOutcome::Deny, // poisoned → fail closed
+                // poisoned → fail closed
+                Err(_) => return (ParkOutcome::Deny, ResolveSource::Poisoned),
             };
             if let Some(entry) = map
                 .values_mut()
@@ -248,7 +306,7 @@ impl Approvals {
                 None
             } else {
                 if map.len() >= MAX_PENDING {
-                    return ParkOutcome::Deny;
+                    return (ParkOutcome::Deny, ResolveSource::MapFull);
                 }
                 let id = self.next_id(session, created_ms);
                 #[cfg(feature = "channels")]
@@ -300,12 +358,15 @@ impl Approvals {
             cb(n);
         }
 
-        let outcome = match rx.recv_timeout(self.timeout) {
-            Ok(Resolution::Allow) => ParkOutcome::Allow,
-            // Explicit deny, timeout, OR sender dropped/disconnected → DENY.
-            Ok(Resolution::Deny)
-            | Err(RecvTimeoutError::Timeout)
-            | Err(RecvTimeoutError::Disconnected) => ParkOutcome::Deny,
+        let (outcome, source) = match rx.recv_timeout(self.timeout) {
+            Ok(Resolution::Allow(src)) => (ParkOutcome::Allow, src),
+            // Explicit deny carries its own source; timeout / sender-dropped map
+            // to the corresponding fail-closed source. All → DENY.
+            Ok(Resolution::Deny(src)) => (ParkOutcome::Deny, src),
+            Err(RecvTimeoutError::Timeout) => (ParkOutcome::Deny, ResolveSource::Timeout),
+            Err(RecvTimeoutError::Disconnected) => {
+                (ParkOutcome::Deny, ResolveSource::Disconnected)
+            }
         };
 
         // Only the primary owns the entry lifecycle: reclaim its slot on return. A
@@ -316,7 +377,7 @@ impl Approvals {
                 map.remove(&id);
             }
         }
-        outcome
+        (outcome, source)
     }
 
     /// Snapshot of the pending queue for `get_pending` (no resolver leaked).
@@ -370,9 +431,9 @@ impl Approvals {
         }
 
         let resolution = if allow {
-            Resolution::Allow
+            Resolution::Allow(ResolveSource::Local)
         } else {
-            Resolution::Deny
+            Resolution::Deny(ResolveSource::Local)
         };
         // If the parked thread already gave up (timeout), the receiver is gone;
         // send() Err is harmless — the gate already failed closed.
@@ -409,7 +470,11 @@ impl Approvals {
             Err(_) => return false, // poisoned → fail closed
         };
         let Some(entry) = entry else { return false };
-        let resolution = if allow { Resolution::Allow } else { Resolution::Deny };
+        let resolution = if allow {
+            Resolution::Allow(ResolveSource::Channel)
+        } else {
+            Resolution::Deny(ResolveSource::Channel)
+        };
         // Losing racer (timeout already fired) → receiver gone → send Err, harmless.
         // Fan the outcome to EVERY waiter coalesced onto this park (normally one):
         // a single decision resolves all identical retries. A losing racer whose
@@ -537,6 +602,39 @@ mod tests {
         assert_eq!(out, ParkOutcome::Allow);
         // Slot reclaimed.
         assert!(a.snapshot()["pending"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn park_with_source_reports_timeout_then_local() {
+        // No responder → fail-closed deny, source = Timeout (audited as such).
+        let a = Approvals::with_timeout(Duration::from_millis(40));
+        let (out, src) = a.park_with_source(
+            "s", "Bash", &json!({"command": "x"}), "r", "rule.x", now_ms(), "info", None, None,
+        );
+        assert_eq!(out, ParkOutcome::Deny);
+        assert_eq!(src, ResolveSource::Timeout);
+        assert_eq!(src.label(), "timeout");
+
+        // An explicit local respond(allow) → allow, source = Local.
+        let a2 = fast();
+        let a2c = a2.clone();
+        let h = thread::spawn(move || {
+            let id = loop {
+                let snap = a2c.snapshot();
+                if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                    break first["id"].as_str().unwrap().to_string();
+                }
+                thread::sleep(Duration::from_millis(5));
+            };
+            assert!(a2c.respond(&id, true, "once"));
+        });
+        let (out, src) = a2.park_with_source(
+            "s", "Bash", &json!({"command": "y"}), "r", "rule.y", now_ms(), "info", None, None,
+        );
+        h.join().unwrap();
+        assert_eq!(out, ParkOutcome::Allow);
+        assert_eq!(src, ResolveSource::Local);
+        assert_eq!(src.label(), "local");
     }
 
     #[test]

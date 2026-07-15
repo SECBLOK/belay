@@ -176,9 +176,21 @@ pub fn openclaw_protected(exec_approvals: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Write a strict Belay-managed exec-approvals policy (tightening only —
-/// OpenClaw takes the stricter of config and this file). Preserves any existing
-/// per-agent `agents` block; refuses to clobber an unparseable file.
+/// The four keys that flip OpenClaw's exec gate to default-deny + fail-closed:
+/// allowlist mode, ask on an allowlist miss, deny when a prompt can't be
+/// delivered, and never silently auto-allow skill binaries.
+fn tighten_exec_policy(obj: &mut serde_json::Map<String, Value>) {
+    obj.insert("security".into(), json!("allowlist"));
+    obj.insert("ask".into(), json!("on-miss"));
+    obj.insert("askFallback".into(), json!("deny"));
+    obj.insert("autoAllowSkills".into(), json!(false));
+}
+
+/// Write a strict Belay-managed exec-approvals policy (tightening only -
+/// OpenClaw takes the stricter of config and this file). Tightens `defaults`
+/// AND every existing per-agent block (per-agent policy OVERRIDES defaults in
+/// OpenClaw, so a looser `agents.<id>` would otherwise bypass us). Refuses to
+/// clobber an unparseable file; the original is restored from backup on uninstall.
 pub fn install_openclaw_policy(exec_approvals: &Path) -> Result<(), String> {
     let mut v = load_json_or_empty(exec_approvals).ok_or_else(|| {
         format!(
@@ -192,20 +204,27 @@ pub fn install_openclaw_policy(exec_approvals: &Path) -> Result<(), String> {
     }
     v["version"] = json!(1);
     // MERGE our tightening keys into any existing `defaults` (default-deny with
-    // an allowlist and fail-closed fallback; never silently auto-allow skill
-    // binaries; `belay_managed` is our detection marker). A wholesale
-    // replace would drop other keys OpenClaw may store under `defaults`.
+    // an allowlist and fail-closed fallback; `belay_managed` is our detection
+    // marker). A wholesale replace would drop other keys OpenClaw may store.
     if !v.get("defaults").map(|d| d.is_object()).unwrap_or(false) {
         v["defaults"] = json!({});
     }
     let d = v["defaults"].as_object_mut().unwrap();
-    d.insert("security".into(), json!("allowlist"));
-    d.insert("ask".into(), json!("on-miss"));
-    d.insert("askFallback".into(), json!("deny"));
-    d.insert("autoAllowSkills".into(), json!(false));
+    tighten_exec_policy(d);
     d.insert("belay_managed".into(), json!(true));
     if !v.get("agents").map(|a| a.is_object()).unwrap_or(false) {
         v["agents"] = json!({});
+    }
+    // Close the per-agent bypass: a pre-existing `agents.<id>` with a looser
+    // security mode overrides our tightened defaults, so apply the same
+    // tightening to each existing per-agent block. Other per-agent keys (e.g. a
+    // custom allowlist) are preserved.
+    if let Some(agents) = v["agents"].as_object_mut() {
+        for entry in agents.values_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                tighten_exec_policy(obj);
+            }
+        }
     }
     write_pretty(exec_approvals, &v)
 }
@@ -436,6 +455,27 @@ mod tests {
         // ...without dropping the unrelated key or the agents block.
         assert_eq!(v["defaults"]["timeoutSec"], 30);
         assert_eq!(v["agents"]["main"]["x"], 1);
+    }
+
+    #[test]
+    fn openclaw_policy_tightens_preexisting_per_agent_override() {
+        let dir = tempdir().unwrap();
+        let ea = dir.path().join("exec-approvals.json");
+        // A per-agent block that overrides defaults with a wide-open policy -
+        // this is the bypass we must close - plus an unrelated key to preserve.
+        fs::write(
+            &ea,
+            r#"{"agents":{"evil":{"security":"full","ask":"off","note":"keep"}}}"#,
+        )
+        .unwrap();
+        install_openclaw_policy(&ea).unwrap();
+        let v: Value = serde_json::from_str(&fs::read_to_string(&ea).unwrap()).unwrap();
+        // The per-agent override is tightened to match our default-deny policy...
+        assert_eq!(v["agents"]["evil"]["security"], "allowlist");
+        assert_eq!(v["agents"]["evil"]["ask"], "on-miss");
+        assert_eq!(v["agents"]["evil"]["askFallback"], "deny");
+        // ...while unrelated per-agent keys survive.
+        assert_eq!(v["agents"]["evil"]["note"], "keep");
     }
 
     #[test]

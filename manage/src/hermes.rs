@@ -150,21 +150,26 @@ fn read_cfg(path: &Path) -> Cfg {
     }
 }
 
-/// True if the parsed config's `hooks.pre_tool_call` list has any entry whose
-/// `command` contains the Belay marker.
-fn value_has_belay_hook(v: &serde_yaml::Value) -> bool {
+/// The `command` string of the config's Belay `pre_tool_call` hook, if present
+/// (the first `pre_tool_call` entry whose `command` carries the Belay marker).
+fn belay_hook_command(v: &serde_yaml::Value) -> Option<String> {
     v.get("hooks")
         .and_then(|h| h.get(HOOK_EVENT))
         .and_then(|e| e.as_sequence())
-        .map(|seq| {
-            seq.iter().any(|item| {
+        .and_then(|seq| {
+            seq.iter().find_map(|item| {
                 item.get("command")
                     .and_then(|c| c.as_str())
-                    .map(|c| c.contains(MARKER))
-                    .unwrap_or(false)
+                    .filter(|c| c.contains(MARKER))
+                    .map(|c| c.to_string())
             })
         })
-        .unwrap_or(false)
+}
+
+/// True if the parsed config's `hooks.pre_tool_call` list has any entry whose
+/// `command` contains the Belay marker.
+fn value_has_belay_hook(v: &serde_yaml::Value) -> bool {
+    belay_hook_command(v).is_some()
 }
 
 fn value_has_hooks_key(v: &serde_yaml::Value) -> bool {
@@ -279,15 +284,19 @@ fn is_allowlisted(path: &Path, command: &str) -> bool {
 /// `config.yaml` AND its consent entry is in the allowlist (so it will fire).
 /// Used by `detect::compute_protected` for the `"hermes-hook"` interception.
 pub fn hermes_protected(config: &Path) -> bool {
-    let cfg_has = match read_cfg(config) {
-        Cfg::Parsed(v) => value_has_belay_hook(&v),
-        _ => false,
+    let command = match read_cfg(config) {
+        Cfg::Parsed(v) => belay_hook_command(&v),
+        _ => None,
     };
-    if !cfg_has {
+    let Some(command) = command else {
         return false;
-    }
-    // Consent must also exist (any allowlisted pre_tool_call command carrying
-    // the marker), else the hook silently never fires.
+    };
+    // Consent must exist for the EXACT SAME command string. Hermes registers a
+    // hook only when the allowlist has an (event, command) pair matching exactly
+    // (agent/shell_hooks.py::_is_allowlisted), so a drifted command that still
+    // merely contains "belay" (e.g. belay.exe moved to a new path on reinstall,
+    // updating config but leaving a stale allowlist entry) would read as
+    // protected here yet never actually fire. Require the exact match.
     let allow = allowlist_path_for(config);
     match std::fs::read_to_string(&allow)
         .ok()
@@ -299,10 +308,7 @@ pub fn hermes_protected(config: &Path) -> bool {
             .map(|arr| {
                 arr.iter().any(|e| {
                     e.get("event").and_then(|x| x.as_str()) == Some(HOOK_EVENT)
-                        && e.get("command")
-                            .and_then(|x| x.as_str())
-                            .map(|c| c.contains(MARKER))
-                            .unwrap_or(false)
+                        && e.get("command").and_then(|x| x.as_str()) == Some(command.as_str())
                 })
             })
             .unwrap_or(false),
@@ -552,6 +558,28 @@ mod tests {
             "config hook without consent must NOT read as protected"
         );
         add_allowlist_entry(&allowlist_path_for(&cfg), &cmd()).unwrap();
+        assert!(hermes_protected(&cfg));
+    }
+
+    #[test]
+    fn protected_requires_exact_command_match_not_just_marker() {
+        let dir = tempdir().unwrap();
+        let cfg = dir.path().join("config.yaml");
+        fs::write(&cfg, "{}").unwrap();
+        backup_if_absent(&cfg);
+        write_fresh(&cfg, &cmd()).unwrap();
+        let allow = allowlist_path_for(&cfg);
+        // A DRIFTED allowlist entry: still carries the "belay" marker but a
+        // different command string (e.g. belay.exe moved to a new path on
+        // reinstall). Hermes registers only on an exact (event, command) match,
+        // so this must NOT read as protected.
+        add_allowlist_entry(&allow, "/old/path/belay hook hermes-pretool").unwrap();
+        assert!(
+            !hermes_protected(&cfg),
+            "a drifted (marker-but-not-exact) allowlist entry must NOT read as protected"
+        );
+        // The exact command matching the config hook DOES.
+        add_allowlist_entry(&allow, &cmd()).unwrap();
         assert!(hermes_protected(&cfg));
     }
 }

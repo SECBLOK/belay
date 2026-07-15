@@ -667,10 +667,11 @@ pub fn find_goose(home: Option<&str>) -> Option<DetectedAgent> {
 
 /// Port of `agents/openclaw.py::find(home)`.
 ///
-/// Detection: `~/.openclaw` dir exists.
+/// Detection: `~/.openclaw` dir exists (honors `$OPENCLAW_STATE_DIR`).
 /// Config: `~/.openclaw/openclaw.json` if it exists.
-/// Risky flags: `"full-host"` if that string appears in openclaw.json.
-/// Interception: "mcp-proxy".
+/// Risky flags: real `tools.exec` keys (`exec.security=full`, `exec.ask=off`,
+///   `exec.host=host`, `autoAllowSkills=true`) via `gates::openclaw_risky_flags`.
+/// Interception: "exec-policy" (Belay tightens `exec-approvals.json`).
 pub fn find_openclaw(home: Option<&str>) -> Option<DetectedAgent> {
     // Honor $OPENCLAW_STATE_DIR (falls back to ~/.openclaw) when no explicit
     // override is given, so we detect relocated installs.
