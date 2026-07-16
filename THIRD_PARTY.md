@@ -82,25 +82,27 @@ verification. Reimplemented in pure Rust in `daemon/src/distro.rs`
 and wired into the firewall apply path (`daemon/src/firewall/mod.rs`
 `precheck_privilege`) — all via file reads / path existence, never `exec`.
 
-## Bundled third-party YARA rules (prototype)
+## Bundled third-party YARA rules
 
 Unlike the sections above, these permissively-licensed YARA rule sets are
-**bundled verbatim** (curated, compile-vetted subsets) and compiled into the
-malware pack by `scanner/src/analyzers/malware.rs` (each in its own `yara-x`
-namespace). Rule bodies are unmodified upstream content; each file retains its
-upstream copyright/license header and per-rule `meta` (author/reference/hash).
-See the design in
-`docs/superpowers/specs/2026-07-16-thirdparty-permissive-rules-prototype-design.md`.
+**bundled verbatim** (the FULL upstream sets, compile-filtered against yara-x —
+rules that do not compile on yara-x's module set, or that collide, are dropped)
+and compiled at build time into the malware pack (each in its own `yara-x`
+namespace; `scanner/build.rs`). Rule bodies are unmodified upstream content; each
+file retains its upstream copyright/license header and per-rule `meta`
+(author/reference/hash).
 
 ### ReversingLabs YARA Rules — https://github.com/reversinglabs/reversinglabs-yara-rules (MIT)
 
 - Copyright (c) 2020 ReversingLabs. Full license text: `LICENSES/MIT.txt`.
-- Bundled file: `rules/malware/thirdparty/reversinglabs-curated.yar` — a curated
-  subset of the `infostealer` family rules (Win32/Win64), unmodified.
+- Bundled file: `rules/malware/thirdparty/reversinglabs.yar` — the full rule set
+  (~1240 rules across backdoor/ransomware/trojan/infostealer/etc.), compile-filtered,
+  unmodified. Pinned to commit `e0a0be54aa1e` (branch `develop`).
 
 ### GCTI — Google Cloud Threat Intelligence — https://github.com/chronicle/GCTI (Apache-2.0)
 
 - Copyright Google LLC. Full license text: `LICENSES/Apache-2.0.txt`.
-- Bundled file: `rules/malware/thirdparty/gcti-curated.yar` — a curated subset of
-  the Cobalt Strike + Sliver detection rules, unmodified. (Upstream repo archived
+- Bundled file: `rules/malware/thirdparty/gcti.yar` — the full detection set
+  (~91 rules, Cobalt Strike + Sliver), compile-filtered, unmodified. Pinned to commit
+  `1c5fd42b1895` (branch `main`). (Upstream repo archived
   2025-05; frozen.)

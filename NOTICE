@@ -76,9 +76,9 @@ Cargo metadata / dependency manifests and `cargo deny check licenses` (config in
   detect-secrets. No third-party rule file was copied, so no third-party
   attribution applies.
 
-* Bundled third-party malware YARA rules (prototype) — curated, compile-vetted
-  subsets bundled VERBATIM under `rules/malware/thirdparty/` and compiled into the
-  malware pack (each in its own yara-x namespace):
+* Bundled third-party malware YARA rules — the FULL upstream sets, compile-filtered
+  against yara-x, bundled VERBATIM under `rules/malware/thirdparty/` and compiled at
+  build time into the malware pack (each in its own yara-x namespace):
     - ReversingLabs YARA Rules (MIT, Copyright (c) 2020 ReversingLabs) —
       https://github.com/reversinglabs/reversinglabs-yara-rules — license text at
       `LICENSES/MIT.txt`.

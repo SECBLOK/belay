@@ -5,6 +5,14 @@ pub mod exclude;
 pub mod host_adapter;
 pub mod judge;
 pub mod llm;
+// Shared with `build.rs` via `include!` (see that file and pack_build.rs's own
+// doc comment) — compiled here too, but only under `#[cfg(test)]`, so
+// `analyzers::malware`'s unit tests can exercise `compile_pack`'s fail-soft
+// third-party-skip behavior directly without duplicating the logic. The
+// runtime `get_bundled_malware_rules()` path no longer calls this at all; it
+// deserializes the blob `build.rs` already compiled.
+#[cfg(test)]
+mod pack_build;
 pub mod pipeline;
 pub mod reputation;
 pub mod resolve;

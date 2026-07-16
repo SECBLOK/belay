@@ -16,7 +16,14 @@ tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 belayd = { path = "../daemon", default-features = true }
 indexmap = "2"
-yara-x = "1.19"
+# `native-code-serialization`: `Rules::deserialize` (see `analyzers::malware`)
+# only skips the ~12s Cranelift WASM->native recompile when the blob it reads
+# was itself serialized with this feature enabled (it embeds the already-
+# compiled native module instead of just the portable WASM bytecode). Needed
+# here too, not just in [build-dependencies], because with a non-cross build
+# Cargo's resolver unifies features for the same dependency across the normal
+# and build-dependency graphs (host == target) into one compiled crate.
+yara-x = { version = "1.19", features = ["native-code-serialization"] }
 tree-sitter = "0.22"
 tree-sitter-python = "0.21"
 regex = "1"
@@ -32,6 +39,15 @@ infer = "0.16"
 [[bin]]
 name = "scanner"
 path = "src/bin/scanner.rs"
+
+[build-dependencies]
+# Same version + `native-code-serialization` feature as the normal dependency
+# above — build.rs compiles + serializes the bundled malware pack at build
+# time (see build.rs and src/pack_build.rs) so the runtime OnceLock only has
+# to deserialize, not recompile ~1331 rules (or even just re-JIT the WASM
+# bytecode to native code, which `native-code-serialization` also skips) on
+# every process start.
+yara-x = { version = "1.19", features = ["native-code-serialization"] }
 
 [dev-dependencies]
 httpmock = "0.7"
