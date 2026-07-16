@@ -129,6 +129,17 @@ it("shows desktop-only note (not a raw error) when runScan rejects with desktop-
   expect(screen.queryByText(/runScan:/)).toBeNull();
 });
 
+it("shows the on-demand malware-scan info block in the idle state", () => {
+  render(<Scan />);
+  expect(screen.getByText(/Malware scan \(on-demand\)/i)).toBeTruthy();
+});
+
+it("never claims real-time or always-on antivirus protection", () => {
+  render(<Scan />);
+  expect(screen.queryByText(/real-time/i)).toBeNull();
+  expect(screen.queryByText(/always-on/i)).toBeNull();
+});
+
 it("submits via Enter key", async () => {
   mockRunScan.mockResolvedValue({
     score: 0,

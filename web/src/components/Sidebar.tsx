@@ -321,6 +321,20 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
           </span>
         )}
       </button>
+
+      {/* AGPL §13 network-use source affordance — see README.md "License &
+          source availability". Static link (does not call /api/source);
+          collapsed only when the sidebar itself is collapsed, to stay minimal. */}
+      {!collapsed && (
+        <a
+          href="https://github.com/SECBLOK/belay"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block px-3 pb-3 text-[10px] text-[#8E8E93] hover:text-[#636366] text-center transition-colors"
+        >
+          Source (AGPL)
+        </a>
+      )}
     </aside>
   );
 }

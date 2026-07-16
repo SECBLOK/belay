@@ -75,14 +75,25 @@ pub async fn fan_out(file_cache: FileCache, analyzers: Vec<Analyzer>) -> Vec<Fin
 /// to avoid duplication (Phase 11 Task 5 dedup: the duplicate `const TOOL_VERSION`
 /// that was previously in this file has been removed; it is now imported from
 /// `crate::TOOL_VERSION` which is `pub(crate)` in lib.rs).
-pub async fn run_scan(input_path: &str, analyzers: Vec<Analyzer>) -> Result<ScanResult> {
+///
+/// `excludes`: glob patterns (relative to the resolved scan root) dropped from
+/// both the `FileCache` fed to `analyzers` and the byte-level malware pass.
+/// See `crate::exclude` for the matching semantics.
+pub async fn run_scan(
+    input_path: &str,
+    analyzers: Vec<Analyzer>,
+    excludes: &[String],
+) -> Result<ScanResult> {
     use crate::{context, resolve, sarif, score, TOOL_VERSION};
 
     // resolve() determines the canonical local path and source type.
     let (path, source_type) = resolve::resolve(input_path)?;
 
     // build_context walks the resolved directory (returns Context, not Result).
-    let ctx = context::build_context(&path);
+    let mut ctx = context::build_context(&path);
+
+    // Drop excluded paths before any analyzer sees them.
+    crate::exclude::filter_file_cache(&mut ctx.file_cache, excludes);
 
     // Fan out analyzers concurrently; results merged in registration order.
     let mut findings = fan_out(ctx.file_cache, analyzers).await;
@@ -95,6 +106,14 @@ pub async fn run_scan(input_path: &str, analyzers: Vec<Analyzer>) -> Result<Scan
             f.location.as_ref().map(|l| l.file.as_str()),
         )
     });
+
+    // Byte-level malware pass (raw filesystem bytes off the resolved scan
+    // root; not a FileCache analyzer, see
+    // `analyzers::malware::scan_malware_pass` docs). Merged in after the
+    // devops-noise filter above on purpose: that filter is for benign
+    // mentions of shell patterns outside runtime files, not for genuine
+    // malware signatures/YARA matches.
+    findings.extend(crate::analyzers::malware::scan_malware_pass(&path, excludes));
 
     // Score findings.
     let score_out = score::score(&findings, ctx.has_executable_scripts);
@@ -134,10 +153,13 @@ pub async fn run_scan(input_path: &str, analyzers: Vec<Analyzer>) -> Result<Scan
 ///   those the LLM considers benign (confidence ≥ 0.6) are dropped.
 ///
 /// SARIF tool version is `crate::TOOL_VERSION` ("0.1.0") for SARIF parity.
+///
+/// `excludes`: same glob-exclude list as `run_scan` (see `crate::exclude`).
 pub async fn run_scan_with_llm(
     input_path: &str,
     analyzers: Vec<Analyzer>,
     llm: Option<&dyn crate::llm::LlmProvider>,
+    excludes: &[String],
 ) -> Result<ScanResult> {
     use crate::{context, judge, resolve, sarif, score, TOOL_VERSION};
 
@@ -145,7 +167,13 @@ pub async fn run_scan_with_llm(
     let (path, source_type) = resolve::resolve(input_path)?;
 
     // build_context walks the resolved directory (returns Context, not Result).
-    let ctx = context::build_context(&path);
+    let mut ctx = context::build_context(&path);
+
+    // Drop excluded paths before any analyzer sees them. Filtered once, in
+    // place, so both the fan_out feed below and the `judge::meta_filter` call
+    // (which reads `ctx.file_cache` again for LLM context) see the same
+    // reduced set.
+    crate::exclude::filter_file_cache(&mut ctx.file_cache, excludes);
 
     // Fan out analyzers concurrently; results merged in registration order.
     let mut raw_findings = fan_out(ctx.file_cache.clone(), analyzers).await;
@@ -159,6 +187,14 @@ pub async fn run_scan_with_llm(
             f.location.as_ref().map(|l| l.file.as_str()),
         )
     });
+
+    // Byte-level malware pass (raw filesystem bytes off the resolved scan
+    // root; not a FileCache analyzer, see
+    // `analyzers::malware::scan_malware_pass` docs). Merged in after the
+    // devops-noise filter above on purpose, same as `run_scan`: that filter
+    // is for benign mentions of shell patterns outside runtime files, not
+    // for genuine malware signatures/YARA matches.
+    raw_findings.extend(crate::analyzers::malware::scan_malware_pass(&path, excludes));
 
     // LLM severity gate: keeps HIGH/CRITICAL unconditionally; sub-HIGH findings
     // are dropped when the LLM says !confirmed && confidence >= 0.6.

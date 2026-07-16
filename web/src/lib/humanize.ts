@@ -14,6 +14,7 @@ const PREFIX_MAP: Record<string, string> = {
   correlate:   "Combined risky steps in one session",
   bypass:      "Tried to bypass protection",
   posture:     "A security weakness on your computer",
+  honeypot:    "Read a decoy secret (canary tripped)",
 };
 
 const FALLBACK = "An action that needs your review";
@@ -28,6 +29,9 @@ export function verdictWord(verdict: string): string {
   if (verdict === "deny") return "Blocked";
   if (verdict === "ask") return "Waiting";
   if (verdict === "allow") return "Allowed";
+  // Canary/honeytoken trip: a decoy was READ and detected post-hoc. Deliberately
+  // NOT "Blocked" — Belay saw it but did not prevent it (detection-only tier).
+  if (verdict === "detected") return "Detected · not blocked";
   return verdict;
 }
 

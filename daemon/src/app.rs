@@ -37,6 +37,17 @@ pub fn run_daemon() {
     run_daemon_with_shutdown(Arc::new(AtomicBool::new(false)));
 }
 
+/// True only when this process is the LocalSystem SCM service (`<exe> daemon
+/// --scm`). Phase-2 Tier-2 subsystems (ETW real-time detect, WFP egress block)
+/// MUST be gated on this: they need the service's LocalSystem privilege and the
+/// admin-once install, and must NEVER start in the ordinary per-user console
+/// daemon. The SCM always launches the service with `--scm` in its argv
+/// (`win_service.rs::register_service`, `launch_arguments`), and `std::env::args`
+/// reflects the real OS command line regardless of clap having parsed it.
+pub fn running_as_service() -> bool {
+    std::env::args().any(|a| a == "--scm")
+}
+
 /// Same as [`run_daemon`] but honours a shared `shutdown` signal: when it is
 /// set (and the accept loop is woken — see `ipc::serve_mode_with_shutdown`), the
 /// serve loop returns and this function returns instead of running forever. The
@@ -115,6 +126,91 @@ pub fn run_daemon_with_shutdown(shutdown: Arc<AtomicBool>) {
     #[cfg(not(feature = "ebpf"))]
     {
         eprintln!("[belayd] eBPF disabled (built without ebpf feature) — hook/proxy enforcement only");
+    }
+
+    // Phase-1 Windows honeytoken canary (Tier 1 — no admin, no driver). The
+    // Windows counterpart of the eBPF block above: same shape (plant honeypot →
+    // observe → classify_access → react), but the *source* is a last-access poll
+    // instead of a kernel ring buffer. This is the only signal Belay can produce
+    // on the CLOSED desktop apps (Claude Desktop, ChatGPT/Codex desktop), since
+    // the target app reads the decoy itself — no hook, no privilege. DETECTION
+    // ONLY: it records the read, it cannot prevent it (see watch_win.rs).
+    #[cfg(windows)]
+    {
+        use crate::honeypot::{watch_win, Honeypot};
+
+        match Honeypot::plant(&crate::paths::data_dir()) {
+            Ok(mut hp) => {
+                // Placement = coverage. The baseline decoys live under
+                // %PROGRAMDATA%\Belay, which the desktop apps never scan; ALSO
+                // plant one where an agent actually roams (the user profile) so a
+                // real credential-scan trips it. Best-effort — a failure here just
+                // narrows coverage, never blocks daemon startup.
+                if let Some(home) = std::env::var_os("USERPROFILE") {
+                    let decoy = std::path::Path::new(&home).join(".env");
+                    if let Err(e) = hp.plant_decoy_at(&decoy) {
+                        eprintln!("[belayd] canary extra-decoy plant failed ({}): {e}", decoy.display());
+                    }
+                }
+                let paths = hp.canary_paths.clone();
+                eprintln!(
+                    "[belayd] canary armed (detection-only): {} decoy path(s) watched",
+                    paths.len()
+                );
+                let mut watcher = watch_win::CanaryWatcher::new(&paths);
+                std::thread::spawn(move || loop {
+                    for ev in watcher.poll() {
+                        if let Some(verdict) = hp.classify_access(&ev) {
+                            watch_win::record_canary_trip(&ev, &verdict);
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                });
+            }
+            Err(e) => eprintln!("[belayd] canary disabled — could not plant decoys: {e}"),
+        }
+    }
+
+    // Phase-2 Tier-2: ETW real-time DETECT — SERVICE-ONLY (needs LocalSystem for a
+    // kernel real-time session; the per-user console daemon must never start it).
+    // Mirrors the eBPF block: open session → drain records → decode → classify →
+    // honest detect-row. DETECT-ONLY (ETW cannot block); the read/exec/connect has
+    // already completed. Activates end-to-end once TDH path extraction fills
+    // `RawEtwRecord.detail` (see etw::session TODO(tdh)); until then records flow
+    // but decode drops empty-detail ones, so no false rows.
+    #[cfg(windows)]
+    if running_as_service() {
+        use crate::engine::{evaluate_event, types::SessionState};
+        use crate::etw::{decode, EtwSession};
+        use crate::honeypot::Honeypot;
+
+        match EtwSession::open() {
+            Ok(session) => {
+                eprintln!("[belayd] ETW real-time detect armed (service, detection-only)");
+                let (tx, rx) = std::sync::mpsc::channel();
+                let etw_shutdown = shutdown.clone();
+                std::thread::spawn(move || session.run(tx, etw_shutdown));
+
+                let hp = Honeypot::plant(&crate::paths::data_dir()).ok();
+                std::thread::spawn(move || {
+                    let mut state = SessionState::new("etw");
+                    while let Ok(rec) = rx.recv() {
+                        let Some(ev) = decode(&rec) else { continue };
+                        let verdict = hp
+                            .as_ref()
+                            .and_then(|h| h.classify_access(&ev))
+                            .unwrap_or_else(|| evaluate_event(&ev, &mut state));
+                        // Only surface findings (skip benign Allow verdicts).
+                        if verdict.decision != crate::engine::types::Decision::Allow {
+                            crate::etw::record_detection(&ev, &verdict);
+                        }
+                    }
+                });
+            }
+            Err(e) => eprintln!(
+                "[belayd] ETW detect disabled (open failed: {e}) — need LocalSystem/admin"
+            ),
+        }
     }
 
     eprintln!("belayd: listening on {}", path.display());

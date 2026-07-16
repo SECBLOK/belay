@@ -28,6 +28,13 @@ enum Commands {
         /// Output format
         #[arg(long, value_enum, default_value_t = Format::Json)]
         format: Format,
+        /// Exclude paths matching this glob (relative to the scan root).
+        /// Repeatable. See `scanner::exclude` for matching semantics.
+        #[arg(long = "exclude")]
+        exclude: Vec<String>,
+        /// Skip the on-demand malware pass (it runs by default).
+        #[arg(long = "no-malware", default_value_t = false)]
+        no_malware: bool,
     },
 }
 
@@ -40,12 +47,17 @@ enum Format {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Scan { target, format } => {
+        Commands::Scan {
+            target,
+            format,
+            exclude,
+            no_malware,
+        } => {
             let fmt = match format {
                 Format::Json => "json",
                 Format::Sarif => "sarif",
             };
-            scanner::run_cli(&target, fmt)
+            scanner::run_cli(&target, fmt, &exclude, !no_malware)
         }
     }
 }

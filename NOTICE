@@ -76,6 +76,18 @@ Cargo metadata / dependency manifests and `cargo deny check licenses` (config in
   detect-secrets. No third-party rule file was copied, so no third-party
   attribution applies.
 
+* Bundled third-party malware YARA rules (prototype) — curated, compile-vetted
+  subsets bundled VERBATIM under `rules/malware/thirdparty/` and compiled into the
+  malware pack (each in its own yara-x namespace):
+    - ReversingLabs YARA Rules (MIT, Copyright (c) 2020 ReversingLabs) —
+      https://github.com/reversinglabs/reversinglabs-yara-rules — license text at
+      `LICENSES/MIT.txt`.
+    - GCTI / Google Cloud Threat Intelligence (Apache-2.0, Copyright Google LLC) —
+      https://github.com/chronicle/GCTI — license text at `LICENSES/Apache-2.0.txt`.
+  Rule bodies are unmodified upstream content with their copyright/license headers
+  retained. Both licenses are permissive and compatible with the project's
+  AGPL-3.0-or-later distribution. See THIRD_PARTY.md for details.
+
 * Bundled advisory data (`daemon/data/advisories.json`) — vulnerability data
   derived from the Debian Security Tracker.
       Source:    https://security-tracker.debian.org/tracker/data/json
@@ -103,6 +115,10 @@ Cargo metadata / dependency manifests and `cargo deny check licenses` (config in
       Source:    https://osv.dev (per-ecosystem feeds at
                  https://osv-vulnerabilities.storage.googleapis.com/)
       OSV data:  Licensed CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/).
+                 The license text is included at `LICENSES/CC-BY-4.0.txt`. No
+                 file currently shipped by this project is itself licensed
+                 CC-BY-4.0 (only the Ubuntu CC-BY-SA-4.0 slice below is
+                 bundled); the text is included for reference/completeness.
       Ubuntu slice: derived from Canonical's Ubuntu Security Notices OSV feed
                  (https://github.com/canonical/ubuntu-security-notices),
                  Copyright Canonical Ltd., licensed CC-BY-SA-4.0. The license
@@ -112,3 +128,10 @@ Cargo metadata / dependency manifests and `cargo deny check licenses` (config in
   schema; the bundles are not a verbatim copy of the upstream data files. Per
   CC-BY-SA-4.0, the Ubuntu-derived data and any adaptations are made available
   under the same license; attribution is provided here.
+
+* Bundled first-party malware rules (`rules/malware/belay-baseline.yar`) —
+  Belay-authored, licensed AGPL-3.0-or-later, with a provenance header in the
+  file itself. The EICAR test string used in scanner self-tests is the public,
+  industry-standard AV test string and carries no license obligation. New
+  dependency `infer` (MIT) and its transitive dependency `cfb` (MIT) are both
+  permissively licensed.

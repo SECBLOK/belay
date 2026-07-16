@@ -19,6 +19,7 @@ pub mod distro;
 pub mod ebpf;
 pub mod egress;
 pub mod engine;
+pub mod etw;
 pub mod finding;
 #[cfg(fw)]
 pub mod firewall;
@@ -36,3 +37,6 @@ pub mod service;
 pub mod sshguard;
 pub mod state;
 pub mod vuln;
+// WFP egress block is native Win32 (uses the `windows` crate) — Windows-only.
+#[cfg(windows)]
+pub mod wfp;

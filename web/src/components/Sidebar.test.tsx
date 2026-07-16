@@ -107,3 +107,13 @@ describe("Sidebar status footer", () => {
   });
 });
 
+describe("Sidebar AGPL source link", () => {
+  it("renders a 'Source (AGPL)' link to the canonical repository", () => {
+    renderSidebar();
+    const link = screen.getByText("Source (AGPL)").closest("a");
+    expect(link).toBeTruthy();
+    expect(link?.getAttribute("href")).toBe("https://github.com/SECBLOK/belay");
+    expect(link?.getAttribute("target")).toBe("_blank");
+  });
+});
+

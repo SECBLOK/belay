@@ -158,16 +158,28 @@ export default function Scan() {
 
       {/* States */}
       {state.kind === "idle" && (
-        <div className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1.5" style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}>
-          <p className="text-[#1C1C1E] font-medium">What does scanning do?</p>
-          <p>
-            Check a folder, file, or repository for risky code before you run it.
-            Belay looks for things like credential theft, destructive commands,
-            and hidden network calls.
-          </p>
-          <p className="text-[#8E8E93] text-xs pt-1">
-            Enter a local path or GitHub URL above to get started.
-          </p>
+        <div className="space-y-4">
+          <div className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1.5" style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}>
+            <p className="text-[#1C1C1E] font-medium">What does scanning do?</p>
+            <p>
+              Check a folder, file, or repository for risky code before you run it.
+              Belay looks for things like credential theft, destructive commands,
+              and hidden network calls.
+            </p>
+            <p className="text-[#8E8E93] text-xs pt-1">
+              Enter a local path or GitHub URL above to get started.
+            </p>
+          </div>
+
+          <div className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1.5" style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}>
+            <p className="text-[#1C1C1E] font-medium">Malware scan (on-demand)</p>
+            <p>
+              Every scan also runs an on-demand byte-level malware pass over
+              the target (a bundled YARA rule set). This check runs only when
+              you start a scan — it is not a continuously-running antivirus
+              service watching your files in the background.
+            </p>
+          </div>
         </div>
       )}
 

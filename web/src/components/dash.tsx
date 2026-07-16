@@ -54,10 +54,18 @@ export const Empty = ({ children }: { children: ReactNode }) => (
 
 // verdict → semantic color, and category → severity-tier mapping (shared by
 // the Findings and Timeline event views).
-export const VERDICT_C: Record<string, string> = { deny: C.deny, ask: C.ask, allow: C.allow };
+// `detected` = a canary/honeytoken trip: something READ a decoy secret. It is
+// NOT a block (Belay only saw it, post-hoc), so it gets its own violet accent —
+// deliberately not the red `deny` — and is never styled as "Blocked" or counted
+// as a deny. Honesty bar: never imply a detection-only signal prevented anything.
+export const C_DETECTED = "#7A3FBF";
+export const VERDICT_C: Record<string, string> = {
+  deny: C.deny, ask: C.ask, allow: C.allow, detected: C_DETECTED,
+};
 const SEV_RANK: Record<string, number> = { Critical: 3, High: 2, Medium: 1, Info: 0 };
 const CAT_SEV: Record<string, { label: string; color: string }> = {
   rce: { label: "Critical", color: C.deny }, destructive: { label: "Critical", color: C.deny },
+  honeypot: { label: "Critical", color: C_DETECTED },
   persistence: { label: "High", color: "#B55A10" }, persist: { label: "High", color: "#B55A10" },
   secrets: { label: "High", color: "#B55A10" },
   egress: { label: "Medium", color: C.ask }, tamper: { label: "Medium", color: C.ask },

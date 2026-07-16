@@ -108,6 +108,18 @@ enum Cmd {
         /// Output format: json (default) or sarif.
         #[arg(long, default_value = "json")]
         format: String,
+        /// Exclude paths matching this glob (relative to the scan root,
+        /// forward slashes, e.g. `rules/malware/**`) from both the
+        /// byte-level malware pass and the text analyzers. Repeatable.
+        /// This is for naming known-good paths (e.g. Belay's own signature
+        /// database, which self-matches its own rules) — never a substitute
+        /// for fixing a real false positive some other way, and never an
+        /// extension-based skip: it only hides paths the operator names.
+        #[arg(long = "exclude")]
+        exclude: Vec<String>,
+        /// Skip the on-demand malware pass (it runs by default).
+        #[arg(long = "no-malware", default_value_t = false)]
+        no_malware: bool,
     },
     /// Run the fleet/web axum server + SSE.
     Serve {
@@ -347,6 +359,10 @@ enum Cmd {
         /// Scan scope: home (default), downloads, or full.
         #[arg(long, default_value = "home")]
         scope: String,
+        /// Exclude paths matching this glob (relative to the scan root). Repeatable —
+        /// e.g. `--exclude 'tool/**' --exclude '**/node_modules/**'`.
+        #[arg(long = "exclude")]
+        exclude: Vec<String>,
     },
 
     /// Quarantine management (Task C8).
@@ -657,7 +673,7 @@ fn run_quarantine(action: &str, id: Option<&str>) -> ExitCode {
 ///
 /// Walks the scope directory, collects files, and runs `scan_malware_yara`
 /// (bundled rules, no kernel requirements).  Prints a findings table.
-fn run_host_scan(scope: &str) -> ExitCode {
+fn run_host_scan(scope: &str, excludes: &[String]) -> ExitCode {
     use scanner::analyzers::malware::scan_malware_yara;
 
     let root = match scope {
@@ -681,9 +697,27 @@ fn run_host_scan(scope: &str) -> ExitCode {
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     collect_files_recursive(std::path::Path::new(&root), &mut files, 0);
 
-    println!("Scanned {} file(s).", files.len());
+    // Drop files matching an `--exclude` glob (relative to the scan root).
+    let before = files.len();
+    apply_host_scan_excludes(&mut files, std::path::Path::new(&root), excludes);
+    let excluded = before - files.len();
 
-    let findings = scan_malware_yara(&files, None);
+    if excluded > 0 {
+        println!("Scanned {} file(s) ({excluded} excluded).", files.len());
+    } else {
+        println!("Scanned {} file(s).", files.len());
+    }
+
+    let mut findings = scan_malware_yara(&files, None);
+    // Same context filter as the `belay scan` pipeline: drop broad heuristic
+    // findings (reverse-shell strings, packer signatures) in doc/data/config
+    // contexts; precise signatures (EICAR, hash, malware-family rules) survive.
+    findings.retain(|f| {
+        scanner::analyzers::fileclass::relevant(
+            &f.rule_id,
+            f.location.as_ref().map(|l| l.file.as_str()),
+        )
+    });
     if findings.is_empty() {
         println!("No malware findings.");
         ExitCode::SUCCESS
@@ -724,6 +758,26 @@ fn collect_files_recursive(dir: &std::path::Path, out: &mut Vec<(String, Vec<u8>
             }
         }
     }
+}
+
+/// Remove collected `(path, bytes)` files whose path — relative to `root` — matches an
+/// `--exclude` glob. Matching is relative to the scan root (like `belay scan`), falling
+/// back to the full path when a file is not under `root`. No-op when `excludes` is empty.
+fn apply_host_scan_excludes(
+    out: &mut Vec<(String, Vec<u8>)>,
+    root: &std::path::Path,
+    excludes: &[String],
+) {
+    let Some(globset) = scanner::exclude::build_globset(excludes) else {
+        return;
+    };
+    out.retain(|(p, _)| {
+        let rel = std::path::Path::new(p)
+            .strip_prefix(root)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| p.clone());
+        !globset.is_match(&rel)
+    });
 }
 
 // ─── Task C8 — harden ─────────────────────────────────────────────────────────
@@ -1391,16 +1445,30 @@ async fn main() -> ExitCode {
         }
         Cmd::Hook { event } => belayd::app::run_hook(event.as_deref()), // diverges (never returns)
         Cmd::Gate => belayd::app::gate(),            // diverges (never returns)
-        Cmd::Scan { path, llm, format } => {
+        Cmd::Scan {
+            path,
+            llm,
+            format,
+            exclude,
+            no_malware,
+        } => {
             if llm {
                 // LLM-augmented path: build an env-configured cascade and run
                 // run_scan_with_llm; sub-HIGH findings confirmed benign by the
-                // LLM are dropped before scoring.
+                // LLM are dropped before scoring. The --no-malware toggle is not
+                // threaded into this async pipeline; warn once so the gap is
+                // visible instead of a silent footgun.
+                if no_malware {
+                    eprintln!(
+                        "warning: --no-malware is ignored with --llm (the LLM scan path does not run the malware pass)"
+                    );
+                }
                 let cascade = build_cascade();
                 match scanner::pipeline::run_scan_with_llm(
                     &path,
                     scanner::default_analyzers(),
                     Some(&cascade),
+                    &exclude,
                 )
                 .await
                 {
@@ -1411,8 +1479,8 @@ async fn main() -> ExitCode {
                     }
                 }
             } else {
-                // Deterministic path — unchanged.
-                scanner::run_cli(&path, &format)
+                // Deterministic path.
+                scanner::run_cli(&path, &format, &exclude, !no_malware)
             }
         }
         // Async entrypoint.
@@ -1546,7 +1614,7 @@ async fn main() -> ExitCode {
         } => run_monitor(interval, home.as_deref(), once),
 
         // ─── Task C8 ────────────────────────────────────────────────────────────
-        Cmd::HostScan { scope } => run_host_scan(&scope),
+        Cmd::HostScan { scope, exclude } => run_host_scan(&scope, &exclude),
         Cmd::Quarantine { action, id } => run_quarantine(&action, id.as_deref()),
         Cmd::Harden { action, args } => run_harden(&action, &args),
         Cmd::Vuln {
@@ -2723,6 +2791,29 @@ mod win_service;
 mod tests {
     use super::{Cli, Cmd};
 
+    #[test]
+    fn host_scan_excludes_filter_relative_to_root() {
+        let root = std::path::Path::new("/home/u/Downloads");
+        let mut files: Vec<(String, Vec<u8>)> = vec![
+            ("/home/u/Downloads/tool/linpeas.sh".to_owned(), Vec::new()),
+            ("/home/u/Downloads/report.odt".to_owned(), Vec::new()),
+            ("/home/u/Downloads/sub/keep.bin".to_owned(), Vec::new()),
+        ];
+        super::apply_host_scan_excludes(&mut files, root, &["tool/**".to_owned()]);
+        let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(
+            !paths.iter().any(|p| p.contains("linpeas")),
+            "tool/** should exclude tool/linpeas.sh, got {paths:?}"
+        );
+        assert!(paths.iter().any(|p| p.contains("report.odt")));
+        assert!(paths.iter().any(|p| p.contains("keep.bin")));
+
+        // Empty excludes = no-op.
+        let mut all: Vec<(String, Vec<u8>)> = vec![("/home/u/Downloads/x".to_owned(), Vec::new())];
+        super::apply_host_scan_excludes(&mut all, root, &[]);
+        assert_eq!(all.len(), 1);
+    }
+
     #[cfg(unix)]
     #[test]
     fn chown_helpers_resolve_and_are_safe() {
@@ -2759,6 +2850,39 @@ mod tests {
             matches!(without.cmd, Cmd::Daemon { scm: false }),
             "bare `daemon` must default scm=false"
         );
+    }
+
+    /// `belay scan --exclude` is repeatable and collects every occurrence, in
+    /// order, into `Cmd::Scan::exclude`; a bare `scan` with no `--exclude`
+    /// defaults to an empty vec (nothing excluded).
+    #[test]
+    fn scan_exclude_flag_is_repeatable() {
+        let cli = Cli::try_parse_from([
+            "belay",
+            "scan",
+            "/tmp/x",
+            "--exclude",
+            "rules/malware/**",
+            "--exclude",
+            "scanner/src/analyzers/malware.rs",
+        ])
+        .unwrap();
+        match cli.cmd {
+            Cmd::Scan { exclude, .. } => assert_eq!(
+                exclude,
+                vec![
+                    "rules/malware/**".to_string(),
+                    "scanner/src/analyzers/malware.rs".to_string(),
+                ]
+            ),
+            _ => panic!("expected Scan subcommand"),
+        }
+
+        let bare = Cli::try_parse_from(["belay", "scan", "/tmp/x"]).unwrap();
+        match bare.cmd {
+            Cmd::Scan { exclude, .. } => assert!(exclude.is_empty()),
+            _ => panic!("expected Scan subcommand"),
+        }
     }
 
     #[test]
@@ -2998,6 +3122,16 @@ mod tests {
             vec!["belay", "scan", "/tmp/x", "--format", "sarif"],
             vec!["belay", "scan", "/tmp/x", "--llm"],
             vec!["belay", "scan", "/tmp/x", "--llm", "--format", "sarif"],
+            vec!["belay", "scan", "/tmp/x", "--exclude", "rules/malware/**"],
+            vec![
+                "belay",
+                "scan",
+                "/tmp/x",
+                "--exclude",
+                "rules/malware/**",
+                "--exclude",
+                "scanner/src/analyzers/malware.rs",
+            ],
             vec!["belay", "serve"],
             vec!["belay", "serve", "--addr", "0.0.0.0:9000"],
             vec!["belay", "channels"],

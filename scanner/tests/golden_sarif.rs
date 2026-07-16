@@ -118,7 +118,7 @@ fn golden_sarif_equals_benign_python() {
         .expect("fixtures/python_sarif_benign.json must be valid JSON");
 
     // Run the Rust scanner on the same corpus dir.
-    let result = scanner::run_scan(corpus.to_str().unwrap());
+    let result = scanner::run_scan(corpus.to_str().unwrap(), &[]);
     let rust_sarif = result.sarif;
 
     assert_eq!(
@@ -162,7 +162,7 @@ fn golden_sarif_equals_malicious_python() {
         .expect("fixtures/python_sarif_malicious.json must be valid JSON");
 
     // Run the Rust scanner on the same corpus dir.
-    let result = scanner::run_scan(corpus.to_str().unwrap());
+    let result = scanner::run_scan(corpus.to_str().unwrap(), &[]);
     let rust_sarif = result.sarif;
 
     // Compare rule arrays as sorted multisets to handle potential order differences.

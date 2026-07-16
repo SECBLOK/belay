@@ -1,5 +1,6 @@
 pub mod audit_reader;
 pub mod auth;
+pub mod source;
 pub mod stream;
 
 
@@ -785,7 +786,17 @@ async fn host_quarantine_delete(
 /// callers should wrap it in `spawn_blocking`.
 pub fn run_host_scan_json(scope_dir: &std::path::Path, cap: usize) -> Vec<Value> {
     let files = collect_scan_files(scope_dir, cap);
-    let findings = scanner::analyzers::malware::scan_malware_yara(&files, None);
+    let mut findings = scanner::analyzers::malware::scan_malware_yara(&files, None);
+    // Apply the same context filter the `belay scan` pipeline uses: suppress broad
+    // heuristic malware findings (reverse-shell strings, packer signatures) in
+    // doc/data/config contexts. Precise signatures (EICAR, hash, malware-family
+    // rules) always survive — see `fileclass::relevant` / `is_precise`.
+    findings.retain(|f| {
+        scanner::analyzers::fileclass::relevant(
+            &f.rule_id,
+            f.location.as_ref().map(|l| l.file.as_str()),
+        )
+    });
     let ts = now_rfc3339();
     findings
         .iter()
@@ -837,6 +848,8 @@ pub fn create_app(state: AppState) -> Router {
     let shared = Arc::new(state);
     let router = Router::new()
         .route("/api/health", get(health))
+        // AGPL §13 network-use source affordance (unauthenticated by design).
+        .route("/api/source", get(source::source_info))
         .route("/api/posture", get(posture))
         .route("/api/findings", get(findings))
         .route("/api/sessions", get(sessions_ep))

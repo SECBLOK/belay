@@ -28,8 +28,19 @@ jobs:
       - name: Build belay (single binary)
         run: cargo build --release --bin belay
 
+      # --exclude names Belay's own bundled malware-signature sources: their
+      # text literally contains the trigger strings the rules search for
+      # (that's what a signature source IS), so scanning them as content
+      # self-matches. This is a targeted, operator-named exclude — not an
+      # extension-based skip — so it does not weaken detection on any other
+      # file in the repo (or, more importantly, on any file a real user scans
+      # with `belay scan --exclude`).
       - name: Scan repository
-        run: ./target/release/belay scan . --format sarif > belay.sarif || true
+        run: >
+          ./target/release/belay scan . --format sarif
+          --exclude 'rules/malware/**'
+          --exclude 'scanner/src/analyzers/malware.rs'
+          > belay.sarif || true
 
       # Upload to GitHub code scanning (Security tab). Best-effort: requires code
       # scanning enabled on the repo; `actions: read` (above) lets the action read

@@ -15,6 +15,7 @@
   },
   "bundle": {
     "active": true,
+    "license": "AGPL-3.0-or-later",
     "targets": ["appimage", "deb", "nsis", "dmg", "app"],
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/belay"],

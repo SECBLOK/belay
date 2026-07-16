@@ -52,11 +52,11 @@ async fn keep_all_equals_deterministic_baseline() {
     };
 
     for dir in CORPUS_DIRS {
-        let base = run_scan(dir, default_analyzers())
+        let base = run_scan(dir, default_analyzers(), &[])
             .await
             .unwrap_or_else(|e| panic!("run_scan failed for {dir}: {e}"));
 
-        let keep = run_scan_with_llm(dir, default_analyzers(), Some(&mock05))
+        let keep = run_scan_with_llm(dir, default_analyzers(), Some(&mock05), &[])
             .await
             .unwrap_or_else(|e| panic!("run_scan_with_llm failed for {dir}: {e}"));
 
@@ -87,11 +87,11 @@ async fn drop_low_gates_exactly_sub_high_severity() {
     };
 
     for dir in CORPUS_DIRS {
-        let base = run_scan(dir, default_analyzers())
+        let base = run_scan(dir, default_analyzers(), &[])
             .await
             .unwrap_or_else(|e| panic!("run_scan failed for {dir}: {e}"));
 
-        let drop = run_scan_with_llm(dir, default_analyzers(), Some(&mock07))
+        let drop = run_scan_with_llm(dir, default_analyzers(), Some(&mock07), &[])
             .await
             .unwrap_or_else(|e| panic!("run_scan_with_llm failed for {dir}: {e}"));
 
@@ -182,7 +182,7 @@ async fn drop_low_synthetic_medium_is_actually_dropped() {
     let dir = "tests/corpus_scan/malicious/exfil_server";
 
     // --- baseline: includes the synthetic Medium finding ---
-    let base = run_scan(dir, analyzers_with_synthetic_medium())
+    let base = run_scan(dir, analyzers_with_synthetic_medium(), &[])
         .await
         .unwrap_or_else(|e| panic!("run_scan failed for {dir}: {e}"));
 
@@ -208,7 +208,7 @@ async fn drop_low_synthetic_medium_is_actually_dropped() {
             confidence: 0.5,
         },
     };
-    let keep = run_scan_with_llm(dir, analyzers_with_synthetic_medium(), Some(&mock05))
+    let keep = run_scan_with_llm(dir, analyzers_with_synthetic_medium(), Some(&mock05), &[])
         .await
         .unwrap_or_else(|e| panic!("run_scan_with_llm (keep) failed for {dir}: {e}"));
 
@@ -226,7 +226,7 @@ async fn drop_low_synthetic_medium_is_actually_dropped() {
             confidence: 0.7,
         },
     };
-    let drop = run_scan_with_llm(dir, analyzers_with_synthetic_medium(), Some(&mock07))
+    let drop = run_scan_with_llm(dir, analyzers_with_synthetic_medium(), Some(&mock07), &[])
         .await
         .unwrap_or_else(|e| panic!("run_scan_with_llm (drop) failed for {dir}: {e}"));
 

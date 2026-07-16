@@ -872,7 +872,7 @@ pub async fn ensure_daemon() {
 // after the user approves it, so the UI re-queries get_boot_start afterwards.
 
 /// True if Belay's boot-start service is currently installed/enabled. Read-only,
-/// no privilege. Paths mirror aidefender.rs (run_install_service /
+/// no privilege. Paths mirror src/bin/belay.rs (run_install_service /
 /// uninstall_boot_service) and daemon/src/service.rs.
 #[cfg(all(feature = "tauri", feature = "tokio"))]
 async fn boot_start_enabled() -> bool {

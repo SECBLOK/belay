@@ -19,7 +19,7 @@ edition = "2021"
 build = "build.rs"
 license = "AGPL-3.0-or-later"
 description = "Belay — single unified binary (daemon/hook/gate/scan/serve/channels)"
-# Only one Rust source file lives under src/ (src/bin/aidefender.rs). The Python
+# Only one Rust source file lives under src/ (src/bin/belay.rs). The Python
 # package that formerly occupied the rest of src/ has been deleted (zero-Python
 # product). Auto-discovery of other target kinds stays disabled so Cargo never
 # treats a stray file as a lib/example/etc.
@@ -31,7 +31,7 @@ autobenches = false
 
 [[bin]]
 name = "belay"
-path = "src/bin/aidefender.rs"
+path = "src/bin/belay.rs"
 
 [features]
 # The notification-channel crate (Telegram/Discord/WhatsApp) is a library that

@@ -25,8 +25,36 @@ permissions:
   contents: write
 
 jobs:
+  # Refuse to build/publish a release while the native malware-scan feature's
+  # legal sign-off gate (docs/MALWARE_SCAN_LEGAL_GATE.md) is still OPEN. Runs
+  # first, before any target is built, so an OPEN gate fails fast instead of
+  # burning multi-platform build minutes. Mirrors the check in
+  # packaging/export-open-repo.sh (the public-mirror export path).
+  legal-gate:
+    name: legal gate (malware-scan sign-off)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enforce malware-scan legal sign-off gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate_doc="docs/MALWARE_SCAN_LEGAL_GATE.md"
+          # Fail closed: a missing/unreadable gate doc means we cannot confirm sign-off.
+          if [ ! -r "$gate_doc" ]; then
+            echo "::error::refusing to publish: legal-gate doc missing/unreadable ($gate_doc) — cannot confirm malware-scan sign-off"
+            exit 1
+          fi
+          if grep -qE 'Status: OPEN|- \[ \]' "$gate_doc"; then
+            echo "::error::refusing to publish: malware-scan legal gate still OPEN — see docs/MALWARE_SCAN_LEGAL_GATE.md"
+            exit 1
+          fi
+
   build:
     name: build (${{ matrix.target }})
+    needs: legal-gate
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false

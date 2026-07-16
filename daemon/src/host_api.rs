@@ -481,6 +481,93 @@ fn format_rfc3339_utc(secs: u64) -> String {
     format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
+// ── Phase-2 egress-block host commands (WFP-backed) ───────────────────────────
+//
+// The dispatch is abstracted over an `EgressBlocker` trait so it is unit-testable
+// off-Windows with a mock; the production backend (`WfpBlocker`, Windows-only)
+// calls `wfp::block_exe`/`unblock_exe`. Each apply/revert writes a hash-chained
+// audit row. STATIC per-exe egress only — no per-connection ask (Phase 3).
+
+/// Backend that actually installs/removes the egress block. Abstracted so the
+/// command dispatch can be tested without WFP / admin / Windows.
+pub trait EgressBlocker {
+    /// Block the exe's outbound network; returns a filter id to revert with.
+    fn block(&self, exe_path: &str) -> std::io::Result<u64>;
+    /// Remove a block by the id returned from [`block`](Self::block).
+    fn unblock(&self, filter_id: u64) -> std::io::Result<()>;
+}
+
+/// Result of `egress_block_exe` — the id the UI stores to later unblock.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EgressBlockResultDto {
+    pub filter_id: u64,
+}
+
+/// Apply a per-exe egress block and audit it. Pure dispatch over the backend.
+pub fn egress_block_exe(
+    backend: &dyn EgressBlocker,
+    exe_path: &str,
+) -> std::io::Result<EgressBlockResultDto> {
+    let filter_id = backend.block(exe_path)?;
+    audit_egress_action("egress_block", exe_path, Some(filter_id));
+    Ok(EgressBlockResultDto { filter_id })
+}
+
+/// Revert a per-exe egress block and audit it.
+pub fn egress_unblock_exe(
+    backend: &dyn EgressBlocker,
+    filter_id: u64,
+) -> std::io::Result<()> {
+    backend.unblock(filter_id)?;
+    audit_egress_action("egress_unblock", "", Some(filter_id));
+    Ok(())
+}
+
+/// Hash-chained audit row for an egress apply/revert (WFP is a real state change;
+/// record it like any enforcement action).
+fn audit_egress_action(event: &str, exe_path: &str, filter_id: Option<u64>) {
+    use serde_json::json;
+    let row = json!({
+        "ts": crate::host_config::rfc3339_utc(
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default().as_secs()),
+        "event": event,
+        "session": "host",
+        "tool": "wfp",
+        "verdict": "blocked",
+        "reason": if event == "egress_block" {
+            format!("blocked outbound network for {exe_path} (static per-exe WFP filter; not per-connection)")
+        } else {
+            "removed a per-exe egress block".to_string()
+        },
+        "rules": ["egress.wfp_block"],
+        "input": { "exe": exe_path, "filter_id": filter_id },
+        "severity": "info",
+    });
+    let path = crate::paths::audit_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut w) = crate::audit::AuditWriter::open(&path.to_string_lossy()) {
+        let _ = w.append(row);
+    }
+}
+
+/// Production egress backend: user-mode WFP (Windows-only). Requires the LocalSystem
+/// service (admin) to actually add filters — see `wfp::block_exe`.
+#[cfg(windows)]
+pub struct WfpBlocker;
+
+#[cfg(windows)]
+impl EgressBlocker for WfpBlocker {
+    fn block(&self, exe_path: &str) -> std::io::Result<u64> {
+        crate::wfp::block_exe(exe_path)
+    }
+    fn unblock(&self, filter_id: u64) -> std::io::Result<()> {
+        crate::wfp::unblock_exe(filter_id)
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -488,6 +575,58 @@ mod tests {
     use super::*;
     use crate::engine::types::{Decision, Severity};
     use crate::finding::{HostCategory, HostFinding};
+    use std::cell::RefCell;
+
+    // Mock egress backend so the command dispatch is tested with no WFP/admin/Windows.
+    #[derive(Default)]
+    struct MockBlocker {
+        blocked: RefCell<Vec<String>>,
+        unblocked: RefCell<Vec<u64>>,
+        fail: bool,
+    }
+    impl EgressBlocker for MockBlocker {
+        fn block(&self, exe_path: &str) -> std::io::Result<u64> {
+            if self.fail {
+                return Err(std::io::Error::other("mock block failure"));
+            }
+            self.blocked.borrow_mut().push(exe_path.to_string());
+            Ok(4242)
+        }
+        fn unblock(&self, filter_id: u64) -> std::io::Result<()> {
+            if self.fail {
+                return Err(std::io::Error::other("mock unblock failure"));
+            }
+            self.unblocked.borrow_mut().push(filter_id);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn egress_block_dispatch_calls_backend_and_returns_id() {
+        let m = MockBlocker::default();
+        let r = egress_block_exe(&m, r"C:\Program Files\WindowsApps\OpenAI.Codex\ChatGPT.exe")
+            .expect("block should succeed");
+        assert_eq!(r.filter_id, 4242);
+        assert_eq!(m.blocked.borrow().len(), 1);
+        assert!(m.blocked.borrow()[0].ends_with("ChatGPT.exe"));
+    }
+
+    #[test]
+    fn egress_unblock_dispatch_calls_backend_with_id() {
+        let m = MockBlocker::default();
+        egress_unblock_exe(&m, 4242).expect("unblock should succeed");
+        assert_eq!(*m.unblocked.borrow(), vec![4242]);
+    }
+
+    #[test]
+    fn egress_block_propagates_backend_error() {
+        let m = MockBlocker {
+            fail: true,
+            ..Default::default()
+        };
+        assert!(egress_block_exe(&m, "x.exe").is_err());
+        assert!(m.blocked.borrow().is_empty());
+    }
 
     fn make_finding(rule_id: &str, severity: Severity) -> HostFinding {
         HostFinding {

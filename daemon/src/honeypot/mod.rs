@@ -4,6 +4,13 @@ use crate::engine::types::{Decision, Severity, Verdict};
 use crate::observe::{EventKind, ObservedEvent};
 use std::path::{Path, PathBuf};
 
+/// Phase-1 Windows honeytoken canary: a no-admin last-access poller that turns
+/// "a canary file's LastAccessTime moved" into an [`ObservedEvent`] the existing
+/// [`Honeypot::classify_access`] escalates. `#[cfg(windows)]` — the only new
+/// *producer*; everything downstream (classify, audit) is reused.
+#[cfg(windows)]
+pub mod watch_win;
+
 pub struct Honeypot {
     pub dir: PathBuf,
     pub sentinels: Vec<String>,
@@ -39,6 +46,27 @@ impl Honeypot {
                 env.to_string_lossy().into_owned(),
             ],
         })
+    }
+
+    /// Plant an ADDITIONAL decoy `.env` at an arbitrary path and register it as a
+    /// canary. The baseline [`plant`] drops decoys under `%PROGRAMDATA%\Belay`,
+    /// which the closed desktop apps never scan — so placement is coverage. Use
+    /// this to put a decoy where an agent actually roams (a project dir, the user
+    /// profile). Idempotent-ish: re-registers cleanly; the file is (re)written
+    /// with the same sentinel content the egress tripwire already recognizes.
+    pub fn plant_decoy_at(&mut self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        // Reuse the env sentinel so `classify_access`'s egress leg also recognizes
+        // these bytes if they ever leave the host on a Belay-visible surface.
+        let env_sentinel = &self.sentinels[1];
+        std::fs::write(path, format!("{env_sentinel}\nDB_PASSWORD=decoy\n"))?;
+        let s = path.to_string_lossy().into_owned();
+        if !self.canary_paths.contains(&s) {
+            self.canary_paths.push(s);
+        }
+        Ok(())
     }
 
     /// CRITICAL if the event reads a canary path or carries a sentinel byte run.
@@ -146,5 +174,32 @@ mod tests {
             let contents = std::fs::read_to_string(p).unwrap();
             assert!(hp.sentinels.iter().any(|s| contents.contains(s)));
         }
+    }
+
+    #[test]
+    fn plant_decoy_at_registers_and_writes_sentinel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut hp = Honeypot::plant(tmp.path()).unwrap();
+        let before = hp.canary_paths.len();
+        let extra = tmp.path().join("proj").join(".env");
+        hp.plant_decoy_at(&extra).unwrap();
+
+        // Registered as a canary, exactly once.
+        let s = extra.to_string_lossy().into_owned();
+        assert!(hp.canary_paths.contains(&s));
+        assert_eq!(hp.canary_paths.len(), before + 1);
+        // Re-planting the same path does not duplicate the registration.
+        hp.plant_decoy_at(&extra).unwrap();
+        assert_eq!(hp.canary_paths.len(), before + 1);
+
+        // File written with a recognized sentinel, and a read of it classifies.
+        let contents = std::fs::read_to_string(&extra).unwrap();
+        assert!(hp.sentinels.iter().any(|sen| contents.contains(sen)));
+        let ev = ObservedEvent {
+            pid: 0,
+            kind: EventKind::Open,
+            detail: s,
+        };
+        assert!(hp.classify_access(&ev).is_some());
     }
 }

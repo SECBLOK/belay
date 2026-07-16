@@ -33,6 +33,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Refuse to publish a tagged public release while the native malware-scan
+      # feature's legal sign-off gate (docs/MALWARE_SCAN_LEGAL_GATE.md) is still
+      # OPEN. Scoped to tag pushes only (startsWith(github.ref, 'refs/tags/')) —
+      # this job doubles as the ordinary unsigned PR regression build, which must
+      # keep working while the gate is open. Mirrors the check in
+      # packaging/export-open-repo.sh (the public-mirror export path).
+      - name: Legal gate — malware-scan sign-off (tagged release only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          gate_doc="docs/MALWARE_SCAN_LEGAL_GATE.md"
+          # Fail closed: a missing/unreadable gate doc means we cannot confirm sign-off.
+          if [ ! -r "$gate_doc" ]; then
+            echo "::error::refusing to publish: legal-gate doc missing/unreadable ($gate_doc) — cannot confirm malware-scan sign-off"
+            exit 1
+          fi
+          if grep -qE 'Status: OPEN|- \[ \]' "$gate_doc"; then
+            echo "::error::refusing to publish: malware-scan legal gate still OPEN — see docs/MALWARE_SCAN_LEGAL_GATE.md"
+            exit 1
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: actions/setup-node@v4

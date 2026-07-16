@@ -1,3 +1,13 @@
+// Agentic-behavior signatures. Flags common AI-agent / shell-scripting attack
+// patterns by TEXTUAL structure (curl/wget piped to a shell interpreter,
+// base64 decode piped to execution, reads of well-known sensitive environment
+// variable NAMES, credential values flowing into an outbound HTTP call, and
+// risky unattended package-install invocations). These are first-party,
+// AGPL-3.0-or-later rules: each pattern encodes a generic, publicly documented
+// shell/CLI idiom (e.g. `curl ... | sh`, `os.environ["API_KEY"]`, `npx -y`) —
+// not real secrets, and not copied from any identifiable third-party rule
+// file or commercial signature pack.
+
 rule PipeToShell
 {
     meta:

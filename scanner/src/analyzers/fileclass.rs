@@ -247,7 +247,22 @@ pub fn keep_finding(rule_id: &str, class: FileClass) -> bool {
 /// file-class filter — e.g. MCP tool poisoning legitimately lives in a JSON
 /// tool-definition file, which would otherwise be classified as config/data.
 fn is_precise(rule_id: &str) -> bool {
-    matches!(rule_id, "mcp.tool_poisoning" | "mcp.hidden_unicode")
+    if matches!(rule_id, "mcp.tool_poisoning" | "mcp.hidden_unicode") {
+        return true;
+    }
+    // Malware findings are precise signatures (EICAR, hash matches, malware-family
+    // YARA such as the bundled ReversingLabs/GCTI rules) that must fire wherever
+    // they are found — EXCEPT the two broad string/byte heuristics below, which
+    // legitimately appear in documentation and security tooling and are therefore
+    // context-filtered like any other line/string heuristic.
+    if rule_id.starts_with("malware.") {
+        return !matches!(
+            rule_id,
+            "malware.yara.Suspicious_Reverse_Shell_Strings"
+                | "malware.yara.Suspicious_Packer_Signatures"
+        );
+    }
+    false
 }
 
 /// Path-only relevance for a finding whose file is known from its `location`
@@ -352,5 +367,27 @@ mod tests {
         // No location → fail open (behavioural findings without a file survive).
         assert!(relevant("taint.cred_to_net", None));
         assert!(relevant("yara.sensitive_env", Some("")));
+    }
+
+    #[test]
+    fn malware_signatures_precise_but_heuristics_context_filtered() {
+        // Precise malware signatures fire wherever they are found (even in a doc).
+        assert!(relevant("malware.yara.EICAR_Test_File", Some("README.md")));
+        assert!(relevant("malware.hash_signature", Some("notes.txt")));
+        assert!(relevant("malware.yara.Sliver_Implant_32bit", Some("report.odt")));
+        // The two broad heuristics are suppressed in doc/data contexts…
+        assert!(!relevant(
+            "malware.yara.Suspicious_Reverse_Shell_Strings",
+            Some("README.md")
+        ));
+        assert!(!relevant(
+            "malware.yara.Suspicious_Packer_Signatures",
+            Some("report.odt")
+        ));
+        // …but kept in runtime scripts/source.
+        assert!(relevant(
+            "malware.yara.Suspicious_Reverse_Shell_Strings",
+            Some("linpeas.sh")
+        ));
     }
 }

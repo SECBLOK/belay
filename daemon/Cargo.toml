@@ -116,6 +116,17 @@ nix = { version = "0.29", features = ["signal"] }
 # Win32 primitives needed by later Windows-port tasks; harmless no-op now.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+# Phase 2 (Tier 2, service-only): ETW real-time detect + user-mode WFP egress block.
+# Full `windows` crate for the ETW consumer + WFP management API (no shell-outs).
+windows = { version = "0.59", features = [
+  "Win32_System_Diagnostics_Etw",
+  "Win32_NetworkManagement_WindowsFilteringPlatform",
+  "Win32_Foundation",
+  "Win32_System_Threading",
+  "Win32_System_Time",
+  "Win32_Security",
+  "Win32_System_Rpc",
+] }
 
 # Native netfilter/nftables (rustables) + NFQUEUE (nfq) bindings only build on
 # Linux (their build scripts bindgen Linux kernel headers). Gate them by target

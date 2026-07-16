@@ -7,13 +7,23 @@ use std::path::Path;
 
 use walkdir::WalkDir;
 
-const SKIP_DIRS: &[&str] = &[
+// `pub(crate)` (not private): reused by `analyzers::malware::scan_malware_pass`,
+// which walks the scan root directly (not via `FileCache`) and needs the same
+// skip-dir pruning to avoid descending into `.git`/`node_modules`/etc.
+pub(crate) const SKIP_DIRS: &[&str] = &[
     ".git",
     "__pycache__",
     "node_modules",
     ".venv",
     "venv",
     ".env",
+    // Rust build-artifact directory (Cargo convention). Same threat model as
+    // `node_modules` above: a build-tool-owned output directory, not
+    // hand-written source, so pruning it is consistent with the existing
+    // list rather than a new exception. Also closes a real perf/noise gap in
+    // `scan_malware_pass`, which used to walk the entire `target/` tree
+    // (potentially gigabytes of object files) on every scan of a Rust repo.
+    "target",
 ];
 
 const BINARY_EXTS: &[&str] = &[
