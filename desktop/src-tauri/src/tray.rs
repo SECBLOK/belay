@@ -92,30 +92,20 @@ fn position_popover(win: &tauri::WebviewWindow, click: tauri::PhysicalPosition<f
 /// Anchor the toast window to the bottom-right of its current monitor.
 #[cfg(feature = "tauri")]
 pub fn position_toast(win: &tauri::WebviewWindow) {
-    match win.current_monitor() {
-        Ok(Some(mon)) => {
-            let sz = mon.size();
-            // Use the *outer* window size so the inset is correct even with shadows.
-            //
-            // A window built `.visible(false)` is not realized yet, so WebKitGTK
-            // reports `Ok(0 x 0)` rather than `Err` - the old match treated that as
-            // a real size and anchored a zero-width window into the corner. Treat a
-            // zero dimension as "not measurable yet" and fall back to the built size.
-            let (w, h) = match win.outer_size() {
-                Ok(s) if s.width > 0 && s.height > 0 => (s.width as f64, s.height as f64),
-                _ => (TOAST_W, TOAST_H),
-            };
-            let (x, y) = bottom_right_xy(sz.width as f64, sz.height as f64, w, h, 16.0);
-            let pos_result = win.set_position(tauri::PhysicalPosition::new(x, y));
-            crate::toast_debug_log(&format!(
-                "position_toast: mon={}x{} win={w}x{h} -> pos=({x},{y}) set_position={:?}",
-                sz.width, sz.height, pos_result.is_ok(),
-            ));
-        }
-        Ok(None) => crate::toast_debug_log(
-            "position_toast: current_monitor() = Ok(None), leaving window unpositioned",
-        ),
-        Err(e) => crate::toast_debug_log(&format!("position_toast: current_monitor() failed: {e:?}")),
+    if let Ok(Some(mon)) = win.current_monitor() {
+        let sz = mon.size();
+        // Use the *outer* window size so the inset is correct even with shadows.
+        //
+        // A window built `.visible(false)` is not realized yet, so WebKitGTK
+        // reports `Ok(0 x 0)` rather than `Err` - the old match treated that as
+        // a real size and anchored a zero-width window into the corner. Treat a
+        // zero dimension as "not measurable yet" and fall back to the built size.
+        let (w, h) = match win.outer_size() {
+            Ok(s) if s.width > 0 && s.height > 0 => (s.width as f64, s.height as f64),
+            _ => (TOAST_W, TOAST_H),
+        };
+        let (x, y) = bottom_right_xy(sz.width as f64, sz.height as f64, w, h, 16.0);
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
     }
 }
 

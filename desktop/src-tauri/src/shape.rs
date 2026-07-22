@@ -85,23 +85,10 @@ pub fn install_paw_shape(win: &tauri::WebviewWindow) {
     // SAME crate instance and this HWND is used directly, no reconstruction.
     use windows::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, DeleteObject, SetWindowRgn, HRGN, RGN_OR};
 
-    let hwnd = match win.hwnd() {
-        Ok(h) => h,
-        Err(e) => {
-            crate::toast_debug_log(&format!("install_paw_shape: hwnd() failed: {e:?}"));
-            return;
-        }
-    };
-    let size = match win.inner_size() {
-        Ok(s) => s,
-        Err(e) => {
-            crate::toast_debug_log(&format!("install_paw_shape: inner_size() failed: {e:?}"));
-            return;
-        }
-    };
+    let Ok(hwnd) = win.hwnd() else { return };
+    let Ok(size) = win.inner_size() else { return };
     let (w, h) = (size.width as i32, size.height as i32);
     if w <= 0 || h <= 0 {
-        crate::toast_debug_log(&format!("install_paw_shape: non-positive size w={w} h={h}, skipping"));
         return;
     }
 
@@ -114,10 +101,7 @@ pub fn install_paw_shape(win: &tauri::WebviewWindow) {
             let _ = DeleteObject(run.into());
         }
         // On success the window owns `combined`; do not delete it.
-        let rgn_result = SetWindowRgn(hwnd, Some(combined), true);
-        crate::toast_debug_log(&format!(
-            "install_paw_shape: w={w} h={h} SetWindowRgn returned {rgn_result}"
-        ));
+        let _ = SetWindowRgn(hwnd, Some(combined), true);
     }
 }
 

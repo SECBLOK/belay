@@ -35,29 +35,6 @@ fn is_actionable(verdict: &str) -> bool {
     verdict == "deny" || verdict == "ask"
 }
 
-/// TEMPORARY diagnostic for the packaged-vs-dev-build toast no-op reported on
-/// Windows (2026-07-22 smoke test): every fallible step from window lookup
-/// through `SetWindowRgn` used to discard its Result with `let _ = ...`, so a
-/// silent failure anywhere in that chain looked identical to "everything
-/// worked but nothing rendered". Appends to the same `logs/` dir the daemon
-/// already writes to (`belayd::paths::logs_dir()`), so it's one known place to
-/// check. Best-effort: a logging failure must never affect toast behavior.
-#[cfg(feature = "tauri")]
-fn toast_debug_log(msg: &str) {
-    use std::io::Write;
-    let dir = belayd::paths::logs_dir();
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("desktop-toast-debug.log"))
-    {
-        let _ = writeln!(f, "{msg}");
-    }
-}
-
 /// Best-effort, privacy-safe notification for an actionable+backgrounded event.
 /// Show ONE coalesced toast for a poll cycle's actionable rows in our own
 /// always-on-top window, anchored bottom-right.
@@ -74,11 +51,6 @@ fn notify_cycle(app: &tauri::AppHandle, rows: &[audit::AuditRow]) {
         .unwrap_or(false);
     let actionable: Vec<&audit::AuditRow> =
         rows.iter().filter(|r| is_actionable(&r.verdict)).collect();
-    toast_debug_log(&format!(
-        "notify_cycle: frontmost={frontmost} actionable={} of {}",
-        actionable.len(),
-        rows.len()
-    ));
     if frontmost || actionable.is_empty() {
         return;
     }
@@ -99,40 +71,30 @@ fn notify_cycle(app: &tauri::AppHandle, rows: &[audit::AuditRow]) {
     } else {
         notify::digest_copy(actionable.len())
     };
-    match app.get_webview_window("toast") {
-        None => toast_debug_log("notify_cycle: get_webview_window(\"toast\") = None, cannot show"),
-        Some(win) => {
-            // Hand the copy to the toast UI, anchor bottom-right, then reveal it
-            // WITHOUT stealing focus from the user's active window.
-            // `paw` tells the shared web bundle whether THIS build actually clips
-            // the window to the paw silhouette (Windows only, see shape.rs) - the
-            // same Toast.tsx ships to Linux/macOS too, and they get no
-            // SetWindowRgn clip, so they must keep the plain rounded-card look
-            // rather than an unclipped black rectangle with text positioned for a
-            // shape that isn't there.
-            let paw = cfg!(target_os = "windows");
-            let emit_result = app.emit_to(
-                "toast",
-                "toast",
-                serde_json::json!({ "title": title, "body": body, "paw": paw }),
-            );
-            // Show BEFORE sizing/positioning, and set the size explicitly. The
-            // window is built `.visible(false)`, so under WebKitGTK it is never
-            // realized and reports 0 x 0 - it would map at zero size (invisible)
-            // and anchor off the corner. `show()` alone does not apply the built
-            // size, so re-assert it here.
-            let show_result = win.show();
-            let size_result = win.set_size(tauri::LogicalSize::new(tray::TOAST_W, tray::TOAST_H));
-            toast_debug_log(&format!(
-                "notify_cycle: toast window found; emit_to={:?} show={:?} set_size={:?}",
-                emit_result.is_ok(),
-                show_result.is_ok(),
-                size_result.is_ok(),
-            ));
-            // Re-applied on every show: a resize resets the window region.
-            shape::install_paw_shape(&win);
-            tray::position_toast(&win);
-        }
+    if let Some(win) = app.get_webview_window("toast") {
+        // Hand the copy to the toast UI, anchor bottom-right, then reveal it
+        // WITHOUT stealing focus from the user's active window.
+        // `paw` tells the shared web bundle whether THIS build actually clips the
+        // window to the paw silhouette (Windows only, see shape.rs) - the same
+        // Toast.tsx ships to Linux/macOS too, and they get no SetWindowRgn clip,
+        // so they must keep the plain rounded-card look rather than an unclipped
+        // black rectangle with text positioned for a shape that isn't there.
+        let paw = cfg!(target_os = "windows");
+        let _ = app.emit_to(
+            "toast",
+            "toast",
+            serde_json::json!({ "title": title, "body": body, "paw": paw }),
+        );
+        // Show BEFORE sizing/positioning, and set the size explicitly. The
+        // window is built `.visible(false)`, so under WebKitGTK it is never
+        // realized and reports 0 x 0 - it would map at zero size (invisible)
+        // and anchor off the corner. `show()` alone does not apply the built
+        // size, so re-assert it here.
+        let _ = win.show();
+        let _ = win.set_size(tauri::LogicalSize::new(tray::TOAST_W, tray::TOAST_H));
+        // Re-applied on every show: a resize resets the window region.
+        shape::install_paw_shape(&win);
+        tray::position_toast(&win);
     }
 }
 
@@ -311,7 +273,6 @@ pub fn run() {
                 .focused(false)
                 .visible(false)
                 .build()?;
-            toast_debug_log("setup: toast window built OK");
 
             tray::build_tray(app.handle())?;
 
