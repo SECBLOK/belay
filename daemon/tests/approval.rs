@@ -23,12 +23,34 @@ static INIT: Once = Once::new();
 /// Short park timeout + isolated HOME so approval audit rows don't touch the
 /// real `~/.belay`. Must run before any `serve_mode` start (which snapshots
 /// the timeout via `Approvals::new()`).
+///
+/// GateGuard self-approval enforcement is turned OFF for this file. These
+/// tests drive BOTH roles - the `gate` call and the `respond_approval` - from
+/// this one test process, so the daemon sees a resolver that really is a
+/// descendant of the recorded gating pid (which is `parent(peer)`, i.e. the
+/// cargo test runner). That is indistinguishable from an agent approving its
+/// own request, so the guard correctly overrides `allow` to Deny and the
+/// round-trip assertions below could never pass with it on (it defaults ON
+/// for Linux).
+///
+/// Disabling it here does not lose coverage: the guard is exercised directly
+/// in `pending`'s unit tests, where `enforce_self_approval` is an explicit
+/// argument rather than process-global state - see
+/// `respond_local_detects_self_approval_from_a_real_descendant` and
+/// `respond_local_enforce_on_overrides_self_approval_to_deny`. Keeping the
+/// toggle out of this file also avoids a cross-test race, since every test
+/// here shares one HOME and the flag is re-read on each respond.
 fn init_env() {
     INIT.call_once(|| {
         std::env::set_var("BELAY_APPROVAL_TIMEOUT_MS", "500");
         let tmp = std::env::temp_dir().join(format!("belay-approval-home-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp);
         std::env::set_var("HOME", tmp.to_str().unwrap());
+        // Written via the daemon's own data-dir resolver so this lands wherever
+        // the daemon will actually read it, on every platform.
+        let dir = belayd::host_config::belay_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("gateguard_enforce.json"), br#"{"enabled": false}"#);
     });
 }
 

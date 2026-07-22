@@ -250,6 +250,15 @@ fn is_precise(rule_id: &str) -> bool {
     if matches!(rule_id, "mcp.tool_poisoning" | "mcp.hidden_unicode") {
         return true;
     }
+    // `skill.*` findings come from the `skillscan` crate, which already applies
+    // its own skill-aware, context-sensitive false-positive control (a
+    // fileclass-inspired model over the skill's own manifest + scripts). They
+    // must NOT be re-filtered by this heuristic path-class gate — a
+    // prompt-injection finding legitimately lives in the SKILL.md instruction
+    // body (an `Instruction`-class file this gate would otherwise suppress).
+    if rule_id.starts_with("skill.") {
+        return true;
+    }
     // Malware findings are precise signatures (EICAR, hash matches, malware-family
     // YARA such as the bundled ReversingLabs/GCTI rules) that must fire wherever
     // they are found — EXCEPT the two broad string/byte heuristics below, which

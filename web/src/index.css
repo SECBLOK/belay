@@ -2,11 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Bundled CJK font — a SUBSET of Noto Sans SC (variable, weight 100–900), SIL
+ * OFL 1.1. See src/assets/fonts/README.md. It sits AFTER the system CJK faces
+ * in the stacks below, so on Windows (Microsoft YaHei) and macOS (PingFang SC)
+ * it is never reached — it exists only to give LINUX a real multi-weight face
+ * instead of single-weight WenQuanYi (whose lack of a bold master is what makes
+ * the UI look thin). A private family name keeps its selection deterministic.
+ * Vite fingerprints the url(); the file is local, so no network fetch ever. */
+@font-face {
+  font-family: "Noto Sans SC Belay";
+  src: url("./assets/fonts/NotoSansSC-subset.woff2") format("woff2") tech(variations);
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Font stacks */
-  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
-  --heading: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
-  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC Belay", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Zen Hei", "WenQuanYi Micro Hei", sans-serif;
+  --heading: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC Belay", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Zen Hei", "WenQuanYi Micro Hei", sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, "Noto Sans Mono CJK SC", "Sarasa Mono SC", monospace;
 
   /* Legacy index.css vars (used by some components) */
   --text: #636366;

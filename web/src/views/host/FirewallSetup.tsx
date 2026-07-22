@@ -13,22 +13,28 @@ import {
 import type { ProposedRuleset, FirewallStatus } from "../../lib/hostTypes";
 import ProposedRuleTable from "../../components/host/ProposedRuleTable";
 import DeadMansSwitchPanel from "../../components/host/DeadMansSwitchPanel";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: FirewallStatus }) {
-  const color = status.active ? "#1B8C3A" : "#8E8E93";
-  const bg = status.active ? "rgba(27,140,58,0.10)" : "rgba(0,0,0,0.06)";
+  const { t } = useLingui();
+  const color = status.active ? "#187D34" : "var(--text-tertiary)";
+  const bg = status.active ? "rgba(24,125,52,0.06)" : "rgba(0,0,0,0.06)";
+  const stateWord = status.active ? t`active` : t`inactive`;
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-semibold"
       style={{ background: bg, color }}
-      aria-label={`Firewall ${status.active ? "active" : "inactive"}, mode: ${status.mode}, ${status.rule_count} rules`}
+      aria-label={t`Firewall ${stateWord}, mode: ${status.mode}, ${status.rule_count} rules`}
     >
       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} aria-hidden />
-      {status.active ? "Active" : "Inactive"}
+      {status.active ? <Trans>Active</Trans> : <Trans>Inactive</Trans>}
       <span className="font-normal text-[11px] uppercase ml-1">{status.mode}</span>
-      <span className="font-normal text-[11px] ml-1">{status.rule_count} rules</span>
+      <span className="font-normal text-[11px] ml-1">
+        <Plural value={status.rule_count} one="# rule" other="# rules" />
+      </span>
     </span>
   );
 }
@@ -58,11 +64,10 @@ function isValidRuleset(r: unknown): r is ProposedRuleset {
   );
 }
 
-const BAD_RULESET_MSG =
-  "The daemon returned an unexpected firewall response — it may be an outdated " +
-  "build. Restart the Belay daemon and try again.";
+const BAD_RULESET_MSG = msg`The daemon returned an unexpected firewall response — it may be an outdated build. Restart the Belay daemon and try again.`;
 
 export default function FirewallSetup() {
+  const { t } = useLingui();
   const [flow, setFlow] = useState<FlowState>({ kind: "loading" });
   const [autoBusy, setAutoBusy] = useState(false);
 
@@ -73,14 +78,19 @@ export default function FirewallSetup() {
       .then(([ruleset, status]) => {
         if (cancelled) return;
         if (!isValidRuleset(ruleset)) {
-          setFlow({ kind: "error", message: BAD_RULESET_MSG });
+          setFlow({ kind: "error", message: t(BAD_RULESET_MSG) });
           return;
         }
         // If the server already has an active rollback window, re-mount the panel.
         if (status.revert_deadline != null && status.handle != null) {
           setFlow({
             kind: "pending-confirm",
-            deadlineMs: status.revert_deadline,
+            // The daemon reports revert_deadline in epoch SECONDS
+            // (now_secs() + window); DeadMansSwitchPanel's deadlineMs is epoch
+            // MS (compared against Date.now()). Without ×1000 the countdown is
+            // ~1.7e12 ms in the past, so it "expires" instantly and the confirm
+            // dialog flashes and auto-reverts before the user can click.
+            deadlineMs: status.revert_deadline * 1000,
             handle: status.handle,
             status,
           });
@@ -98,7 +108,8 @@ export default function FirewallSetup() {
         }
       });
     return () => { cancelled = true; };
-  }, []);
+    // `t` so a locale change re-renders the error/ruleset copy in the new language.
+  }, [t]);
 
   const handleApply = async () => {
     if (flow.kind !== "idle") return;
@@ -106,7 +117,8 @@ export default function FirewallSetup() {
     setFlow({ kind: "applying" });
     try {
       const { revertDeadline, handle } = await applyFirewall(ruleset);
-      setFlow({ kind: "pending-confirm", deadlineMs: revertDeadline, handle, status });
+      // revertDeadline is epoch SECONDS from the daemon; deadlineMs is epoch MS.
+      setFlow({ kind: "pending-confirm", deadlineMs: revertDeadline * 1000, handle, status });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes(DESKTOP_ONLY_MSG) || msg.includes("desktop app")) {
@@ -126,7 +138,7 @@ export default function FirewallSetup() {
     try {
       const ruleset = await getAutoProposedRuleset();
       if (!isValidRuleset(ruleset)) {
-        setFlow({ kind: "error", message: BAD_RULESET_MSG });
+        setFlow({ kind: "error", message: t(BAD_RULESET_MSG) });
         return;
       }
       setFlow({ kind: "idle", ruleset, status, auto: true });
@@ -167,7 +179,7 @@ export default function FirewallSetup() {
     Promise.all([getProposedRuleset(), getFirewallStatus()])
       .then(([ruleset, status]) => {
         if (!isValidRuleset(ruleset)) {
-          setFlow({ kind: "error", message: BAD_RULESET_MSG });
+          setFlow({ kind: "error", message: t(BAD_RULESET_MSG) });
           return;
         }
         setFlow({ kind: "idle", ruleset, status });
@@ -183,10 +195,10 @@ export default function FirewallSetup() {
   if (flow.kind === "loading") {
     return (
       <div
-        className="rounded-xl px-5 py-8 text-center text-sm text-[#8E8E93]"
+        className="rounded-xl px-5 py-8 text-center text-sm text-[var(--text-tertiary)]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        Loading firewall setup…
+        <Trans>Loading firewall setup…</Trans>
       </div>
     );
   }
@@ -197,10 +209,12 @@ export default function FirewallSetup() {
         className="rounded-xl px-5 py-8 text-sm text-[#636366] space-y-1"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        <p className="text-[#1C1C1E] font-medium">Firewall setup</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Firewall setup</Trans></p>
         <p>
-          Firewall control runs in the Belay desktop app, where it can
-          apply rules directly to your host.
+          <Trans>
+            Firewall control runs in the Belay desktop app, where it can
+            apply rules directly to your host.
+          </Trans>
         </p>
       </div>
     );
@@ -212,14 +226,14 @@ export default function FirewallSetup() {
         className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-2"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        <p className="text-[#1C1C1E] font-medium">Firewall setup — error</p>
-        <p className="font-mono text-xs text-[#8E8E93]">{flow.message}</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Firewall setup — error</Trans></p>
+        <p className="font-mono text-xs text-[var(--text-tertiary)]">{flow.message}</p>
         <button
           onClick={handleReset}
           className="text-xs hover:underline"
           style={{ color: "#0856B3" }}
         >
-          Retry
+          <Trans>Retry</Trans>
         </button>
       </div>
     );
@@ -229,18 +243,18 @@ export default function FirewallSetup() {
     return (
       <div
         className="rounded-xl px-5 py-8 text-sm space-y-2"
-        style={{ background: "rgba(27,140,58,0.06)", border: "1px solid rgba(27,140,58,0.25)" }}
+        style={{ background: "rgba(24,125,52,0.06)", border: "1px solid rgba(24,125,52,0.25)" }}
       >
-        <p className="text-[#1B8C3A] font-semibold">Firewall setup — rules confirmed</p>
+        <p className="text-[#187D34] font-semibold"><Trans>Firewall setup — rules confirmed</Trans></p>
         <p className="text-[#636366]">
-          The proposed ruleset is now active. SSH access is preserved.
+          <Trans>The proposed ruleset is now active. SSH access is preserved.</Trans>
         </p>
         <button
           onClick={handleReset}
           className="text-xs hover:underline"
           style={{ color: "#0856B3" }}
         >
-          View updated status
+          <Trans>View updated status</Trans>
         </button>
       </div>
     );
@@ -250,19 +264,21 @@ export default function FirewallSetup() {
     return (
       <div
         className="rounded-xl px-5 py-8 text-sm space-y-2"
-        style={{ background: "rgba(178,123,0,0.06)", border: "1px solid rgba(178,123,0,0.25)" }}
+        style={{ background: "rgba(145,100,0,0.06)", border: "1px solid rgba(145,100,0,0.25)" }}
       >
-        <p className="text-[#B27B00] font-semibold">Firewall setup — rules reverted</p>
+        <p className="text-[#916400] font-semibold"><Trans>Firewall setup — rules reverted</Trans></p>
         <p className="text-[#636366]">
-          The previous firewall rules have been restored. Your host is back to
-          its pre-change state.
+          <Trans>
+            The previous firewall rules have been restored. Your host is back to
+            its pre-change state.
+          </Trans>
         </p>
         <button
           onClick={handleReset}
           className="text-xs hover:underline"
           style={{ color: "#0856B3" }}
         >
-          Start over
+          <Trans>Start over</Trans>
         </button>
       </div>
     );
@@ -284,19 +300,19 @@ export default function FirewallSetup() {
         {/* Status */}
         {status && (
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#8E8E93] uppercase tracking-widest">Firewall status</span>
+            <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-widest"><Trans>Firewall status</Trans></span>
             <StatusBadge status={status} />
           </div>
         )}
 
         {/* Dimmed hint */}
         <div
-          className="rounded-xl px-5 py-4 text-sm text-[#8E8E93]"
+          className="rounded-xl px-5 py-4 text-sm text-[var(--text-tertiary)]"
           style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.06)", opacity: 0.7 }}
           aria-hidden
         >
-          <p className="font-medium text-[#1C1C1E]">Firewall setup</p>
-          <p>Rules applied — confirm or revert using the panel above.</p>
+          <p className="font-medium text-[#1C1C1E]"><Trans>Firewall setup</Trans></p>
+          <p><Trans>Rules applied — confirm or revert using the panel above.</Trans></p>
         </div>
       </div>
     );
@@ -306,10 +322,10 @@ export default function FirewallSetup() {
   if (flow.kind === "applying") {
     return (
       <div
-        className="rounded-xl px-5 py-8 text-center text-sm text-[#8E8E93]"
+        className="rounded-xl px-5 py-8 text-center text-sm text-[var(--text-tertiary)]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        Applying rules…
+        <Trans>Applying rules…</Trans>
       </div>
     );
   }
@@ -320,19 +336,21 @@ export default function FirewallSetup() {
     <div className="space-y-4">
       {/* Section title — keeps "Firewall setup" text visible for C1 assertion */}
       <div>
-        <h2 className="text-sm font-semibold text-[#1C1C1E]">Firewall setup</h2>
-        <p className="text-xs text-[#8E8E93] mt-0.5">
-          Use <strong>Auto setup</strong> to auto-detect this system and pre-fill
-          a least-privilege ruleset, or review the proposal below. Applying starts
-          a <strong>dead-man&apos;s-switch countdown</strong>: rules revert
-          automatically unless you confirm within the window.
+        <h2 className="text-sm font-semibold text-[#1C1C1E]"><Trans>Firewall setup</Trans></h2>
+        <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+          <Trans>
+            Use <strong>Auto setup</strong> to auto-detect this system and pre-fill
+            a least-privilege ruleset, or review the proposal below. Applying starts
+            a <strong>dead-man&apos;s-switch countdown</strong>: rules revert
+            automatically unless you confirm within the window.
+          </Trans>
         </p>
       </div>
 
       {/* Current status */}
       {status && (
         <div className="flex items-center gap-3">
-          <span className="text-xs text-[#8E8E93] uppercase tracking-widest">Status</span>
+          <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-widest"><Trans>Status</Trans></span>
           <StatusBadge status={status} />
         </div>
       )}
@@ -344,7 +362,7 @@ export default function FirewallSetup() {
           style={{ background: "rgba(10,102,214,0.08)", color: "#0856B3" }}
         >
           <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "#0A66D6" }} aria-hidden />
-          Auto-detected proposal — review the rules, then Apply
+          <Trans>Auto-detected proposal — review the rules, then Apply</Trans>
         </div>
       )}
 
@@ -358,20 +376,20 @@ export default function FirewallSetup() {
           disabled={autoBusy}
           className="px-5 py-3 rounded-xl text-sm font-semibold transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: "rgba(10,102,214,0.10)", color: "#0856B3" }}
-          aria-label="Auto setup — detect this system and pre-fill a least-privilege ruleset"
+          aria-label={t`Auto setup — detect this system and pre-fill a least-privilege ruleset`}
         >
-          {autoBusy ? "Detecting…" : "⚡ Auto setup"}
+          {autoBusy ? <Trans>Detecting…</Trans> : <Trans>⚡ Auto setup</Trans>}
         </button>
         <button
           onClick={handleApply}
           className="px-6 py-3 rounded-xl text-sm font-semibold text-white transition-opacity"
           style={{ background: "#0A66D6" }}
-          aria-label="Apply proposed firewall ruleset — starts rollback countdown"
+          aria-label={t`Apply proposed firewall ruleset — starts rollback countdown`}
         >
-          Apply ruleset
+          <Trans>Apply ruleset</Trans>
         </button>
-        <p className="text-xs text-[#8E8E93]">
-          A rollback window opens immediately. SSH is always preserved.
+        <p className="text-xs text-[var(--text-tertiary)]">
+          <Trans>A rollback window opens immediately. SSH is always preserved.</Trans>
         </p>
       </div>
     </div>

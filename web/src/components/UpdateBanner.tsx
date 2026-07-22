@@ -45,7 +45,7 @@ export default function UpdateBanner() {
         <button
           onClick={() => setDismissed(true)}
           disabled={installing}
-          className="px-2 py-1 text-[#8E8E93] hover:text-[#1C1C1E] disabled:opacity-60"
+          className="px-2 py-1 text-[var(--text-tertiary)] hover:text-[#1C1C1E] disabled:opacity-60"
         >
           Later
         </button>

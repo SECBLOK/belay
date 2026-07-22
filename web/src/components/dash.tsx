@@ -1,4 +1,7 @@
 import { useEffect, type ReactNode } from "react";
+import { i18n } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 // Tab views mount into an already-laid-out page, where Recharts'
 // ResponsiveContainer can measure 0 on its first ResizeObserver pass and render
@@ -14,23 +17,27 @@ export function useChartReflow() {
 // Shared dashboard tokens + primitives used by the Posture and Fleet views.
 // Semantic color == meaning: green allow / amber ask / red deny, LIGHT theme.
 export const C = {
-  allow: "#1B8C3A", ask: "#B27B00", deny: "#C8312A",
-  muted: "#8E8E93", grid: "#E5E5EA",
+  allow: "#187D34", ask: "#916400", deny: "#C8312A",
+  muted: "#6C6C71", grid: "#E5E5EA",
   tipBg: "#1C1C1E",   // tooltip stays DARK (intentional inversion)
   tipTx: "#F5F5F7",
-  online: "#1B8C3A", offline: "#8E8E93",
+  // Muted text for that dark tooltip only. `muted` is tuned for LIGHT surfaces
+  // (4.60:1 there) and would fall to 3.26:1 on tipBg; this lighter grey gives
+  // 5.22:1. Mirrors --text-tertiary-on-dark in tokens.css.
+  tipMuted: "#8E8E93",
+  online: "#187D34", offline: "#6C6C71",
 };
 
 export const tip = {
   contentStyle: { background: C.tipBg, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 6, color: C.tipTx, fontSize: 12 },
-  itemStyle: { color: C.tipTx }, labelStyle: { color: C.muted },
+  itemStyle: { color: C.tipTx }, labelStyle: { color: C.tipMuted },
 };
 
 export const Card = ({ title, hint, span, children }: { title: string; hint?: string; span: string; children: ReactNode }) => (
-  <section className={`${span} rounded-xl bg-white p-4 flex flex-col`} style={{ border: "1px solid rgba(0,0,0,0.08)", boxShadow: "var(--shadow-card)" }}>
+  <section className={`${span} lg-glass p-4 flex flex-col`}>
     <div className="flex items-baseline justify-between mb-3">
-      <h2 className="text-[11px] uppercase tracking-widest text-[#8E8E93]">{title}</h2>
-      {hint && <span className="text-[11px] text-[#8E8E93]">{hint}</span>}
+      <h2 className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]">{title}</h2>
+      {hint && <span className="text-[11px] text-[var(--text-tertiary)]">{hint}</span>}
     </div>
     {children}
   </section>
@@ -39,8 +46,8 @@ export const Card = ({ title, hint, span, children }: { title: string; hint?: st
 export function StatTile({ label, value, accent, dominant }: { label: string; value: number; accent: string; dominant?: boolean }) {
   const displayColor = accent === "var(--text-primary)" ? "var(--text-primary)" : accent;
   return (
-    <div className="rounded-xl bg-white px-4 py-3" style={{ border: "1px solid rgba(0,0,0,0.08)", boxShadow: "var(--shadow-card)" }}>
-      <div className="text-[11px] uppercase tracking-widest text-[#8E8E93]">{label}</div>
+    <div className="lg-glass px-4 py-3">
+      <div className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]">{label}</div>
       <div className={`font-mono tabular-nums leading-tight ${dominant ? "text-4xl" : "text-3xl"}`} style={{ color: displayColor }}>
         {value.toLocaleString()}
       </div>
@@ -49,7 +56,7 @@ export function StatTile({ label, value, accent, dominant }: { label: string; va
 }
 
 export const Empty = ({ children }: { children: ReactNode }) => (
-  <div className="flex-1 min-h-[150px] flex items-center justify-center text-xs text-[#8E8E93]">{children}</div>
+  <div className="flex-1 min-h-[150px] flex items-center justify-center text-xs text-[var(--text-tertiary)]">{children}</div>
 );
 
 // verdict → semantic color, and category → severity-tier mapping (shared by
@@ -66,10 +73,10 @@ const SEV_RANK: Record<string, number> = { Critical: 3, High: 2, Medium: 1, Info
 const CAT_SEV: Record<string, { label: string; color: string }> = {
   rce: { label: "Critical", color: C.deny }, destructive: { label: "Critical", color: C.deny },
   honeypot: { label: "Critical", color: C_DETECTED },
-  persistence: { label: "High", color: "#B55A10" }, persist: { label: "High", color: "#B55A10" },
-  secrets: { label: "High", color: "#B55A10" },
+  persistence: { label: "High", color: "#AB550F" }, persist: { label: "High", color: "#AB550F" },
+  secrets: { label: "High", color: "#AB550F" },
   egress: { label: "Medium", color: C.ask }, tamper: { label: "Medium", color: C.ask },
-  recon: { label: "Info", color: "#1A6DC8" },
+  recon: { label: "Info", color: "#1A6BC5" },
 };
 export const categoryOf = (rules?: string[]) => rules?.[0]?.split(".")[0] ?? "";
 // Worst-severity tier across a finding's rules; falls back to verdict (deny→Medium).
@@ -84,14 +91,27 @@ export function severityOf(verdict: string, rules: string[] = []): { label: stri
   return best;
 }
 
-// relative "time ago" from an ISO-8601 timestamp; em-dash for missing/invalid
+// The severity tier's DISPLAY label, keyed by the stable English rank name
+// that `severityOf` returns. severityOf keeps returning the English string
+// because it is also the key into SEV_RANK; translating that would break the
+// ranking. Callers render `t(SEV_LABEL[sev.label])`.
+export const SEV_LABEL: Record<string, MessageDescriptor> = {
+  Critical: msg`Critical`,
+  High: msg`High`,
+  Medium: msg`Medium`,
+  Info: msg`Info`,
+};
+
+// relative "time ago" from an ISO-8601 timestamp; em-dash for missing/invalid.
+// A plain function with no hook access, so it reaches the active locale through
+// the global `i18n` instance directly. The `{n}` unit strings are catalogued.
 export function ago(iso: string) {
   if (!iso) return "—";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "—";
   const s = (Date.now() - t) / 1000;
-  if (s < 60) return `${Math.floor(s)}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  if (s < 60) return i18n._(msg`${Math.floor(s)}s ago`);
+  if (s < 3600) return i18n._(msg`${Math.floor(s / 60)}m ago`);
+  if (s < 86400) return i18n._(msg`${Math.floor(s / 3600)}h ago`);
+  return i18n._(msg`${Math.floor(s / 86400)}d ago`);
 }

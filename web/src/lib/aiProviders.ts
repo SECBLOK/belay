@@ -12,6 +12,12 @@
 // Provider `id` values match rig-core 0.39 module names and the daemon's
 // `AiConfig.provider` validation set (daemon/src/ai/config.rs::from_args).
 
+//
+// NOT A RECOMMENDATION AUTHORITY: this list only powers the dropdown labels/order
+// and the "Custom…" escape hatch. The single source of truth for the RECOMMENDED
+// judge model is the daemon's crate::ai::recommend (surfaced via
+// get_ai_config.recommendations); the GUI shows that, never a value derived here.
+
 export interface AiModel {
   /** Exact API model string passed to the provider. */
   id: string;

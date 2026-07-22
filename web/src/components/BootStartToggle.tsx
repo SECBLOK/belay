@@ -48,11 +48,11 @@ export default function BootStartToggle({ className = "" }: { className?: string
 
   return (
     <div
-      className={`flex items-center justify-between rounded-lg border border-[rgba(0,0,0,0.08)] bg-[#F5F5F7] px-4 py-3 ${className}`}
+      className={`flex items-center justify-between lg-glass px-4 py-3 ${className}`}
     >
       <div className="pr-3">
         <div className="text-sm font-medium text-[#1C1C1E]">Start on boot</div>
-        <div className="text-xs text-[#8E8E93]">
+        <div className="text-xs text-[var(--text-tertiary)]">
           Run Belay automatically when this computer starts (asks for Administrator once).
         </div>
       </div>

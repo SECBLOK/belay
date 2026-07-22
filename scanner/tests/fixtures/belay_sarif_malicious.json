@@ -1,0 +1,104 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "belay",
+          "version": "0.1.0",
+          "informationUri": "https://github.com/SECBLOK/belay",
+          "rules": [
+            {
+              "id": "ast.exec",
+              "name": "AstExec",
+              "shortDescription": {
+                "text": "exec() call detected"
+              },
+              "fullDescription": {
+                "text": "exec() call detected"
+              },
+              "helpUri": "https://github.com/SECBLOK/belay/blob/main/docs/rules.md#ast.exec",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "category": "rce",
+                "security-severity": "9.0",
+                "owasp": "ASI05",
+                "atlas": "AML.CodeExecution"
+              }
+            },
+            {
+              "id": "yara.b64_exec",
+              "name": "YaraB64Exec",
+              "shortDescription": {
+                "text": "YARA match: Detects base64 decode piped to execution"
+              },
+              "fullDescription": {
+                "text": "YARA match: Detects base64 decode piped to execution"
+              },
+              "helpUri": "https://github.com/SECBLOK/belay/blob/main/docs/rules.md#yara.b64_exec",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "category": "rce",
+                "security-severity": "9.0",
+                "owasp": "ASI05",
+                "atlas": "AML.CodeExecution"
+              }
+            }
+          ]
+        }
+      },
+      "columnKind": "utf16CodeUnits",
+      "results": [
+        {
+          "ruleId": "ast.exec",
+          "level": "error",
+          "message": {
+            "text": "exec() call detected"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "run.py"
+                },
+                "region": {
+                  "startLine": 15
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "belay/v1": "c1e6a8a1837982b4"
+          }
+        },
+        {
+          "ruleId": "yara.b64_exec",
+          "level": "error",
+          "message": {
+            "text": "YARA match: Detects base64 decode piped to execution"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "run.py"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "belay/v1": "3dccf183ac2b3660"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -76,6 +76,13 @@ urlencoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 redb = { version = "4", optional = true }
 tempfile = "3"
+# Skill-security Phase-2a: skill enumeration/scanning primitives (leaf crate,
+# no cycle). Not yet consumed by daemon code — added now so Task 3 can wire
+# the scan pass in without a second Cargo.toml churn.
+skillscan = { path = "../skillscan" }
+# Directory walking for the skills enumerator (daemon/src/skills/enumerate.rs).
+# Same version pin as scanner/skillscan's own walkdir dep.
+walkdir = "2"
 # Decompress the bundled advisory blob at load time (compressed at build time by
 # build.rs). Pure-Rust miniz_oxide backend — no native zlib dependency.
 flate2 = "1"
@@ -126,6 +133,8 @@ windows = { version = "0.59", features = [
   "Win32_System_Time",
   "Win32_Security",
   "Win32_System_Rpc",
+  # GateGuard: Toolhelp process snapshot for proc_ancestry::parent_pid.
+  "Win32_System_Diagnostics_ToolHelp",
 ] }
 
 # Native netfilter/nftables (rustables) + NFQUEUE (nfq) bindings only build on

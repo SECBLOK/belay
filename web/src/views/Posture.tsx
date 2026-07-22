@@ -8,10 +8,16 @@ import {
 import { getPosture, streamAudit, type PostureSummary } from "../lib/api";
 import { C, tip, Card, StatTile, Empty, useChartReflow } from "../components/dash";
 import StatusRing, { type RingState } from "../components/StatusRing";
+import TrustPanel from "../components/TrustPanel";
+import { PawLoader } from "../components/Paw";
+import MascotEmpty from "../components/MascotEmpty";
 import ActivityFeed from "../components/ActivityFeed";
 import BootStartToggle from "../components/BootStartToggle";
 import UpdateControl from "../components/UpdateControl";
 import { humanizeRule } from "../lib/humanize";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 // Derive the native desktop hero ring state from posture (calm by default):
 // any recent deny -> blocked (red); any ask -> action (amber); healthy score
@@ -26,20 +32,21 @@ function ringState(p: PostureSummary, recent: any[]): RingState {
 // category → severity-tier hue (light semantic tokens)
 const CAT: Record<string, string> = {
   rce: "#C8312A", destructive: "#C8312A",
-  persistence: "#B55A10", secrets: "#B55A10",
-  egress: "#B27B00", tamper: "#B27B00",
-  recon: "#1A6DC8",
+  persistence: "#AB550F", secrets: "#AB550F",
+  egress: "#916400", tamper: "#916400",
+  recon: "#1A6BC5",
 };
 const catColor = (c: string) => CAT[c] ?? C.muted;
 
 function scoreColor(s: number) {
-  return s >= 80 ? C.allow : s >= 60 ? "#B27B00" : s >= 40 ? "#B55A10" : C.deny;
+  return s >= 80 ? C.allow : s >= 60 ? "#916400" : s >= 40 ? "#AB550F" : C.deny;
 }
-function scoreLabel(s: number) {
-  return s >= 80 ? "Healthy" : s >= 60 ? "Monitor" : s >= 40 ? "Investigate" : "Critical";
+function scoreLabel(s: number): MessageDescriptor {
+  return s >= 80 ? msg`Healthy` : s >= 60 ? msg`Monitor` : s >= 40 ? msg`Investigate` : msg`Critical`;
 }
 
 function ScoreGauge({ score }: { score: number }) {
+  const { t } = useLingui();
   const data = [{ value: score, fill: scoreColor(score) }];
   return (
     <div className="relative h-[200px]">
@@ -51,7 +58,7 @@ function ScoreGauge({ score }: { score: number }) {
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
         <span className="text-5xl font-bold tabular-nums" style={{ color: scoreColor(score) }}>{score}</span>
-        <span className="text-[11px] uppercase tracking-widest mt-1" style={{ color: scoreColor(score) }}>{scoreLabel(score)}</span>
+        <span className="text-[11px] uppercase tracking-widest mt-1" style={{ color: scoreColor(score) }}>{t(scoreLabel(score))}</span>
       </div>
     </div>
   );
@@ -77,7 +84,7 @@ function VerdictDonut({ p }: { p: PostureSummary }) {
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span className="text-2xl font-bold tabular-nums" style={{ color: denyRate > 20 ? C.deny : "#1C1C1E" }}>{denyRate}%</span>
-          <span className="text-[10px] uppercase tracking-widest text-[#8E8E93]">deny rate</span>
+          <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]"><Trans>deny rate</Trans></span>
         </div>
       </div>
       <div className="flex justify-center gap-4 mt-2 text-[11px]">
@@ -95,7 +102,7 @@ function VerdictDonut({ p }: { p: PostureSummary }) {
 
 function CategoryBar({ by }: { by: Record<string, number> }) {
   const data = Object.entries(by).map(([cat, count]) => ({ cat, count })).sort((a, b) => b.count - a.count);
-  if (!data.length) return <Empty>No category activity</Empty>;
+  if (!data.length) return <Empty><Trans>No category activity</Trans></Empty>;
   return (
     <div className="h-[200px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -114,7 +121,7 @@ function CategoryBar({ by }: { by: Record<string, number> }) {
 }
 
 function TrendArea({ p }: { p: PostureSummary }) {
-  if (!p.trend.length) return <Empty>No timeline activity yet</Empty>;
+  if (!p.trend.length) return <Empty><Trans>No timeline activity yet</Trans></Empty>;
   return (
     <div className="h-[220px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -141,7 +148,7 @@ function TrendArea({ p }: { p: PostureSummary }) {
 }
 
 function TopRules({ rules }: { rules: PostureSummary["top_rules"] }) {
-  if (!rules.length) return <Empty>No rules triggered</Empty>;
+  if (!rules.length) return <Empty><Trans>No rules triggered</Trans></Empty>;
   const max = rules[0]?.count ?? 1;
   return (
     <ul className="space-y-2.5 flex-1">
@@ -159,6 +166,7 @@ function TopRules({ rules }: { rules: PostureSummary["top_rules"] }) {
 }
 
 export default function Posture() {
+  const { t } = useLingui();
   const [p, setP] = useState<PostureSummary | null>(null);
   const [recent, setRecent] = useState<any[]>([]);
   const [showDetails, setShowDetails] = useState(false);
@@ -176,7 +184,11 @@ export default function Posture() {
     return () => { live = false; stop(); };
   }, []);
 
-  if (!p) return <div className="p-6 text-[#8E8E93] text-sm">Loading posture…</div>;
+  if (!p) return (
+    <div className="p-6 flex items-center gap-3 text-[var(--text-tertiary)] text-sm">
+      <PawLoader /> <Trans>Fetching your protection status…</Trans>
+    </div>
+  );
 
   const rs = ringState(p, recent);
 
@@ -186,20 +198,24 @@ export default function Posture() {
       <div className="flex flex-col items-center gap-2 pb-2">
         <StatusRing state={rs} />
         <p data-testid="posture-reassurance" className="text-sm text-[#636366] text-center max-w-sm">
-          {rs === "protected" && "All AI agent activity looks normal. Nothing needs your attention."}
-          {rs === "monitoring" && "Belay is watching. Some activity needs review — no action required."}
-          {rs === "action" && "An AI agent is waiting for your decision. See below."}
-          {rs === "blocked" && "Belay stopped a risky action. Your data was not affected — review it in Activity."}
+          {rs === "protected" && <Trans>All AI agent activity looks normal. Nothing needs your attention.</Trans>}
+          {rs === "monitoring" && <Trans>Belay is watching. Some activity needs review — no action required.</Trans>}
+          {rs === "action" && <Trans>An AI agent is waiting for your decision. See below.</Trans>}
+          {rs === "blocked" && <Trans>Belay stopped a risky action. Your data was not affected — review it in Activity.</Trans>}
         </p>
       </div>
 
       {/* KPI row — deny is the dominant alarm signal */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatTile label="Actions monitored" value={p.total} accent="var(--text-primary)" />
-        <StatTile label="Approved" value={p.allow} accent={C.allow} />
-        <StatTile label="Waiting for you" value={p.ask} accent={C.ask} />
-        <StatTile label="Blocked" value={p.deny} accent={C.deny} dominant />
+        <StatTile label={t`Actions monitored`} value={p.total} accent="var(--text-primary)" />
+        <StatTile label={t`Approved`} value={p.allow} accent={C.allow} />
+        <StatTile label={t`Waiting for you`} value={p.ask} accent={C.ask} />
+        <StatTile label={t`Blocked`} value={p.deny} accent={C.deny} dominant />
       </div>
+
+      {/* Security signals: per-session trust grades + GateGuard self-approval
+          attempts (spec §1). Both degrade to empty/zero off-daemon. */}
+      <TrustPanel />
 
       {/* Start-on-boot + update check (desktop only; render nothing in the web build) */}
       <BootStartToggle />
@@ -207,8 +223,8 @@ export default function Posture() {
 
       {/* Native desktop live feed — verdict-accent rows, newest first */}
       <div className="grid grid-cols-1 gap-4">
-        <Card title="Live Activity" hint="recent events" span="min-h-[120px]">
-          {recent.length ? <ActivityFeed rows={recent} /> : <Empty>No activity yet — Belay will show what your AI agents do here.</Empty>}
+        <Card title={t`Live Activity`} hint={t`recent events`} span="min-h-[120px]">
+          {recent.length ? <ActivityFeed rows={recent} /> : <MascotEmpty pose="nap" title={t`All quiet`}><Trans>Nothing to guard right now — Belay will show what your AI agents do here.</Trans></MascotEmpty>}
         </Card>
       </div>
 
@@ -217,24 +233,24 @@ export default function Posture() {
         <button
           onClick={() => setShowDetails((s) => !s)}
           aria-expanded={showDetails}
-          className="flex items-center gap-2 text-xs text-[#8E8E93] hover:text-[#1C1C1E] transition-colors py-1"
+          className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] hover:text-[#1C1C1E] transition-colors py-1"
         >
           <span className="inline-block w-3 text-center">{showDetails ? "▾" : "▸"}</span>
-          {showDetails ? "Hide details" : "Show details"}
+          {showDetails ? <Trans>Hide details</Trans> : <Trans>Show details</Trans>}
         </button>
         {showDetails && (
           <div className="mt-3 space-y-4">
             {/* score + verdict + category */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              <Card title="Posture Score" hint="0–100" span="lg:col-span-3 min-h-[260px]"><ScoreGauge score={p.score} /></Card>
-              <Card title="Verdict Distribution" span="lg:col-span-3 min-h-[260px]"><VerdictDonut p={p} /></Card>
-              <Card title="Threat Categories" hint="rule hits" span="lg:col-span-6 min-h-[260px]"><CategoryBar by={p.by_category} /></Card>
+              <Card title={t`Posture Score`} hint="0–100" span="lg:col-span-3 min-h-[260px]"><ScoreGauge score={p.score} /></Card>
+              <Card title={t`Verdict Distribution`} span="lg:col-span-3 min-h-[260px]"><VerdictDonut p={p} /></Card>
+              <Card title={t`Threat Categories`} hint={t`rule hits`} span="lg:col-span-6 min-h-[260px]"><CategoryBar by={p.by_category} /></Card>
             </div>
 
             {/* trend + top rules */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              <Card title="Activity Over Time" hint="5-min buckets" span="lg:col-span-7 min-h-[260px]"><TrendArea p={p} /></Card>
-              <Card title="Top Triggered Rules" hint="deny + ask" span="lg:col-span-5 min-h-[260px]"><TopRules rules={p.top_rules} /></Card>
+              <Card title={t`Activity Over Time`} hint={t`5-min buckets`} span="lg:col-span-7 min-h-[260px]"><TrendArea p={p} /></Card>
+              <Card title={t`Top Triggered Rules`} hint={t`deny + ask`} span="lg:col-span-5 min-h-[260px]"><TopRules rules={p.top_rules} /></Card>
             </div>
           </div>
         )}

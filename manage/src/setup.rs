@@ -64,6 +64,12 @@ pub struct AiChoice {
     /// Explicit opt-in required before a "cloud" mode is ever saved.
     pub cloud_consent: bool,
     pub key: Option<String>,
+    /// LLM skill judge — background watcher path. Off by default.
+    pub skill_judge_enabled: bool,
+    /// LLM skill judge — synchronous install-gate. Off by default.
+    pub skill_judge_gate_enabled: bool,
+    /// Per-task judge model override; None = inherit the global `model`.
+    pub skill_judge_model: Option<String>,
 }
 
 /// A messaging-channel choice built by the Custom flow's channel prompt.
@@ -80,8 +86,12 @@ pub struct ChannelChoice {
 /// The wizard's output: a fully-decided plan of what to set up. Building this
 /// plan has NO side effects — a caller executes it separately (protect
 /// agents, write configs, install the service).
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct SetupPlan {
+    /// The locale every later surface (GUI, tray, toast, CLI) will use. Asked
+    /// FIRST, because every prompt after it should already be in the chosen
+    /// language. One of `host_config::SUPPORTED_LOCALES`.
+    pub locale: String,
     pub protect_agents: Vec<String>,
     pub firewall: bool,
     pub ssh_guard: bool,
@@ -94,6 +104,35 @@ pub struct SetupPlan {
     pub scan_schedule: bool,
     pub install_service: bool,
 }
+
+/// Hand-written rather than derived so `locale` defaults to a REAL locale.
+/// `#[derive(Default)]` would hand back `""`, which is not a locale any
+/// surface can render in - the non-interactive paths return a default plan,
+/// and they must still name a language. Adding a field breaks this impl on
+/// purpose: the new field's default deserves a decision, not silence.
+impl Default for SetupPlan {
+    fn default() -> Self {
+        Self {
+            locale: DEFAULT_LOCALE.to_string(),
+            protect_agents: Vec::new(),
+            firewall: false,
+            ssh_guard: false,
+            ai: None,
+            channels: None,
+            netenrich: false,
+            scan_schedule: false,
+            install_service: false,
+        }
+    }
+}
+
+/// Kept in step with `belayd`'s `host_config::SUPPORTED_LOCALES` by
+/// `locale_options_match_the_daemons_supported_list`. `manage` does not depend
+/// on the daemon crate, so the list is duplicated and the test is what makes
+/// the duplication safe.
+pub const LOCALE_OPTIONS: &[(&str, &str)] = &[("en", "English"), ("zh-Hans", "中文（简体）")];
+
+pub const DEFAULT_LOCALE: &str = "en";
 
 /// Printed (to `output`) when run non-interactively without `--yes`, instead
 /// of hanging on a read from a pipe that will never answer.
@@ -259,8 +298,9 @@ fn default_cloud_model(provider: &str) -> &'static str {
 // `AiConfig::from_args`/`config_set_channel` calls happen in the binary.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Build the exact `{mode,provider,model,base_url,cloud_consent}` object that
-/// `belayd::ai::config::AiConfig::from_args` accepts. Deliberately omits
+/// Build the exact `{mode,provider,model,base_url,cloud_consent,
+/// skill_judge_enabled,skill_judge_gate_enabled,skill_judge_model?}` object
+/// that `belayd::ai::config::AiConfig::from_args` accepts. Deliberately omits
 /// `choice.key` — the BYOK secret never goes into `ai.json`; the caller
 /// writes it separately via `ai::secret::write_ai_key`.
 pub fn ai_config_args(choice: &AiChoice) -> serde_json::Value {
@@ -269,9 +309,15 @@ pub fn ai_config_args(choice: &AiChoice) -> serde_json::Value {
         "provider": choice.provider,
         "model": choice.model,
         "cloud_consent": choice.cloud_consent,
+        "skill_judge_enabled": choice.skill_judge_enabled,
+        "skill_judge_gate_enabled": choice.skill_judge_gate_enabled,
     });
     if let Some(base_url) = &choice.base_url {
         args["base_url"] = serde_json::Value::String(base_url.clone());
+    }
+    // Omit when None so from_args reads it as "inherit" (same rule as base_url).
+    if let Some(judge_model) = &choice.skill_judge_model {
+        args["skill_judge_model"] = serde_json::Value::String(judge_model.clone());
     }
     args
 }
@@ -328,6 +374,9 @@ fn build_ai_local<R: BufRead, W: Write>(input: &mut R, output: &mut W) -> io::Re
         base_url: None,
         cloud_consent: false,
         key: None,
+        skill_judge_enabled: false,
+        skill_judge_gate_enabled: false,
+        skill_judge_model: None,
     })
 }
 
@@ -354,6 +403,9 @@ fn build_ai_cloud<R: BufRead, W: Write>(
             base_url: None,
             cloud_consent: true,
             key: Some(key),
+            skill_judge_enabled: false,
+            skill_judge_gate_enabled: false,
+            skill_judge_model: None,
         }))
     } else {
         // Hard requirement, not a silent downgrade: cloud mode sends data
@@ -514,6 +566,10 @@ fn prompt_ai_gated<R: BufRead, W: Write>(
 fn quick_plan(home: Option<&str>) -> SetupPlan {
     let protect_agents = find_agents(home).into_iter().map(|a| a.name).collect();
     SetupPlan {
+        // `--yes` reaches here without asking anything, so English is the only
+        // honest answer. The interactive paths overwrite this with the
+        // operator's pick.
+        locale: DEFAULT_LOCALE.to_string(),
         protect_agents,
         firewall: true,
         ssh_guard: true,
@@ -646,6 +702,19 @@ pub fn run_setup<R: BufRead, W: Write>(
 
     let styled = opts.styled;
 
+    // Question one, before Quick-vs-Custom: everything printed after this
+    // point should already be in the chosen language. The question itself is
+    // bilingual out of necessity - the operator has not picked a language yet,
+    // so it cannot be asked in only one of them.
+    let lang = prompt_choice(
+        output,
+        input,
+        &heading(styled, "Choose your language / 选择语言"),
+        &LOCALE_OPTIONS.iter().map(|(_, label)| *label).collect::<Vec<_>>(),
+        0,
+    )?;
+    let locale = LOCALE_OPTIONS[lang].0.to_string();
+
     let mode = prompt_choice(
         output,
         input,
@@ -658,10 +727,13 @@ pub fn run_setup<R: BufRead, W: Write>(
     )?;
 
     if mode == 1 {
-        return Ok(custom_plan(input, output, home, styled)?);
+        let mut plan = custom_plan(input, output, home, styled)?;
+        plan.locale = locale;
+        return Ok(plan);
     }
 
     let mut plan = quick_plan(home);
+    plan.locale = locale;
 
     let names = plan.protect_agents.join(", ");
     let question = format!(
@@ -721,7 +793,7 @@ mod tests {
 
     #[test]
     fn interactive_quick_path_selects_quick_and_confirms_agents() {
-        let mut input = Cursor::new(&b"1\ny\n"[..]);
+        let mut input = Cursor::new(&b"1\n1\ny\n"[..]);
         let mut output: Vec<u8> = Vec::new();
         let home = empty_home();
         let opts = SetupOpts {
@@ -737,7 +809,7 @@ mod tests {
 
     #[test]
     fn interactive_quick_path_with_empty_lines_uses_defaults() {
-        let mut input = Cursor::new(&b"\n\n"[..]);
+        let mut input = Cursor::new(&b"\n\n\n"[..]);
         let mut output: Vec<u8> = Vec::new();
         let home = empty_home();
         let opts = SetupOpts {
@@ -756,12 +828,12 @@ mod tests {
         // Quick, confirm agents, then opt IN to AI (local) and a Telegram
         // channel - the two optional prompts the Quick flow now surfaces.
         let mut input = Cursor::new(
-            &b"1\n\
+            &b"1\n1\n\
                y\n\
                y\n1\nllama3\n\
                y\n1\nbot-tok\n42\n"[..],
         );
-        // 1=Quick, y=confirm agents, y=set-up-AI 1=Local llama3=model,
+        // 1=English, 1=Quick, y=confirm agents, y=set-up-AI 1=Local llama3=model,
         // y=connect-channel 1=Telegram bot-tok=token 42=chat id.
         let mut output: Vec<u8> = Vec::new();
         let home = empty_home();
@@ -791,7 +863,7 @@ mod tests {
     fn interactive_quick_path_skips_ai_and_messaging_by_default() {
         // Quick, confirm agents, press Enter through both optional prompts ->
         // neither AI nor a channel is configured (the fast default path).
-        let mut input = Cursor::new(&b"1\ny\n\n\n"[..]);
+        let mut input = Cursor::new(&b"1\n1\ny\n\n\n"[..]);
         let mut output: Vec<u8> = Vec::new();
         let home = empty_home();
         let opts = SetupOpts {
@@ -913,6 +985,77 @@ mod tests {
         assert!(!prompt_yes_no(&mut output, &mut input, "q?", false).unwrap());
     }
 
+    /// `manage` cannot depend on the daemon crate, so `LOCALE_OPTIONS`
+    /// duplicates `host_config::SUPPORTED_LOCALES`. If the two drift, the
+    /// wizard offers a language the daemon will refuse to persist, and setup
+    /// ends with the operator's pick silently discarded. Read the daemon's
+    /// list from source so this fails on the drift itself.
+    #[test]
+    fn locale_options_match_the_daemons_supported_list() {
+        let src = include_str!("../../daemon/src/host_config.rs");
+        let line = src
+            .lines()
+            .find(|l| l.contains("SUPPORTED_LOCALES"))
+            .expect("daemon lost SUPPORTED_LOCALES");
+        for (tag, _) in LOCALE_OPTIONS {
+            assert!(
+                line.contains(&format!("\"{tag}\"")),
+                "wizard offers {tag}, daemon's SUPPORTED_LOCALES does not: {line}"
+            );
+        }
+        assert_eq!(
+            line.matches('"').count() / 2,
+            LOCALE_OPTIONS.len(),
+            "daemon supports a locale the wizard never offers: {line}"
+        );
+    }
+
+    /// Language is question ONE. Answering `2` selects Chinese, and the plan
+    /// carries it through the Quick flow to the caller that persists it.
+    #[test]
+    fn language_is_the_first_question_and_reaches_the_plan() {
+        let home = empty_home();
+        let mut output: Vec<u8> = Vec::new();
+        // 2 = 中文, 1 = Quick, y = protect, then skip AI + channel prompts.
+        let mut input = Cursor::new(&b"2\n1\ny\n\n\n"[..]);
+        let plan = run_setup(
+            &mut input,
+            &mut output,
+            &SetupOpts {
+                interactive: true,
+                home: Some(home.path().to_path_buf()),
+                ..Default::default()
+            },
+        )
+        .expect("wizard");
+        assert_eq!(plan.locale, "zh-Hans");
+
+        let printed = String::from_utf8(output).expect("utf8");
+        let lang_at = printed.find("选择语言").expect("no language prompt");
+        let mode_at = printed.find("How would you like").expect("no mode prompt");
+        assert!(lang_at < mode_at, "language must be asked first:\n{printed}");
+    }
+
+    /// `--yes` answers nothing, so it must not invent a language.
+    #[test]
+    fn non_interactive_plans_default_to_english() {
+        let home = empty_home();
+        let mut input = Cursor::new(&b""[..]);
+        let mut output: Vec<u8> = Vec::new();
+        let plan = run_setup(
+            &mut input,
+            &mut output,
+            &SetupOpts {
+                yes: true,
+                home: Some(home.path().to_path_buf()),
+                ..Default::default()
+            },
+        )
+        .expect("wizard");
+        assert_eq!(plan.locale, DEFAULT_LOCALE);
+        assert_eq!(SetupPlan::default().locale, DEFAULT_LOCALE);
+    }
+
     #[test]
     fn prompt_choice_empty_line_uses_default_idx() {
         let mut output: Vec<u8> = Vec::new();
@@ -979,6 +1122,7 @@ mod tests {
         std::fs::create_dir_all(home.path().join(".claude")).expect("seed .claude dir");
 
         let script = concat!(
+            "1\n",               // Language -> English
             "2\n",               // Quick vs Custom -> Custom
             "y\n",               // Protect claude-code? -> yes
             "y\n",               // Firewall? -> yes
@@ -1015,6 +1159,9 @@ mod tests {
                 base_url: None,
                 cloud_consent: true,
                 key: Some("sk-x".to_string()),
+                skill_judge_enabled: false,
+                skill_judge_gate_enabled: false,
+                skill_judge_model: None,
             })
         );
         assert!(!plan.netenrich);
@@ -1033,8 +1180,8 @@ mod tests {
         // across environments.
         let agent_answers = "y\n".repeat(find_agents(home.path().to_str()).len());
         let script =
-            format!("2\n{agent_answers}y\ny\n3\n2\nclaude-sonnet-5\nsk-x\nn\nn\nn\nn\nn\n");
-        // 2=Custom, [per-agent y], y=firewall, y=ssh-guard, 3=AI->Cloud,
+            format!("1\n2\n{agent_answers}y\ny\n3\n2\nclaude-sonnet-5\nsk-x\nn\nn\nn\nn\nn\n");
+        // 1=English, 2=Custom, [per-agent y], y=firewall, y=ssh-guard, 3=AI->Cloud,
         // 2=provider->anthropic, model, key, n=consent, n=netenrich,
         // n=scan-schedule, n=channel, n=install-service.
         let mut input = Cursor::new(script.as_bytes());
@@ -1061,6 +1208,7 @@ mod tests {
         std::fs::create_dir_all(home.path().join(".claude")).expect("seed .claude dir");
 
         let script = concat!(
+            "1\n", // Language -> English
             "2\n", // Custom
             "n\n", // Protect claude-code? -> NO
             "y\n", // Firewall
@@ -1092,10 +1240,10 @@ mod tests {
     fn custom_run_scan_schedule_yes_sets_plan_true() {
         let home = empty_home();
         let agent_answers = "y\n".repeat(find_agents(home.path().to_str()).len());
-        // 2=Custom, [per-agent y], y=firewall, y=ssh-guard, 1=AI->Off,
+        // 1=English, 2=Custom, [per-agent y], y=firewall, y=ssh-guard, 1=AI->Off,
         // n=netenrich, y=scheduled vuln scan. Everything after (channel,
         // install-service) hits EOF and falls back to defaults.
-        let script = format!("2\n{agent_answers}y\ny\n1\nn\ny\n");
+        let script = format!("1\n2\n{agent_answers}y\ny\n1\nn\ny\n");
         let mut input = Cursor::new(script.as_bytes());
         let mut output: Vec<u8> = Vec::new();
         let opts = SetupOpts {
@@ -1113,7 +1261,7 @@ mod tests {
         let home = empty_home();
         let agent_answers = "y\n".repeat(find_agents(home.path().to_str()).len());
         // Same as above but declines the scheduled vuln scan.
-        let script = format!("2\n{agent_answers}y\ny\n1\nn\nn\n");
+        let script = format!("1\n2\n{agent_answers}y\ny\n1\nn\nn\n");
         let mut input = Cursor::new(script.as_bytes());
         let mut output: Vec<u8> = Vec::new();
         let opts = SetupOpts {
@@ -1133,8 +1281,8 @@ mod tests {
         // answer "protect it" for however many agents this machine's `$PATH`
         // makes `find_agents` detect, rather than assuming zero.
         let agent_answers = "y\n".repeat(find_agents(home.path().to_str()).len());
-        let script = format!("2\n{agent_answers}y\ny\n1\nn\nn\ny\n1\ntg-token\n12345\ny\n");
-        // 2=Custom, [per-agent y], y=firewall, y=ssh-guard, 1=AI->Off,
+        let script = format!("1\n2\n{agent_answers}y\ny\n1\nn\nn\ny\n1\ntg-token\n12345\ny\n");
+        // 1=English, 2=Custom, [per-agent y], y=firewall, y=ssh-guard, 1=AI->Off,
         // n=netenrich, n=scan-schedule, y=connect channel, 1=platform->Telegram,
         // bot token, chat id, y=install-service.
         let mut input = Cursor::new(script.as_bytes());
@@ -1162,7 +1310,7 @@ mod tests {
         let home = empty_home();
         let agent_answers = "y\n".repeat(find_agents(home.path().to_str()).len());
         // ...same as the Telegram case but 2=platform->Discord, then token + channel id.
-        let script = format!("2\n{agent_answers}y\ny\n1\nn\nn\ny\n2\ndc-token\nD999\ny\n");
+        let script = format!("1\n2\n{agent_answers}y\ny\n1\nn\nn\ny\n2\ndc-token\nD999\ny\n");
         let mut input = Cursor::new(script.as_bytes());
         let mut output: Vec<u8> = Vec::new();
         let opts = SetupOpts {
@@ -1196,8 +1344,8 @@ mod tests {
         // answer "protect it" for however many agents this machine's `$PATH`
         // makes `find_agents` detect, rather than assuming zero.
         let agent_answers = "y\n".repeat(find_agents(home.path().to_str()).len());
-        let script = format!("2\n{agent_answers}y\ny\n1\nn\nn\ny\n1\n\n12345\ny\n");
-        // 2=Custom, [per-agent y], y=firewall, y=ssh-guard, 1=AI->Off,
+        let script = format!("1\n2\n{agent_answers}y\ny\n1\nn\nn\ny\n1\n\n12345\ny\n");
+        // 1=English, 2=Custom, [per-agent y], y=firewall, y=ssh-guard, 1=AI->Off,
         // n=netenrich, n=scan-schedule, y=connect channel, 1=platform->Telegram,
         // ""=bot token left BLANK (means "keep the existing secret"),
         // chat id=12345, y=install-service.
@@ -1234,6 +1382,9 @@ mod tests {
             base_url: None,
             cloud_consent: true,
             key: Some("sk-x".to_string()),
+            skill_judge_enabled: false,
+            skill_judge_gate_enabled: false,
+            skill_judge_model: None,
         };
         let args = ai_config_args(&choice);
         assert_eq!(args["mode"], "cloud");
@@ -1253,8 +1404,48 @@ mod tests {
             base_url: Some("http://localhost:11434".to_string()),
             cloud_consent: false,
             key: None,
+            skill_judge_enabled: false,
+            skill_judge_gate_enabled: false,
+            skill_judge_model: None,
         };
         let args = ai_config_args(&choice);
         assert_eq!(args["base_url"], "http://localhost:11434");
+    }
+
+    #[test]
+    fn ai_config_args_emits_judge_fields() {
+        let choice = AiChoice {
+            mode: "cloud".to_string(),
+            provider: "anthropic".to_string(),
+            model: "claude-haiku-4-5".to_string(),
+            base_url: None,
+            cloud_consent: true,
+            key: Some("sk-x".to_string()),
+            skill_judge_enabled: true,
+            skill_judge_gate_enabled: false,
+            skill_judge_model: Some("claude-sonnet-5".to_string()),
+        };
+        let args = ai_config_args(&choice);
+        assert_eq!(args["skill_judge_enabled"], true);
+        assert_eq!(args["skill_judge_gate_enabled"], false);
+        assert_eq!(args["skill_judge_model"], "claude-sonnet-5");
+    }
+
+    #[test]
+    fn ai_config_args_omits_judge_model_when_none() {
+        let choice = AiChoice {
+            mode: "local".to_string(),
+            provider: "ollama".to_string(),
+            model: "qwen2.5".to_string(),
+            base_url: None,
+            cloud_consent: false,
+            key: None,
+            skill_judge_enabled: false,
+            skill_judge_gate_enabled: false,
+            skill_judge_model: None,
+        };
+        let args = ai_config_args(&choice);
+        assert_eq!(args["skill_judge_enabled"], false);
+        assert!(args.get("skill_judge_model").is_none());
     }
 }

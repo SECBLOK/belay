@@ -7,7 +7,7 @@
 //! This is a standalone scoring layer over the verdict stream; wiring it to the
 //! audit log / IPC / GUI is a follow-up.
 
-use crate::engine::types::{Decision, Severity};
+use crate::engine::types::{Decision, Severity, VerdictEvent};
 
 /// Trust grade, ordered worst → best so `APlus` is the maximum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -18,14 +18,6 @@ pub enum Grade {
     B,
     A,
     APlus,
-}
-
-/// A single past verdict with the unix-seconds timestamp it occurred at.
-#[derive(Debug, Clone, Copy)]
-pub struct VerdictEvent {
-    pub decision: Decision,
-    pub severity: Severity,
-    pub ts: u64,
 }
 
 // Demerit decay half-life: a demerit loses half its weight every hour.

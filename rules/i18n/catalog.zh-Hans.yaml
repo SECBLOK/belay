@@ -1,0 +1,247 @@
+# rules/i18n/catalog.zh-Hans.yaml — Simplified Chinese translations of the rule
+# catalogue's user-facing prose (reason + the five explain fields), keyed by
+# rule id.
+#
+# COMPILED IN via include_str! (daemon/src/engine/rule_i18n.rs) — never read
+# from disk at runtime. A translation file that could be swapped after install
+# would let someone rewrite the text of a security decision.
+#
+# Each entry carries : the SHA-256 (first 16 hex) of the English prose
+# it was translated from. If the English changes, the sha changes, and both the
+# coverage test AND the runtime refuse the now-stale translation, falling back
+# to English. Regenerate the skeleton with:
+#   cargo test -p belayd dump_rule_i18n_skeleton -- --ignored --nocapture
+version: 1
+rules:
+  destructive.rm_rf:
+    src_sha: a3edc01a5b6626dc
+    reason: 对危险目标执行递归强制删除
+    summary: 这会尝试强制删除文件，可能是你的整个主目录或磁盘。
+    what: 它对 `/`、`~` 或 `*` 之类的宽泛路径执行了递归强制删除（`rm -rf`）。
+    why_risky: 无法撤销。它可以在几秒内抹除你的项目、配置甚至整个系统。
+    normal_use: 很少见。构建脚本会删除特定的构建文件夹，但几乎不会删除 `/`、`~` 或 `$HOME`。
+    suggested_action: 除非你确切知道这是要清理哪个文件夹，否则请拒绝。
+  destructive.disk_wipe:
+    src_sha: 01518ed84a9a1663
+    reason: 磁盘/分区抹除
+    summary: 这会尝试擦除或重新格式化整块磁盘或分区。
+    what: 它执行了一条底层磁盘命令，直接覆写裸设备，或在其上创建新的文件系统。
+    why_risky: 它会一次性销毁目标设备上的每一个文件，且无法恢复。
+    normal_use: 只在有意进行磁盘配置或制作镜像时才会用到，这在正在使用的机器上很罕见。
+    suggested_action: 除非你此刻确实在有意对某个驱动器分区或制作镜像，否则请拒绝。
+  destructive.git_force:
+    src_sha: a6bd3ad38a006152
+    reason: git 强制推送 / 硬重置
+    summary: 这会强制覆盖 git 历史，或丢弃尚未提交的工作。
+    what: 它执行了一次强制推送、硬重置，或一次会永久丢弃本地更改的清理操作。
+    why_risky: 它可能抹除尚未备份的提交或改动，并为所有人重写共享分支的历史。
+    normal_use: 偶尔用于修正个人分支。对 main 之类的共享分支强制推送则不寻常。
+    suggested_action: 仅当你确实想丢弃这些更改或重写该分支时才允许。
+  destructive.db_drop:
+    src_sha: 453260a9caa67fdc
+    reason: 破坏性数据库语句
+    summary: 这会运行一条删除表、行或整个数据库的数据库命令。
+    what: 它发出了 DROP、TRUNCATE 或不带条件的 DELETE 语句。
+    why_risky: 它可能瞬间抹除数据，而 TRUNCATE 和 DROP 通常无法回滚。
+    normal_use: 在迁移或本地测试时会用到。在没有备份的情况下对真实数据执行则很罕见。
+    suggested_action: 除非你确知这针对的是可丢弃或已备份的数据库，否则请拒绝。
+  destructive.inhibit_recovery:
+    src_sha: ea296a0cde3dbfd0
+    reason: 在大规模文件更改之前或之后禁用 Windows 备份/恢复
+    summary: 这会禁用 Windows 自带的备份和恢复选项。
+    what: 它删除了 shadow-copy 备份，或关闭了启动修复——这些是 Windows 用来撤销错误更改的安全网。
+    why_risky: 先移除这些是大规模破坏文件前一个众所周知的步骤：它确保事后没有任何东西可供恢复。
+    normal_use: 在日常开发工作中几乎从不这么做；合法的管理用途确实存在，但很罕见，且通常通过系统界面完成，而非用脚本。
+    suggested_action: 除非你此刻确实在有意进行磁盘/恢复维护，并且完全清楚这会移除什么，否则请拒绝。
+  sysabuse.fork_bomb:
+    src_sha: 7020615ba4dcf973
+    reason: fork 炸弹（自引用函数管道给自身，并置于后台）
+    summary: 这会制造一个 fork 炸弹——一场自我倍增的进程爆炸。
+    what: 它定义了一个函数（或使用了 Windows 批处理的自调用形式），把自身的一个副本通过管道传给另一个副本并在后台运行，于是每个运行中的副本都会立即再生出两个。
+    why_risky: 每个副本持续自我翻倍，在几秒内耗尽机器的进程表和 CPU。系统会失去响应，通常需要硬重启才能恢复——一旦启动，就没有优雅的方式停止它。
+    normal_use: 在日常开发工作中从不出现——没有任何合法脚本会把自身的一个后台副本管道传给另一个副本。
+    suggested_action: 拒绝。没有任何正当理由运行它。
+  sysabuse.disk_device_write:
+    src_sha: 26c489834c1a8f5d
+    reason: 裸块设备写入
+    summary: 这会把数据直接写入裸磁盘设备。
+    what: 它运行了 `dd` 或一个 shell 重定向，目标是裸块设备路径（如 /dev/sda、/dev/nvme0n1 或 /dev/mmcblk0），而不是普通文件。
+    why_risky: 写入裸设备会立即覆盖分区表和该磁盘上的每个文件，没有确认提示，也无法撤销。
+    normal_use: 罕见且需刻意为之——制作镜像或重新刷写驱动器有时是有意进行的，即便如此也只有写入方向危险（从设备读取到文件以制作备份镜像是安全且常见的）。
+    suggested_action: 除非你此刻确实在有意覆写这块特定磁盘，并已备份其上你需要保留的一切，否则请拒绝。
+  egress.exfil_host:
+    src_sha: 137f78c1bba15d4b
+    reason: 向已知的外泄汇集点发起外联
+    summary: 这会把数据发送到常被用于收集窃取信息的服务。
+    what: 它向已知的 paste、隧道或请求捕获主机发起了一次外联连接。
+    why_risky: 这些服务是悄悄把机密或文件传出你机器的常用手段。
+    normal_use: 有时用于快速调试，但很少是正常工作的一部分。
+    suggested_action: 除非那个端点是你本人为测试而搭建的，否则请拒绝。
+  egress.post_file:
+    src_sha: 5eb1f07be15bd7c8
+    reason: 通过网络上传文件/机密
+    summary: 这会通过网络上传一个文件或机密。
+    what: 它把一个环境文件、密钥或凭据发送到了远程服务器。
+    why_risky: 如果这些内容是机密，就等于把它们交给了掌控对端的人。
+    normal_use: 把真实凭据文件上传到机器之外几乎从不是日常工作的一部分。
+    suggested_action: 除非你在有意把该文件传输到一个可信之处，否则请拒绝。
+  egress.dns_exfil:
+    src_sha: 537db8f9a4dd0b7f
+    reason: 通过 DNS 编码进行数据外泄
+    summary: 这看起来像是在通过 DNS 查询把数据偷运出去。
+    what: 它运行了一个由编码数据或 base64 数据构造的 DNS 查询。
+    why_risky: DNS 隧道把窃取的数据藏在看似普通的查询里，以绕过防火墙。
+    normal_use: 在日常开发中基本从不出现。
+    suggested_action: 拒绝。正当任务不会把数据编码进 DNS 查询。
+  egress.reverse_shell:
+    src_sha: 612433dd169af9b1
+    reason: 反向 shell
+    summary: 这会打开一个远程 shell，让外部方控制这台机器。
+    what: 它使用裸 TCP 套接字，或 netcat/socat 的命令执行，建立了一个反向 shell。
+    why_risky: 反向 shell 会让攻击者获得对你系统的交互式控制。
+    normal_use: 只在有意进行的渗透测试中出现，正常使用中从不出现。
+    suggested_action: 除非你明知自己正在运行一次经过授权的安全测试，否则请拒绝。
+  rce.pipe_to_shell:
+    src_sha: 4d39e507a608d908
+    reason: 下载后通过管道传给解释器
+    summary: 这会从互联网下载代码并立即运行。
+    what: 它把一次下载的输出直接管道传给了 shell 或解释器。
+    why_risky: 你正在执行从未看过的代码；如果来源被篡改，它会以你的权限运行。
+    normal_use: 有些安装脚本会建议这么做，但这是一个众所周知的危险模式。
+    suggested_action: 更建议先下载、阅读、再运行。如果你不信任来源，请拒绝。
+  rce.decode_exec:
+    src_sha: 5de387caa15be191
+    reason: 解码并执行
+    summary: 这会解码隐藏的文本并将其作为代码运行。
+    what: 它解码了 base64，或动态构造了一条命令，并执行了结果。
+    why_risky: 把命令藏在解码之后，是伪装恶意代码的常见手法。
+    normal_use: 合法脚本很少需要先解码再执行经过混淆的输入。
+    suggested_action: 除非你能确切看清解码后的命令做了什么，否则请拒绝。
+  rce.untrusted_install:
+    src_sha: 44118d59eca5c0f9
+    reason: 软件包安装（供应链风险）
+    summary: 这会安装一个可运行其自身安装代码的第三方软件包。
+    what: 它从公共仓库安装了一个依赖，而该依赖可能运行安装脚本。
+    why_risky: 恶意或仿冒名（typo-squatted）的软件包可以在安装期间在你的机器上执行代码。
+    normal_use: 在开发中非常常见，但每个新软件包都是一次信任决策。
+    suggested_action: 对你认识的软件包可以允许；对不熟悉的名称要谨慎。
+  persist.sudo:
+    src_sha: 2a3d69da75be469a
+    reason: 提权
+    summary: 这会以管理员权限运行一条命令。
+    what: 它使用了 sudo、doas 或 pkexec 来提升为 root。
+    why_risky: 以 root 运行的任何东西都可以更改或损坏整个系统，而不只是你的文件。
+    normal_use: 在安装系统软件或编辑受保护文件时很常见。
+    suggested_action: 如果你预期会有管理员操作并且信任这条命令，就允许。
+  persist.authorized_keys:
+    src_sha: 81c767095baef3dc
+    reason: 写入 SSH authorized_keys
+    summary: 这会添加一个 SSH 登录密钥，从而可能创建一条长期的再次进入通道。
+    what: 它写入了 SSH authorized_keys 文件，或生成了一个新的 SSH 密钥。
+    why_risky: 添加密钥可以让某人日后无需密码即可登录，即使本次会话已经结束。
+    normal_use: 偶尔在为你自己拥有的服务器配置 SSH 访问时会用到。
+    suggested_action: 除非你此刻确实在有意配置 SSH 访问，否则请拒绝。
+  persist.scheduler:
+    src_sha: 6529aad16a730f6e
+    reason: 计划任务/持久化任务
+    summary: 这会设置一个持续运行或会自动再次运行的任务。
+    what: 它创建了一个 cron 任务、启用了一项服务，或安排了一个持久化任务。
+    why_risky: 计划任务在重启后依然存在，可以在你早已忘记它们之后悄悄重新运行代码。
+    normal_use: 对真正的后台服务和维护作业而言是合法的。
+    suggested_action: 仅当你确实想安装一个周期性任务时才允许。
+  persist.shell_profile:
+    src_sha: 991955955960f023
+    reason: 编辑 shell 配置文件
+    summary: 这会编辑一个 shell 启动文件，它在你每次打开终端时都会运行。
+    what: 它修改了一个登录或 shell 的配置脚本。
+    why_risky: 植入这里的代码会在每个新 shell 中自动运行，这是常见的持久化伎俩。
+    normal_use: 在配置你的环境、别名或 PATH 时很常见。
+    suggested_action: 如果你在有意定制自己的 shell 就允许；否则请审阅该改动。
+  ingest.untrusted_web:
+    src_sha: b61f487766de34c5
+    reason: 摄入不可信的外部网页内容
+    summary: 这会从一个外部网站拉取内容。
+    what: 它从互联网获取了一个网页或文件。
+    why_risky: 不可信的网页内容可能夹带隐藏指令，试图操纵代理。单独来看它是被允许的，但它会让本次会话进入监视状态。
+    normal_use: 非常常见，在阅读文档或 API 时通常是无害的。
+    suggested_action: 允许没问题；只要后续它被与读取机密并把数据发送出去搭配起来时保持警惕即可。
+  recon.fs_secret_sweep:
+    src_sha: 82aabbb58845593b
+    reason: 在整个文件系统范围内搜寻机密
+    summary: 这会在文件系统中大范围搜索机密文件。
+    what: 它对 env 文件或私钥之类的东西进行了一次大范围搜索。
+    why_risky: 搜寻凭据是窃取它们之前的经典第一步。
+    normal_use: 罕见。正常工作通常针对某个已知文件夹，而不是整块磁盘。
+    suggested_action: 除非你在有意审计自己的机密都存放在哪里，否则请拒绝。
+  recon.agent_config_read:
+    src_sha: f57717b572d1a4a6
+    reason: 读取另一个代理的配置/记忆
+    summary: 这会读取另一个 AI 代理的配置或记忆文件。
+    what: 它访问了属于另一个代理工具的配置或记忆。
+    why_risky: 读取另一个代理的设置或记忆，可能泄露它的指令、密钥或私有上下文。
+    normal_use: 不常见；大多数任务不需要检查其他代理的内部内容。
+    suggested_action: 仅当你在有意检查那个工具的配置时才允许。
+  recon.identity_probe:
+    src_sha: 43e70ce5afda85c5
+    reason: 云/身份探测
+    summary: 这会检查这台机器可以使用哪个云或账户身份。
+    what: 它查询了云或 CLI 凭据，以查看自己是以谁的身份通过认证的。
+    why_risky: 发现活动的云身份，是探查攻击者能触及哪些资源的早期一步。
+    normal_use: 在正当地使用云账户时很常见。
+    suggested_action: 如果你正在积极使用该云提供商就允许。
+  recon.agent_runtime_discovery:
+    src_sha: be08be33d319774b
+    reason: 探测本地 LLM 运行时（Ollama/LM Studio）
+    summary: 这会探测本地 AI 模型运行时。
+    what: 它联系了 Ollama 或 LM Studio 之类的本地模型服务，或列出了其模型。
+    why_risky: 找到本地模型运行时，可能是在侦察有哪些可供滥用的 AI 工具。
+    normal_use: 如果你确实运行本地模型，这是正常的。
+    suggested_action: 如果你使用本地模型运行时就允许；否则请审阅它为何在探测。
+  mcp.indirection:
+    src_sha: 334c05bffe1dee7d
+    reason: MCP 工具动态派发另一个工具（隐藏操作）
+    summary: 这次 MCP 工具调用把另一次工具调用藏在了它的参数里。
+    what: 它调用了一个包装工具，该工具按名称动态派发某个其他操作。
+    why_risky: 真正的操作被埋在参数里，可能让一个危险操作在快速查看时蒙混过关。
+    normal_use: 有些合法工具确实以这种方式路由到子工具。
+    suggested_action: 在允许之前，请审阅实际被请求的内层操作是什么。
+  tamper.agent_config_write:
+    src_sha: b1ce70291bb64107
+    reason: 修改代理配置（hooks/apiKeyHelper/base-url）
+    summary: 这会更改一个 AI 代理的配置，或一个受保护的 Belay 文件。
+    what: 它尝试写入代理设置、一个 API 密钥辅助程序、一个 base-url，或一个受保护的文件。
+    why_risky: 篡改代理配置可能把它重定向到恶意服务器、禁用防护措施，或劫持它的运行方式。
+    normal_use: 罕见，且通常是由你通过工具自己的设置界面完成的。
+    suggested_action: 除非你在有意亲自重新配置那个工具，否则请拒绝。
+  secrets.sensitive_path:
+    src_sha: c395b1b475ad96e9
+    reason: 读取敏感凭据文件
+    summary: 这会读取一个通常存放密码、密钥或令牌的文件。
+    what: 它打开了一个已知的凭据或机密文件，例如 env 文件或私钥。
+    why_risky: 机密一旦被读取就可能被复制或发送到别处，因此这会让本次会话进入警戒状态。
+    normal_use: 应用会经常读取自己的 env 文件；而临时读取密钥文件则不那么常规。
+    suggested_action: 如果应用确有正当需要就允许；如果出乎意料则要谨慎。
+  secrets.env_dump:
+    src_sha: 11d9173f7a45548e
+    reason: 转储进程环境
+    summary: 这会转储环境变量，而其中往往包含机密。
+    what: 它打印了进程环境，或从系统中读取了环境。
+    why_risky: 环境变量经常存放 API 密钥和令牌，因此转储它们会暴露凭据。
+    normal_use: 调试时很常见，不过通常你只查看某一个变量，而不是整套。
+    suggested_action: 用于无害调试时可以允许；如果输出可能被发送出去则要谨慎。
+  secrets.grep_hunt:
+    src_sha: 7da9ad4f3d26e844
+    reason: 在文件系统中 grep 搜寻机密
+    summary: 这会在你的文件中搜索看起来像机密的东西。
+    what: 它递归搜索了 API 密钥、令牌或密码之类的模式。
+    why_risky: 搜寻形似机密的字符串，是从项目中收割凭据的常见手段。
+    normal_use: 有时会正当地用于审计是否泄露了机密。
+    suggested_action: 如果你在审计自己的代码就允许；如果出乎意料则请审阅。
+  secrets.cred_store:
+    src_sha: 33c80a88c42584c6
+    reason: 访问操作系统/浏览器的凭据存储
+    summary: 这会从操作系统或浏览器的凭据存储中读取。
+    what: 它查询了钥匙串、机密服务，或浏览器保存密码的数据库。
+    why_risky: 这些存储保存着已保存的密码和令牌，因此读取它们可能一次性暴露许多账户。
+    normal_use: 对脚本而言很罕见；你通常是通过应用本身来使用已保存的密码。
+    suggested_action: 除非你在有意导出自己的凭据，否则请拒绝。

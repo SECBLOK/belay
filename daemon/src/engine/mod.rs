@@ -1,7 +1,12 @@
 pub mod allowlist;
+pub mod canonicalize;
 pub mod correlate;
+pub(crate) mod data_region;
 pub mod decide;
+pub mod dropper;
+pub(crate) mod extract;
 pub mod integrity;
+pub mod rule_i18n;
 pub mod rules;
 pub mod self_tamper;
 pub mod trust;
@@ -43,6 +48,19 @@ pub fn evaluate_event_with_egress(
                     severity: Severity::Critical,
                     primary_rule: None,
                     category: None,
+                    owasp: None,
+                    atlas: None,
+                    explain: None,
+                };
+            }
+            if is_sensitive_read_path(&ev.detail) {
+                return Verdict {
+                    decision: Decision::Ask,
+                    reason: format!("reads a sensitive credential file: {}", ev.detail),
+                    rules: vec!["secrets.sensitive_path".into()],
+                    severity: Severity::High,
+                    primary_rule: None,
+                    category: Some("secrets".into()),
                     owasp: None,
                     atlas: None,
                     explain: None,
@@ -149,6 +167,50 @@ fn is_proc_secret_path(p: &str) -> bool {
     false
 }
 
+/// Does `path` name a well-known on-disk credential/secret file — the same set
+/// the `secrets.sensitive_path` catalog rule matches for the cooperative-hook
+/// path? Wired into the `Open` arm so a kernel/eBPF/kfilter-observed read of
+/// `.env`, `~/.aws/credentials`, an SSH private key, etc. is gated even though
+/// it never reached the hook. Backslashes are folded to `/` first so native
+/// Windows paths (`C:\Users\x\.env`) match the same POSIX-shaped patterns.
+/// Match-only — never used for I/O.
+fn is_sensitive_read_path(path: &str) -> bool {
+    let p = path.replace('\\', "/");
+    let base = p.rsplit('/').next().unwrap_or(&p);
+
+    // `.env`, `.env.local`, `.env.production`, … — but NOT `.environment`.
+    if base == ".env" || base.starts_with(".env.") {
+        return true;
+    }
+    // `serviceAccount*.json` (GCP service-account keys).
+    if base.starts_with("serviceAccount") && base.ends_with(".json") {
+        return true;
+    }
+    // Canonical credential file/dir paths (POSIX-shaped after folding), mirroring
+    // the `secrets.sensitive_path` catalog rule (incl. the Aegis-derived stores).
+    const NEEDLES: &[&str] = &[
+        "/.aws/credentials",
+        "/.ssh/id_rsa",
+        "/.ssh/id_ed25519",
+        "/.ssh/id_ecdsa",
+        "/.ssh/id_dsa",
+        "/.netrc",
+        "/.npmrc",
+        "/.pypirc",
+        "/.git-credentials",
+        "/.kube/config",
+        "/.docker/config.json",
+        "/.config/gcloud/",
+        "/.gcloud/",
+        "/.config/gh/hosts.yml",
+        "/.azure/",
+        "/.gnupg/",
+        "/.oci/",
+        "/.terraform.d/credentials",
+    ];
+    NEEDLES.iter().any(|n| p.contains(n))
+}
+
 fn allow() -> Verdict {
     Verdict {
         decision: Decision::Allow,
@@ -166,3 +228,11 @@ fn allow() -> Verdict {
 #[path = "event_eval.rs"]
 #[cfg(test)]
 mod event_eval;
+
+#[path = "bypass_corpus/mod.rs"]
+#[cfg(test)]
+mod bypass_corpus;
+
+#[path = "script_file_tests.rs"]
+#[cfg(test)]
+mod script_file_tests;

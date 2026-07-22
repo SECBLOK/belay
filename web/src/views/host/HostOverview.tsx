@@ -1,9 +1,10 @@
 // Host → Overview sub-view: 4 StatTiles + needs-attention rows that deep-link
 // into the right sub-section via the Host shell's section setter.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { listQuarantine, listBans, getVulnPosture, getFirewallStatus } from "../../lib/api";
 import type { HostSection } from "../Host";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 
 // ── StatTile ─────────────────────────────────────────────────────────────────
 
@@ -16,10 +17,10 @@ interface StatTileProps {
 function StatTile({ label, value, color = "#1C1C1E" }: StatTileProps) {
   return (
     <div
-      className="rounded-xl bg-white px-4 py-4 flex flex-col gap-1"
-      style={{ border: "1px solid rgba(0,0,0,0.08)", boxShadow: "var(--shadow-card)" }}
+      className="lg-glass px-4 py-4 flex flex-col gap-1"
+     
     >
-      <div className="text-[11px] uppercase tracking-widest text-[#8E8E93]">{label}</div>
+      <div className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]">{label}</div>
       <div className="text-3xl font-mono tabular-nums font-bold leading-tight" style={{ color }}>
         {value.toLocaleString()}
       </div>
@@ -31,7 +32,7 @@ function StatTile({ label, value, color = "#1C1C1E" }: StatTileProps) {
 
 interface AttentionRowProps {
   icon: string;
-  message: string;
+  message: ReactNode;
   actionLabel: string;
   section: HostSection;
   onNavigate: (s: HostSection) => void;
@@ -40,8 +41,8 @@ interface AttentionRowProps {
 function AttentionRow({ icon, message, actionLabel, section, onNavigate }: AttentionRowProps) {
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white border-l-4"
-      style={{ border: "1px solid rgba(0,0,0,0.08)", borderLeftColor: "#B27B00", borderLeftWidth: 4 }}
+      className="flex items-center gap-3 px-4 py-3 lg-glass border-l-4"
+      style={{ border: "1px solid rgba(0,0,0,0.08)", borderLeftColor: "#916400", borderLeftWidth: 4 }}
     >
       <span className="text-lg" aria-hidden>{icon}</span>
       <span className="text-sm text-[#1C1C1E] flex-1">{message}</span>
@@ -61,6 +62,7 @@ function AttentionRow({ icon, message, actionLabel, section, onNavigate }: Atten
 
 interface OverviewData {
   quarantineCount: number;
+  skillQuarantineCount: number;
   bannedIpCount: number;
   kevCount: number;
   enforcingSurfaces: number;
@@ -76,6 +78,7 @@ interface HostOverviewProps {
 }
 
 export default function HostOverview({ setSection }: HostOverviewProps) {
+  const { t } = useLingui();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
 
   useEffect(() => {
@@ -91,10 +94,16 @@ export default function HostOverview({ setSection }: HostOverviewProps) {
       const enforcingSurfaces =
         (firewall?.active && firewall.mode === "enforce" ? 1 : 0);
 
+      // Honesty: the "Quarantined files" tile must count only actual files.
+      // Quarantined agent SKILLS are whole directories (`kind: "dir"`) and belong
+      // on the Skills surface — counting them here mislabeled them as files.
+      const quarantinedFiles = quarantine.filter((q) => q.kind !== "dir");
+      const quarantinedSkills = quarantine.filter((q) => q.kind === "dir");
       setState({
         kind: "ready",
         data: {
-          quarantineCount: quarantine.length,
+          quarantineCount: quarantinedFiles.length,
+          skillQuarantineCount: quarantinedSkills.length,
           bannedIpCount: bans.length,
           kevCount,
           enforcingSurfaces,
@@ -111,10 +120,10 @@ export default function HostOverview({ setSection }: HostOverviewProps) {
   if (state.kind === "loading") {
     return (
       <div
-        className="rounded-xl px-5 py-8 text-center text-sm text-[#8E8E93]"
+        className="rounded-xl px-5 py-8 text-center text-sm text-[var(--text-tertiary)]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        Loading overview…
+        <Trans>Loading overview…</Trans>
       </div>
     );
   }
@@ -125,8 +134,8 @@ export default function HostOverview({ setSection }: HostOverviewProps) {
         className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        <p className="text-[#1C1C1E] font-medium">Something went wrong</p>
-        <p className="font-mono text-xs text-[#8E8E93]">{state.message}</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Something went wrong</Trans></p>
+        <p className="font-mono text-xs text-[var(--text-tertiary)]">{state.message}</p>
       </div>
     );
   }
@@ -139,17 +148,44 @@ export default function HostOverview({ setSection }: HostOverviewProps) {
   if (data.quarantineCount > 0) {
     attention.push({
       icon: "🔒",
-      message: `${data.quarantineCount} file${data.quarantineCount !== 1 ? "s" : ""} in quarantine`,
-      actionLabel: "View files",
+      message: (
+        <Plural
+          value={data.quarantineCount}
+          one="# file in quarantine"
+          other="# files in quarantine"
+        />
+      ),
+      actionLabel: t`View files`,
       section: "files",
+      onNavigate: setSection,
+    });
+  }
+  if (data.skillQuarantineCount > 0) {
+    attention.push({
+      icon: "🧩",
+      message: (
+        <Plural
+          value={data.skillQuarantineCount}
+          one="# skill in quarantine"
+          other="# skills in quarantine"
+        />
+      ),
+      actionLabel: t`View skills`,
+      section: "skills",
       onNavigate: setSection,
     });
   }
   if (data.bannedIpCount > 0) {
     attention.push({
       icon: "🚫",
-      message: `${data.bannedIpCount} IP${data.bannedIpCount !== 1 ? "s" : ""} currently banned`,
-      actionLabel: "View SSH",
+      message: (
+        <Plural
+          value={data.bannedIpCount}
+          one="# IP currently banned"
+          other="# IPs currently banned"
+        />
+      ),
+      actionLabel: t`View SSH`,
       section: "ssh",
       onNavigate: setSection,
     });
@@ -157,8 +193,14 @@ export default function HostOverview({ setSection }: HostOverviewProps) {
   if (data.kevCount > 0) {
     attention.push({
       icon: "⚠️",
-      message: `${data.kevCount} Known Exploited Vulnerabilit${data.kevCount !== 1 ? "ies" : "y"} detected`,
-      actionLabel: "View vulnerabilities",
+      message: (
+        <Plural
+          value={data.kevCount}
+          one="# Known Exploited Vulnerability detected"
+          other="# Known Exploited Vulnerabilities detected"
+        />
+      ),
+      actionLabel: t`View vulnerabilities`,
       section: "vulnerabilities",
       onNavigate: setSection,
     });
@@ -166,35 +208,43 @@ export default function HostOverview({ setSection }: HostOverviewProps) {
 
   return (
     <div className="space-y-4">
-      {/* 4 stat tiles in a 2×2 grid */}
+      {/* Quarantine pair — the two things Belay has physically pulled aside. */}
       <div className="grid grid-cols-2 gap-3">
         <StatTile
-          label="Quarantined files"
+          label={t`Quarantined files`}
           value={data.quarantineCount}
-          color={data.quarantineCount > 0 ? "#B27B00" : "#1B8C3A"}
+          color={data.quarantineCount > 0 ? "#916400" : "#187D34"}
         />
         <StatTile
-          label="Banned IPs"
+          label={t`Quarantined skills`}
+          value={data.skillQuarantineCount}
+          color={data.skillQuarantineCount > 0 ? "#916400" : "#187D34"}
+        />
+      </div>
+      {/* Posture triad — the live host-control signals. */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile
+          label={t`Banned IPs`}
           value={data.bannedIpCount}
-          color={data.bannedIpCount > 0 ? "#B27B00" : "#1B8C3A"}
+          color={data.bannedIpCount > 0 ? "#916400" : "#187D34"}
         />
         <StatTile
-          label="KEV findings"
+          label={t`KEV findings`}
           value={data.kevCount}
-          color={data.kevCount > 0 ? "#C8312A" : "#1B8C3A"}
+          color={data.kevCount > 0 ? "#C8312A" : "#187D34"}
         />
         <StatTile
-          label="Enforcing surfaces"
+          label={t`Enforcing surfaces`}
           value={data.enforcingSurfaces}
-          color={data.enforcingSurfaces > 0 ? "#1B8C3A" : "#8E8E93"}
+          color={data.enforcingSurfaces > 0 ? "#187D34" : "var(--text-tertiary)"}
         />
       </div>
 
       {/* Needs-attention section */}
       {attention.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-[11px] uppercase tracking-widest text-[#8E8E93]">
-            Needs attention
+          <h3 className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]">
+            <Trans>Needs attention</Trans>
           </h3>
           {attention.map((item) => (
             <AttentionRow key={item.section} {...item} />
@@ -207,7 +257,7 @@ export default function HostOverview({ setSection }: HostOverviewProps) {
           className="rounded-xl px-5 py-6 text-sm text-[#636366]"
           style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
         >
-          All surfaces look healthy. No immediate action needed.
+          <Trans>All surfaces look healthy. No immediate action needed.</Trans>
         </div>
       )}
     </div>

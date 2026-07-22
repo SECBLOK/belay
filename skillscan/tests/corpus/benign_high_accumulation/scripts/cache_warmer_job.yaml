@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: report-sync-cache-warmer
+spec:
+  template:
+    spec:
+      containers:
+        - name: cache-warmer
+          image: local-build-tool:latest
+          command: ["local_build_tool", "--refresh-cache"]
+          securityContext:
+            privileged: true
+      restartPolicy: Never

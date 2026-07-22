@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../lib/api", () => ({
@@ -15,6 +15,7 @@ vi.mock("../../lib/api", () => ({
 }));
 
 import * as api from "../../lib/api";
+import type { AiConfig } from "../../lib/api";
 import AiSettings from "./AiSettings";
 
 beforeEach(() => {
@@ -50,7 +51,7 @@ describe("AiSettings", () => {
     fireEvent.click(screen.getByRole("radio", { name: /^cloud$/i }));
 
     // Cloud-specific fields appear, including the required consent checkbox.
-    const consentBox = await screen.findByRole("checkbox");
+    const consentBox = await screen.findByRole("checkbox", { name: /i understand this sends/i });
     expect((consentBox as HTMLInputElement).checked).toBe(false);
 
     const saveBtn = screen.getByRole("button", { name: /^save$/i });
@@ -67,7 +68,7 @@ describe("AiSettings", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /^cloud$/i }));
 
-    const consentBox = await screen.findByRole("checkbox");
+    const consentBox = await screen.findByRole("checkbox", { name: /i understand this sends/i });
     fireEvent.click(consentBox);
     expect((consentBox as HTMLInputElement).checked).toBe(true);
 
@@ -274,7 +275,7 @@ describe("AiSettings", () => {
     await waitFor(() => expect(screen.getByRole("radiogroup", { name: /ai mode/i })).toBeTruthy());
 
     fireEvent.click(screen.getByRole("radio", { name: /^cloud$/i }));
-    const consentBox = await screen.findByRole("checkbox");
+    const consentBox = await screen.findByRole("checkbox", { name: /i understand this sends/i });
     fireEvent.click(consentBox);
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -389,5 +390,106 @@ describe("AiSettings", () => {
         await Promise.resolve();
       }),
     ).resolves.not.toThrow();
+  });
+});
+
+// ── Explanations + Skill Judge sections (spec §6.1, §4) ───────────────────────
+// This block is a sibling `describe`, not nested inside "AiSettings" above, so
+// the file-scoped `beforeEach` (which clears mocks and seeds a plain "off"
+// config on every test) still runs first; this block's own `beforeEach`
+// layers a richer cloud config with recommendations on top of that.
+
+const cloudCfg: AiConfig = {
+  mode: "cloud",
+  provider: "anthropic",
+  model: "claude-haiku-4-5",
+  base_url: null,
+  cloud_consent: true,
+  key_present: true,
+  explain_model: null,
+  skill_judge_model: null,
+  skill_judge_enabled: false,
+  skill_judge_gate_enabled: false,
+  recommendations: {
+    fast: "claude-haiku-4-5",
+    recommended_judge: "claude-sonnet-5",
+    note: "Sonnet for the more demanding judge task.",
+  },
+};
+
+describe("AiSettings — Skill Judge section", () => {
+  beforeEach(() => {
+    vi.mocked(api.getAiConfig).mockResolvedValue(structuredClone(cloudCfg));
+  });
+
+  it("renders both judge checkboxes off by default", async () => {
+    render(<AiSettings />);
+    const watch = await screen.findByRole("checkbox", { name: /judge new .* changed skills/i });
+    const gate = screen.getByRole("checkbox", { name: /also gate installs/i });
+    expect((watch as HTMLInputElement).checked).toBe(false);
+    expect((gate as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("saves skill_judge_enabled=true and the recommended judge model", async () => {
+    render(<AiSettings />);
+    const watch = await screen.findByRole("checkbox", { name: /judge new .* changed skills/i });
+    fireEvent.click(watch);
+    // The judge ModelPicker only appears once a judge box is checked; then its
+    // "Recommended" segment sets skill_judge_model to the recommended id.
+    const recSeg = await screen.findByRole("radio", { name: /recommended/i });
+    fireEvent.click(recSeg);
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(api.setAiConfig).toHaveBeenCalled());
+    const arg = vi.mocked(api.setAiConfig).mock.calls[0][0];
+    expect(arg.skill_judge_enabled).toBe(true);
+    expect(arg.skill_judge_model).toBe("claude-sonnet-5");
+    expect(arg).not.toHaveProperty("recommendations");
+  });
+
+  // Regression test: the CLI path (belay.rs's apply_judge_choice) clears
+  // skill_judge_model when neither judge flag is on — `model = if enable ||
+  // gate { model } else { None }`. The GUI must match, so picking a custom
+  // judge model, then turning both judge flags back off before saving,
+  // must not silently persist (and later reactivate) a stale custom model.
+  it("drops a stale custom judge model on save once both judge flags are off again", async () => {
+    render(<AiSettings />);
+    const watch = await screen.findByRole("checkbox", { name: /judge new .* changed skills/i });
+    fireEvent.click(watch);
+
+    // The judge ModelPicker appears once a judge box is checked. Scope the
+    // query to the "Judge model" radiogroup — the Explanations picker (also
+    // on screen once AI is on) renders its own "Custom…" segment too.
+    const judgeGroup = await screen.findByRole("radiogroup", { name: /^judge model$/i });
+    fireEvent.click(within(judgeGroup).getByRole("radio", { name: /custom/i }));
+    const customInput = await screen.findByLabelText(/judge model custom id/i);
+    fireEvent.change(customInput, { target: { value: "my-model" } });
+
+    // Uncheck the judge box again: the picker disappears from the UI, but
+    // the "my-model" value is still held in the panel's local state.
+    fireEvent.click(watch);
+
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(api.setAiConfig).toHaveBeenCalled());
+    const arg = vi.mocked(api.setAiConfig).mock.calls[0][0];
+    expect(arg.skill_judge_enabled).toBe(false);
+    expect(arg.skill_judge_model).toBeNull();
+  });
+
+  it("greys out the judge section when mode is off", async () => {
+    vi.mocked(api.getAiConfig).mockResolvedValue({ ...structuredClone(cloudCfg), mode: "off" });
+    render(<AiSettings />);
+    const watch = await screen.findByRole("checkbox", { name: /judge new .* changed skills/i });
+    expect((watch as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("Explanations picker offers no Recommended segment (only the judge does)", async () => {
+    render(<AiSettings />);
+    const watch = await screen.findByRole("checkbox", { name: /judge new .* changed skills/i });
+    // With the judge enabled, BOTH pickers are on screen: the explainer (no
+    // Recommended) and the judge (Recommended). Exactly one Recommended segment
+    // proves the explainer added none.
+    fireEvent.click(watch);
+    await screen.findByRole("radio", { name: /recommended/i });
+    expect(screen.getAllByRole("radio", { name: /recommended/i })).toHaveLength(1);
   });
 });

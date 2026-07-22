@@ -1,4 +1,7 @@
 import type { Severity } from "../lib/api";
+import { useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 /**
  * Per-tier presentation tokens. `label` + `color` stay the stable contract for
@@ -20,27 +23,43 @@ export interface SeverityMeta {
 
 const META: Record<string, SeverityMeta> = {
   critical: { label: "Critical", color: "var(--semantic-deny)", cardPulse: true, confirmAlwaysAllow: true, topAccent: "2px" },
-  high: { label: "High", color: "#B55A10", cardPulse: false, confirmAlwaysAllow: true, topAccent: "2px" },
+  high: { label: "High", color: "#AB550F", cardPulse: false, confirmAlwaysAllow: true, topAccent: "2px" },
   medium: { label: "Medium", color: "var(--semantic-ask)", cardPulse: false, confirmAlwaysAllow: false, topAccent: "1px" },
   low: { label: "Low", color: "var(--semantic-info)", cardPulse: false, confirmAlwaysAllow: false, topAccent: null },
   info: { label: "Info", color: "var(--semantic-info)", cardPulse: false, confirmAlwaysAllow: false, topAccent: null },
 };
 
-/** Resolve severity metadata (label + color + tier tokens); unknown → medium. */
+/** Resolve severity metadata (label + color + tier tokens); unknown → medium.
+ *  `label` stays the stable English string (the interface contract other
+ *  callers read); the badge below shows a translated form via SEV_LABEL. */
 export function severityMeta(severity: string | undefined): SeverityMeta {
   return META[(severity ?? "").toLowerCase()] ?? META.medium;
 }
+
+// Display labels keyed by the lowercase severity - never by META.label - so
+// translating them cannot change which tier/colour/behaviour a severity maps
+// to (all of that keys off the lowercase severity string).
+const SEV_LABEL: Record<string, MessageDescriptor> = {
+  critical: msg`Critical`,
+  high: msg`High`,
+  medium: msg`Medium`,
+  low: msg`Low`,
+  info: msg`Info`,
+};
 
 /**
  * A compact severity chip: warning-triangle icon + text label, tinted by tier.
  * Color + icon + text (never color-only); `aria-label` repeats the text.
  */
 export default function SeverityBadge({ severity }: { severity: Severity | string }) {
+  const { t } = useLingui();
+  const key = String(severity).toLowerCase();
   const m = severityMeta(String(severity));
+  const label = SEV_LABEL[key] ? t(SEV_LABEL[key]) : m.label;
   return (
     <span
       role="img"
-      aria-label={`Severity: ${m.label}`}
+      aria-label={t`Severity: ${label}`}
       className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-xs font-medium"
       style={{ color: m.color, border: `1px solid ${m.color}` }}
     >
@@ -52,7 +71,7 @@ export default function SeverityBadge({ severity }: { severity: Severity | strin
         <path d="M6 5v2.5" />
         <circle cx="6" cy="9" r="0.4" fill={m.color} stroke="none" />
       </svg>
-      <span>{m.label}</span>
+      <span>{label}</span>
     </span>
   );
 }

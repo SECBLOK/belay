@@ -81,6 +81,27 @@ mod imp {
             let (uid, _gid) = nix::unistd::getpeereid(&self.0).map_err(io::Error::other)?;
             Ok(uid.as_raw())
         }
+
+        /// The connected peer's PID (Linux `SO_PEERCRED`, same `struct ucred`
+        /// read as `peer_uid`). A `0` pid (e.g. a peer outside our PID
+        /// namespace) is unknown/unusable and returns `Err`.
+        #[cfg(target_os = "linux")]
+        pub fn peer_pid(&self) -> io::Result<u32> {
+            use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
+            let creds = getsockopt(&self.0, PeerCredentials).map_err(io::Error::other)?;
+            let pid = creds.pid();
+            if pid == 0 {
+                return Err(io::Error::other("peer pid unknown (SO_PEERCRED returned 0)"));
+            }
+            Ok(pid as u32)
+        }
+
+        /// Peer PID is unavailable on macOS/BSD: `getpeereid(2)` carries no
+        /// pid, and `LOCAL_PEERPID` support is deferred.
+        #[cfg(not(target_os = "linux"))]
+        pub fn peer_pid(&self) -> io::Result<u32> {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "peer_pid unsupported"))
+        }
     }
 
     impl Read for Stream {
@@ -455,6 +476,12 @@ mod imp {
                     ))
                 }
             }
+        }
+
+        /// Peer PID is deferred on Windows (`GetNamedPipeClientProcessId`
+        /// is not yet wired up).
+        pub fn peer_pid(&self) -> io::Result<u32> {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "peer_pid unsupported"))
         }
 
         /// Test-only: the raw server-side pipe handle, for DACL inspection.
@@ -1103,6 +1130,38 @@ mod tests {
         let mut s = listener.accept().expect("accept");
         // The peer is this same process, so the same UID.
         assert_eq!(s.peer_uid().expect("peer_uid"), nix::unistd::getuid().as_raw());
+        let mut buf = [0u8; 4];
+        s.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"ping");
+        s.write_all(b"pong").unwrap();
+
+        client.join().unwrap();
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn unix_roundtrip_and_peer_pid_is_self() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("t.sock");
+        let addr = path.to_str().unwrap().to_string();
+
+        let listener = bind(&addr).expect("bind");
+
+        let client_addr = addr.clone();
+        let client = std::thread::spawn(move || {
+            let mut c = connect(&client_addr).expect("connect");
+            c.write_all(b"ping").unwrap();
+            let mut buf = [0u8; 4];
+            c.read_exact(&mut buf).unwrap();
+            assert_eq!(&buf, b"pong");
+        });
+
+        let mut s = listener.accept().expect("accept");
+        // The peer is this same test process, so its pid must be plausible
+        // (non-zero) — we can't assert an exact value since the connecting
+        // thread is a different OS thread but the same process.
+        let pid = s.peer_pid().expect("peer_pid");
+        assert!(pid > 1, "peer pid should be a plausible process id, got {pid}");
         let mut buf = [0u8; 4];
         s.read_exact(&mut buf).unwrap();
         assert_eq!(&buf, b"ping");

@@ -384,3 +384,22 @@ it("collapses and re-expands the AI opinion without refetching", async () => {
   expect(screen.getByText(/AI-detected risk: credentials could leak/)).toBeTruthy();
   expect(explainActionMock).toHaveBeenCalledTimes(1);
 });
+
+it("specializes an MCP-server config approval (mcp.install.*) as an MCP change", () => {
+  const mcpPending = {
+    id: "m1", agent: "Claude Code", tool: "Write",
+    input: { path: "/home/u/.config/agent/servers.json" },
+    reason: "new remote MCP server (evil.example.com)",
+    rule: "mcp.install.review", risk: "medium",
+  };
+  render(<ApprovalCard pending={mcpPending} onResolve={vi.fn()} timeoutMs={20000} />);
+
+  // The distinct MCP context tag appears.
+  expect(screen.getByText(/MCP server change/i)).toBeTruthy();
+  // The disclosure toggle reads "config", not "command".
+  const toggle = screen.getByRole("button", { name: /show config/i });
+  fireEvent.click(toggle);
+  // And the labelled detail names it an MCP server configuration.
+  expect(screen.getByText(/MCP server configuration:/i)).toBeTruthy();
+  expect(screen.getByText("/home/u/.config/agent/servers.json")).toBeTruthy();
+});

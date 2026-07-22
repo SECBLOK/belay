@@ -65,7 +65,7 @@ export default function DestOwner({ dest }: Props) {
 
   return (
     <span
-      className="text-xs text-[#8E8E93]"
+      className="text-xs text-[var(--text-tertiary)]"
       title="network owner"
       aria-label="network owner"
     >

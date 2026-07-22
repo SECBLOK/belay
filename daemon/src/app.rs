@@ -128,6 +128,33 @@ pub fn run_daemon_with_shutdown(shutdown: Arc<AtomicBool>) {
         eprintln!("[belayd] eBPF disabled (built without ebpf feature) — hook/proxy enforcement only");
     }
 
+    // Phase-2b: proactive skill dir-watch — scan skills as they appear/change on
+    // disk; DO_NOT_INSTALL -> quarantine + alert, Caution -> alert. Pure-Rust
+    // poller (no fs-event dep). Config-gated (default on).
+    if crate::host_config::skill_watch_enabled() {
+        let mut w = crate::skills::watch::SkillWatcher::new();
+        std::thread::spawn(move || loop {
+            crate::skills::watch::run_watch_tick(&mut w);
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        });
+    }
+
+    // Phase-2c periodic full re-scan: a slower loop that re-scans ALL
+    // enumerated skills (not just mtime-changed ones), so detector
+    // improvements and baseline drift are caught even when mtime didn't move.
+    // Gated by the same `skill_watch_enabled` master switch; the interval
+    // (default 6h) is a separate config, `0` disables just this loop. Sleeps
+    // FIRST so it doesn't duplicate the 2b watcher's first-poll-all at startup.
+    if crate::host_config::skill_watch_enabled() {
+        let secs = crate::host_config::skill_rescan_interval_secs();
+        if secs > 0 {
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(secs));
+                crate::skills::watch::run_periodic_rescan();
+            });
+        }
+    }
+
     // Phase-1 Windows honeytoken canary (Tier 1 — no admin, no driver). The
     // Windows counterpart of the eBPF block above: same shape (plant honeypot →
     // observe → classify_access → react), but the *source* is a last-access poll
@@ -346,7 +373,19 @@ fn normalize_cursor_stdin(raw: &str) -> String {
         .unwrap_or("cursor");
     let (tool_name, tool_input): (&str, Value) =
         if let Some(cmd) = v.get("command").and_then(|c| c.as_str()) {
-            ("Bash", json!({ "command": cmd })) // beforeShellExecution
+            // beforeShellExecution: confirmed to also carry `cwd` alongside
+            // `command` — without copying it into `tool_input["cwd"]` here,
+            // the script-file-resolution feature (`engine::extract`) can
+            // never resolve a *relative* script path a Cursor-driven Bash
+            // call executes (`bash x.sh`), silently falling back to
+            // absolute-path-only for every Cursor session. Absent `cwd` in
+            // the source payload is not an error — it's simply omitted here
+            // too, same fail-open behavior.
+            let mut ti = json!({ "command": cmd });
+            if let Some(cwd) = v.get("cwd").and_then(|c| c.as_str()) {
+                ti["cwd"] = json!(cwd);
+            }
+            ("Bash", ti) // beforeShellExecution
         } else if let Some(fp) = v
             .get("file_path")
             .or_else(|| v.get("path"))
@@ -480,13 +519,38 @@ fn hook_audit_row(
     })
 }
 
+/// Copies the hook payload's top-level `cwd` (a sibling of `tool_name`/
+/// `tool_input`, confirmed present on Claude Code's `PreToolUse` payload and
+/// on Cursor's `beforeShellExecution` payload — see `normalize_cursor_stdin`,
+/// which copies Cursor's own top-level `cwd` into its translated
+/// `tool_input` before this ever runs) into `tool_input["cwd"]`, unless
+/// `tool_input` already carries one (never overwritten) or isn't a JSON
+/// object at all (nothing to insert into — left unchanged, fail-open).
+///
+/// This is the one piece of new wiring the script-file-resolution feature
+/// needs (`engine::extract::resolve_script_files`,
+/// `docs/superpowers/specs/2026-07-17-command-gate-script-file-resolution-design.md`):
+/// it reads `cwd` from `tc.input["cwd"]` to resolve a *relative* script path
+/// a Bash command executes. Absent `cwd` is never an error anywhere in this
+/// path — the resolver just falls back to absolute-path-only for that call
+/// (fail-open, never a block).
+fn with_cwd(mut tool_input: Value, payload: &Value) -> Value {
+    if let Some(cwd) = payload.get("cwd").and_then(|c| c.as_str()) {
+        if let Some(map) = tool_input.as_object_mut() {
+            map.entry("cwd").or_insert_with(|| json!(cwd));
+        }
+    }
+    tool_input
+}
+
 fn try_socket(stdin: &str) -> Option<Value> {
     let data: Value = serde_json::from_str(stdin).ok()?;
+    let tool_input = with_cwd(data.get("tool_input").cloned().unwrap_or(Value::Null), &data);
     let req = json!({
         "type": "gate",
         "session": data.get("session_id").and_then(|v| v.as_str()).unwrap_or("default"),
         "tool": data.get("tool_name").and_then(|v| v.as_str()).unwrap_or(""),
-        "input": data.get("tool_input").cloned().unwrap_or(Value::Null),
+        "input": tool_input,
     });
     let mut stream = belay_transport::connect(&hook_socket_path()).ok()?;
     write_frame(&mut stream, req.to_string().as_bytes()).ok()?;
@@ -506,12 +570,24 @@ fn rust_fallback(stdin: &str) -> Option<FallbackVerdict> {
     let tc = ToolCall {
         session: data["session_id"].as_str().unwrap_or("default").to_owned(),
         tool: data["tool_name"].as_str().unwrap_or("").to_owned(),
-        input: data["tool_input"].clone(),
+        input: with_cwd(data["tool_input"].clone(), &data),
     };
     // Fail-closed: any load error → None → caller denies if a tool is present.
+    // Intentionally NOT cached: `rust_fallback` runs inside a short-lived,
+    // one-shot `belay hook`/`belay-hook` process (one stdin payload, one
+    // decision, exit — see `run_hook`), so `RuleSet::load()` already only
+    // runs once per call; a process-global cache (`OnceLock` etc.) cannot
+    // amortize anything across calls the way the daemon's `Arc<RuleSet>`
+    // does (`ipc.rs`'s `serve_mode_with_shutdown`, loaded once before the
+    // accept loop and cloned per connection). The one-time catalog compile
+    // here is well within Claude Code's 600s hook deadline.
     let rs = RuleSet::load().ok()?;
     let mut state = SessionState::new(&tc.session);
     let v = decide(&rs, &tc, &mut state);
+    // Compose the base rule verdict with the skill/MCP install-gate (scans a
+    // skill being installed; DO_NOT_INSTALL → Deny, Caution/remote → Ask). Most
+    // restrictive wins; a non-install call returns None and leaves `v` unchanged.
+    let v = crate::skills::gate::more_restrictive(v, crate::skills::gate::gate_install(&tc));
     // Map Ask→deny conservatively (same as socket path).
     let hook_decision: &'static str = if v.decision == Decision::Allow {
         "allow"
@@ -887,5 +963,73 @@ mod tests {
         // Additional contract test: the function must never panic on empty string.
         let result = rust_fallback("");
         assert!(result.is_none(), "empty stdin must return None");
+    }
+
+    // ---- cwd plumbing (script-file-resolution's one piece of new wiring) --
+    //
+    // See docs/superpowers/specs/2026-07-17-command-gate-script-file-resolution-design.md,
+    // "Plumbing cwd". `with_cwd` is the single helper both the socket
+    // (`try_socket`) and in-process (`rust_fallback`) paths call so a hook
+    // payload's top-level `cwd` reaches `tc.input["cwd"]`, where
+    // `engine::extract::resolve_script_files` reads it to resolve a
+    // *relative* script-exec path.
+
+    #[test]
+    fn with_cwd_copies_top_level_cwd_into_tool_input() {
+        let payload = json!({"tool_name": "Bash", "tool_input": {"command": "bash x.sh"}, "cwd": "/work"});
+        let ti = with_cwd(payload["tool_input"].clone(), &payload);
+        assert_eq!(ti["cwd"], "/work");
+        assert_eq!(ti["command"], "bash x.sh");
+    }
+
+    #[test]
+    fn with_cwd_never_overwrites_an_existing_cwd() {
+        let payload = json!({"cwd": "/outer"});
+        let ti = with_cwd(json!({"command": "bash x.sh", "cwd": "/inner"}), &payload);
+        assert_eq!(ti["cwd"], "/inner", "an explicit tool_input.cwd must win");
+    }
+
+    #[test]
+    fn with_cwd_no_top_level_cwd_leaves_tool_input_unchanged() {
+        let payload = json!({"tool_name": "Bash"});
+        let ti = with_cwd(json!({"command": "bash x.sh"}), &payload);
+        assert!(ti.get("cwd").is_none());
+    }
+
+    #[test]
+    fn with_cwd_non_object_tool_input_is_left_unchanged_no_panic() {
+        let payload = json!({"cwd": "/work"});
+        assert_eq!(with_cwd(Value::Null, &payload), Value::Null);
+    }
+
+    #[test]
+    fn normalize_cursor_stdin_copies_cwd_into_translated_tool_input() {
+        // The confirmed gap this feature closes: `beforeShellExecution`'s own
+        // `cwd` sibling field used to be silently dropped by the translation
+        // into `{tool_name, tool_input}`.
+        let shell = normalize_cursor_stdin(
+            r#"{"hook_event_name":"beforeShellExecution","command":"bash x.sh","cwd":"/work"}"#,
+        );
+        let sv: Value = serde_json::from_str(&shell).unwrap();
+        assert_eq!(sv["tool_input"]["cwd"], "/work");
+    }
+
+    #[test]
+    fn rust_fallback_threads_cwd_to_deny_a_relative_script_file() {
+        // End-to-end proof (not just the plumbing helper in isolation): a
+        // dangerous relative script, resolved via the payload's top-level
+        // `cwd`, denies through the very same `rust_fallback` path a live
+        // hook actually uses when the daemon socket is down.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("x.sh"), "rm -r -f /\n").unwrap();
+        let stdin = json!({
+            "session_id": "s-cwd",
+            "tool_name": "Bash",
+            "tool_input": {"command": "bash x.sh"},
+            "cwd": tmp.path().to_str().unwrap(),
+        })
+        .to_string();
+        let fb = rust_fallback(&stdin).expect("must return Some");
+        assert_eq!(fb.decision, "deny", "relative script-file resolution must reach and deny via rust_fallback: {}", fb.reason);
     }
 }

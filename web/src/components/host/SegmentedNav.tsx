@@ -1,4 +1,7 @@
 import { useRef, type KeyboardEvent } from "react";
+import { useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 interface SegmentedNavProps {
   sections: readonly string[];
@@ -6,18 +9,27 @@ interface SegmentedNavProps {
   onChange: (s: string) => void;
 }
 
-// Tab labels: most sections just need a capitalized first letter, but
-// acronyms (AI, SSH) must render as full-caps rather than Title-case
-// ("Ai", "Ssh"). Add new acronyms here as they're introduced.
-const LABELS: Record<string, string> = {
-  ai: "AI",
-  ssh: "SSH",
+// Tab labels, keyed by the section id (which is what drives navigation and the
+// active-tab comparison — never the label). Acronyms (AI, SSH) stay full-caps.
+// A section with no entry here falls back to a capitalized id, so an unmapped
+// section still renders (in English) rather than breaking.
+const SECTION_LABEL: Record<string, MessageDescriptor> = {
+  overview: msg`Overview`,
+  files: msg`Files`,
+  skills: msg`Skills`,
+  firewall: msg`Firewall`,
+  network: msg`Network`,
+  ai: msg`AI`,
+  ssh: msg`SSH`,
+  vulnerabilities: msg`Vulnerabilities`,
 };
 
-const labelFor = (section: string): string =>
-  LABELS[section] ?? section[0].toUpperCase() + section.slice(1);
-
 export default function SegmentedNav({ sections, active, onChange }: SegmentedNavProps) {
+  const { t } = useLingui();
+  const labelFor = (section: string): string =>
+    SECTION_LABEL[section]
+      ? t(SECTION_LABEL[section])
+      : section[0].toUpperCase() + section.slice(1);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -41,9 +53,8 @@ export default function SegmentedNav({ sections, active, onChange }: SegmentedNa
   return (
     <div
       role="tablist"
-      aria-label="Host sections"
-      className="flex gap-1 p-1 rounded-xl"
-      style={{ background: "rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.06)" }}
+      aria-label={t`Host sections`}
+      className="flex gap-1 p-1 lg-control"
     >
       {sections.map((section, index) => {
         const isActive = active === section;
@@ -56,12 +67,12 @@ export default function SegmentedNav({ sections, active, onChange }: SegmentedNa
             ref={(el) => { tabRefs.current[index] = el; }}
             onClick={() => onChange(section)}
             onKeyDown={(e) => handleKeyDown(e, index)}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+            className="lg-tap px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
             style={{
-              background: isActive ? "white" : "transparent",
+              background: isActive ? "var(--lg-fill-hover)" : "transparent",
               color: isActive ? "var(--accent, #6B3DE8)" : "#636366",
-              boxShadow: isActive ? "0 1px 3px rgba(0,0,0,0.10)" : "none",
-              border: isActive ? "1px solid rgba(0,0,0,0.08)" : "1px solid transparent",
+              boxShadow: isActive ? "var(--lg-shadow-card)" : "none",
+              border: isActive ? "1px solid var(--lg-rim)" : "1px solid transparent",
             }}
           >
             {labelFor(section)}

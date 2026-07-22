@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getVulnPosture, scanHostVuln } from "../../lib/api";
 import type { VulnPosture as VulnPostureType } from "../../lib/hostTypes";
 import CveTable from "../../components/host/CveTable";
+import { Trans, useLingui } from "@lingui/react/macro";
 
 type LoadState =
   | { kind: "loading" }
@@ -13,6 +14,7 @@ type LoadState =
 type ScanState = "idle" | "scanning" | { error: string };
 
 export default function VulnPosture() {
+  const { t } = useLingui();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [scanState, setScanState] = useState<ScanState>("idle");
 
@@ -42,10 +44,10 @@ export default function VulnPosture() {
   if (state.kind === "loading") {
     return (
       <div
-        className="rounded-xl px-5 py-8 text-center text-sm text-[#8E8E93]"
+        className="rounded-xl px-5 py-8 text-center text-sm text-[var(--text-tertiary)]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        Loading vulnerability posture…
+        <Trans>Loading vulnerability posture…</Trans>
       </div>
     );
   }
@@ -56,10 +58,10 @@ export default function VulnPosture() {
         className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        <p className="text-[#1C1C1E] font-medium">Something went wrong</p>
-        <p className="font-mono text-xs text-[#8E8E93]">{state.message}</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Something went wrong</Trans></p>
+        <p className="font-mono text-xs text-[var(--text-tertiary)]">{state.message}</p>
         <button onClick={load} className="text-xs hover:underline mt-1" style={{ color: "#0856B3" }}>
-          Try again
+          <Trans>Try again</Trans>
         </button>
       </div>
     );
@@ -75,10 +77,10 @@ export default function VulnPosture() {
         className="rounded-xl px-5 py-6 text-sm space-y-1.5"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        <p className="text-[#1C1C1E] font-medium">Not available on this operating system</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Not available on this operating system</Trans></p>
         <p className="text-[#636366] leading-relaxed">
           {posture.reason ??
-            "Vulnerability posture is not available for this operating system."}
+            t`Vulnerability posture is not available for this operating system.`}
         </p>
       </div>
     );
@@ -93,7 +95,7 @@ export default function VulnPosture() {
       {posture.reason && (
         <div
           className="rounded-lg px-4 py-2.5 text-xs leading-relaxed flex items-start gap-2"
-          style={{ background: "#FFF6E5", border: "1px solid rgba(178,123,0,0.25)", color: "#7A5300" }}
+          style={{ background: "#FFF6E5", border: "1px solid rgba(145,100,0,0.25)", color: "#7A5300" }}
         >
           <span aria-hidden>ⓘ</span>
           <span>{posture.reason}</span>
@@ -104,20 +106,20 @@ export default function VulnPosture() {
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex gap-4">
           {[
-            { label: "Critical", value: posture.critical, color: "#C8312A" },
-            { label: "High",     value: posture.high,     color: "#B55A10" },
-            { label: "Medium",   value: posture.medium,   color: "#B27B00" },
-            { label: "Low",      value: posture.low,      color: "#1A6DC8" },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="text-center">
+            { key: "critical", label: t`Critical`, value: posture.critical, color: "#C8312A" },
+            { key: "high",     label: t`High`,     value: posture.high,     color: "#AB550F" },
+            { key: "medium",   label: t`Medium`,   value: posture.medium,   color: "#916400" },
+            { key: "low",      label: t`Low`,      value: posture.low,      color: "#1A6BC5" },
+          ].map(({ key, label, value, color }) => (
+            <div key={key} className="text-center">
               <div className="text-2xl font-mono tabular-nums font-bold" style={{ color }}>{value}</div>
-              <div className="text-[10px] uppercase tracking-widest text-[#8E8E93]">{label}</div>
+              <div className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">{label}</div>
             </div>
           ))}
           {kevCount > 0 && (
             <div className="text-center">
               <div className="text-2xl font-mono tabular-nums font-bold" style={{ color: "#C8312A" }}>{kevCount}</div>
-              <div className="text-[10px] uppercase tracking-widest text-[#8E8E93]">KEV</div>
+              <div className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]"><Trans>KEV</Trans></div>
             </div>
           )}
         </div>
@@ -128,7 +130,7 @@ export default function VulnPosture() {
           className="ml-auto px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: "#0A66D6", color: "#fff" }}
         >
-          {scanState === "scanning" ? "Scanning…" : "Scan now"}
+          {scanState === "scanning" ? t`Scanning…` : t`Scan now`}
         </button>
       </div>
 
@@ -138,17 +140,17 @@ export default function VulnPosture() {
           className="rounded-xl px-5 py-4 text-sm text-[#636366] space-y-1"
           style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
         >
-          <p className="text-[#1C1C1E] font-medium">Scan failed</p>
-          <p className="font-mono text-xs text-[#8E8E93]">{scanState.error}</p>
+          <p className="text-[#1C1C1E] font-medium"><Trans>Scan failed</Trans></p>
+          <p className="font-mono text-xs text-[var(--text-tertiary)]">{scanState.error}</p>
         </div>
       )}
 
       {/* CVE table — KEV-first */}
       <div>
-        <h3 className="text-[11px] uppercase tracking-widest text-[#8E8E93] mb-2">
-          Findings{posture.scanned_at && (
+        <h3 className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)] mb-2">
+          <Trans>Findings</Trans>{posture.scanned_at && (
             <span className="ml-2 normal-case tracking-normal text-[#636366]">
-              — scanned {new Date(posture.scanned_at).toLocaleDateString()}
+              <Trans>— scanned {new Date(posture.scanned_at).toLocaleDateString()}</Trans>
             </span>
           )}
         </h3>

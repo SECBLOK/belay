@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import type { Ban } from "../../lib/hostTypes";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
-function expiresIn(expiresAt: string | null): string {
-  if (!expiresAt) return "Permanent";
+function expiresIn(t: (descriptor: MessageDescriptor) => string, expiresAt: string | null): string {
+  if (!expiresAt) return t(msg`Permanent`);
   const ms = new Date(expiresAt).getTime() - Date.now();
-  if (ms <= 0) return "Expired";
+  if (ms <= 0) return t(msg`Expired`);
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
   if (secs < 3600) return `${Math.floor(secs / 60)}m`;
@@ -20,6 +23,7 @@ interface BanRowProps {
 }
 
 function BanRow({ ban, onUnban }: BanRowProps) {
+  const { t } = useLingui();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -33,7 +37,7 @@ function BanRow({ ban, onUnban }: BanRowProps) {
     }
   };
 
-  const kindLabel = ban.kind === "ip" ? "IP" : "User";
+  const kindLabel = ban.kind === "ip" ? t`IP` : t`User`;
 
   return (
     <div
@@ -43,30 +47,30 @@ function BanRow({ ban, onUnban }: BanRowProps) {
       <div className="flex items-center gap-2 flex-wrap">
         <span
           className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide"
-          style={{ background: "rgba(200,49,42,0.10)", color: "#C8312A" }}
-          aria-label={`Ban type: ${kindLabel}`}
+          style={{ background: "rgba(200,49,42,0.06)", color: "#C8312A" }}
+          aria-label={t`Ban type: ${kindLabel}`}
         >
           {kindLabel}
         </span>
         <span className="text-sm font-mono text-[#1C1C1E] font-medium">{ban.target}</span>
-        <span className="text-xs text-[#8E8E93]">
-          expires in <span className="font-mono">{expiresIn(ban.expires_at)}</span>
+        <span className="text-xs text-[var(--text-tertiary)]">
+          <Trans>expires in <span className="font-mono">{expiresIn(t, ban.expires_at)}</span></Trans>
         </span>
       </div>
 
-      <p className="text-xs text-[#8E8E93]">{ban.reason}</p>
+      <p className="text-xs text-[var(--text-tertiary)]">{ban.reason}</p>
 
       <div className="flex items-center gap-2 flex-wrap pt-0.5">
         {confirming ? (
           <>
-            <span className="text-xs text-[#636366]">Unban this IP/user?</span>
+            <span className="text-xs text-[#636366]"><Trans>Unban this IP/user?</Trans></span>
             <button
               onClick={doUnban}
               disabled={busy}
               className="px-3 py-1 rounded text-[12px] font-semibold disabled:opacity-40"
               style={{ background: "rgba(10,102,214,0.10)", color: "#0A66D6" }}
             >
-              Yes, unban
+              <Trans>Yes, unban</Trans>
             </button>
             <button
               onClick={() => setConfirming(false)}
@@ -74,7 +78,7 @@ function BanRow({ ban, onUnban }: BanRowProps) {
               className="px-3 py-1 rounded text-[12px] font-medium disabled:opacity-40"
               style={{ background: "rgba(0,0,0,0.06)", color: "#1C1C1E" }}
             >
-              Cancel
+              <Trans>Cancel</Trans>
             </button>
           </>
         ) : (
@@ -84,7 +88,7 @@ function BanRow({ ban, onUnban }: BanRowProps) {
             className="px-3 py-1 rounded text-[12px] font-medium disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: "rgba(0,0,0,0.06)", color: "#1C1C1E" }}
           >
-            Unban
+            <Trans>Unban</Trans>
           </button>
         )}
       </div>
@@ -104,18 +108,18 @@ export default function BanList({ bans, onUnban }: BanListProps) {
         className="rounded-xl px-5 py-6 text-sm text-[#636366]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        No active bans.
+        <Trans>No active bans.</Trans>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl overflow-hidden bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+    <div className="lg-glass overflow-hidden">
       <div
-        className="px-4 py-2.5 border-b text-[11px] uppercase tracking-widest text-[#8E8E93]"
+        className="px-4 py-2.5 border-b text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]"
         style={{ borderColor: "rgba(0,0,0,0.08)" }}
       >
-        Active bans{" "}
+        <Trans>Active bans</Trans>{" "}
         <span className="font-mono tabular-nums text-[#636366] normal-case tracking-normal">
           {bans.length}
         </span>

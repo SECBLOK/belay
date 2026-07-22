@@ -785,8 +785,29 @@ async fn host_quarantine_delete(
 /// shelling out or re-implementing it. This is CPU-bound and synchronous — async
 /// callers should wrap it in `spawn_blocking`.
 pub fn run_host_scan_json(scope_dir: &std::path::Path, cap: usize) -> Vec<Value> {
-    let files = collect_scan_files(scope_dir, cap);
-    let mut findings = scanner::analyzers::malware::scan_malware_yara(&files, None);
+    run_host_scan_json_ext(scope_dir, cap, false).0
+}
+
+/// Host malware scan returning `(findings_json, files_scanned)`.
+///
+/// `recursive` (a "Full" scan) walks `scope_dir`'s subdirectories with the
+/// bounded, skip-dir-pruned malware-pass collector (byte-budgeted, archive-aware)
+/// so `~/Downloads`, project trees, etc. are examined — not just the top level.
+/// Non-recursive (a "Quick" scan) reads only the immediate top level of
+/// `scope_dir`, capped at `cap` files. The returned count lets the UI show
+/// "scanned N files" so a clean (0-finding) scan is not mistaken for a no-op.
+pub fn run_host_scan_json_ext(
+    scope_dir: &std::path::Path,
+    cap: usize,
+    recursive: bool,
+) -> (Vec<Value>, usize) {
+    let (mut findings, scanned) = if recursive {
+        scanner::analyzers::malware::scan_malware_pass_counted(scope_dir, &[])
+    } else {
+        let files = collect_scan_files(scope_dir, cap);
+        let n = files.len();
+        (scanner::analyzers::malware::scan_malware_yara(&files, None), n)
+    };
     // Apply the same context filter the `belay scan` pipeline uses: suppress broad
     // heuristic malware findings (reverse-shell strings, packer signatures) in
     // doc/data/config contexts. Precise signatures (EICAR, hash, malware-family
@@ -798,11 +819,12 @@ pub fn run_host_scan_json(scope_dir: &std::path::Path, cap: usize) -> Vec<Value>
         )
     });
     let ts = now_rfc3339();
-    findings
+    let json = findings
         .iter()
         .enumerate()
         .map(|(i, f)| finding_to_host_json(f, i, &ts))
-        .collect::<Vec<_>>()
+        .collect::<Vec<_>>();
+    (json, scanned)
 }
 
 /// POST /api/host/scan — run a bounded malware scan over `$HOME` (non-recursive,

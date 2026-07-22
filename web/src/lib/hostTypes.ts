@@ -33,6 +33,30 @@ export interface QuarantineEntry {
   quarantined_at: string;
   rule_id: string;
   severity: "critical" | "high" | "medium" | "low" | "info";
+  /** What was quarantined: an individual file (host malware scan) or a whole
+   *  directory (a quarantined agent skill). Absent on older rows → treated as a
+   *  file for backward compatibility. */
+  kind?: "dir" | "file";
+}
+
+// ── Skills ────────────────────────────────────────────────────────────────────
+
+/// One installed agent skill joined with its current scan verdict and
+/// baseline-drift state. Wire form emitted by the `list_skills` command
+/// (daemon `skills::SkillSummary`); enum strings are skillscan's own lowercase
+/// forms.
+export interface SkillSummary {
+  agent: string;
+  name: string;
+  /** Absolute path to the skill directory. */
+  path: string;
+  recommendation: "safe" | "caution" | "donotinstall";
+  /** Highest-severity finding, or null when the skill has no findings. */
+  severity: "low" | "medium" | "high" | "critical" | null;
+  finding_count: number;
+  /** unbaselined = never approved; clean = matches approved baseline;
+   *  drifted = content changed since approval. */
+  drift: "unbaselined" | "clean" | "drifted";
 }
 
 // ── Firewall ──────────────────────────────────────────────────────────────────

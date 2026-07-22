@@ -8,7 +8,7 @@
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 
-use crate::types::{Finding, Severity};
+use crate::types::{Category, Finding, Severity};
 
 /// Map a Finding severity to a SARIF level string.
 ///
@@ -25,13 +25,93 @@ fn level(severity: Severity) -> &'static str {
     }
 }
 
+/// Strip a trailing `" [file: <anything>]"` suffix appended by analyzers to
+/// `Finding.reason`. Returns the input unchanged if the suffix shape isn't
+/// present. Does NOT mutate the source `Finding` — this is a pure projection
+/// used only when building the SARIF `message`/`shortDescription` text.
+fn strip_file_suffix(reason: &str) -> &str {
+    if reason.ends_with(']') {
+        if let Some(idx) = reason.rfind(" [file: ") {
+            return &reason[..idx];
+        }
+    }
+    reason
+}
+
+/// Map a Finding severity to a GitHub code-scanning `security-severity`
+/// score string (used in SARIF rule `properties`).
+fn security_severity(s: Severity) -> &'static str {
+    match s {
+        Severity::Critical => "9.0",
+        Severity::High => "7.5",
+        Severity::Medium => "5.0",
+        Severity::Low => "3.0",
+        Severity::Info => "1.0",
+    }
+}
+
+/// Convert a dotted/underscored rule id (e.g. `"taint.cred_to_net"`) into a
+/// PascalCase display name (e.g. `"TaintCredToNet"`) for the SARIF rule
+/// `name` field.
+fn pascal_name(rule_id: &str) -> String {
+    rule_id
+        .split(['.', '_'])
+        .filter(|seg| !seg.is_empty())
+        .map(|seg| {
+            let mut chars = seg.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect()
+}
+
+/// Lowercase category name for SARIF rule `properties.category`.
+fn category_str(c: Category) -> &'static str {
+    match c {
+        Category::Secrets => "secrets",
+        Category::Egress => "egress",
+        Category::Destructive => "destructive",
+        Category::Rce => "rce",
+        Category::Persistence => "persistence",
+        Category::Recon => "recon",
+        Category::Tamper => "tamper",
+    }
+}
+
+/// Normalize a file path into a SARIF-legal `/`-separated URI.
+fn normalize_uri(file: &str) -> String {
+    file.replace('\\', "/")
+}
+
+/// FNV-1a 64-bit hash, hex-formatted, used as a stable `partialFingerprints`
+/// value. Pure and deterministic — no external crate needed.
+fn fnv1a_hex(s: &str) -> String {
+    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+    let mut hash = OFFSET_BASIS;
+    for b in s.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(PRIME);
+    }
+    format!("{:016x}", hash)
+}
+
 /// Convert findings to a SARIF 2.1.0 `serde_json::Value`.
 ///
-/// Mirrors `to_sarif()` in sarif.py exactly:
+/// Code-scanning-grade emitter (output-shape only — no detection/scoring
+/// change):
 /// - Rules are deduped by first-seen `rule_id` (insertion order preserved).
-/// - Each rule entry has `id`, `shortDescription.text`, and `properties`
-///   (always present; `owasp`/`atlas` keys added only when non-empty).
-/// - Each result has `ruleId`, `level`, `message.text` — no `locations`.
+/// - Each rule entry has `id`, `name` (PascalCase), `shortDescription.text`,
+///   `fullDescription.text`, `helpUri`, `defaultConfiguration.level`, and
+///   `properties` (`category`, `security-severity`, plus `owasp`/`atlas`
+///   when non-empty). Message text has the ` [file: …]` suffix stripped.
+/// - Each result has `ruleId`, `level`, `message.text` (suffix stripped),
+///   `locations` (anchored to the finding's file/line, or to `"."` when no
+///   location is known — `startLine: 0` is never emitted), and
+///   `partialFingerprints.belay/v1` (a line-independent FNV-1a fingerprint).
+/// - The run object carries `columnKind: "utf16CodeUnits"`.
 /// - The top-level structure uses `$schema`, `version`, and `runs[0]`.
 pub fn to_sarif(findings: &[Finding], tool_version: &str) -> Value {
     // Collect unique rules in first-seen order.
@@ -44,7 +124,13 @@ pub fn to_sarif(findings: &[Finding], tool_version: &str) -> Value {
     let rules: Vec<Value> = seen_rules
         .iter()
         .map(|(rule_id, f)| {
+            let stripped = strip_file_suffix(&f.reason);
             let mut props = serde_json::Map::new();
+            props.insert("category".to_string(), json!(category_str(f.category)));
+            props.insert(
+                "security-severity".to_string(),
+                json!(security_severity(f.severity)),
+            );
             if !f.owasp.is_empty() {
                 props.insert("owasp".to_string(), json!(f.owasp));
             }
@@ -53,7 +139,14 @@ pub fn to_sarif(findings: &[Finding], tool_version: &str) -> Value {
             }
             json!({
                 "id": rule_id,
-                "shortDescription": { "text": f.reason },
+                "name": pascal_name(rule_id),
+                "shortDescription": { "text": stripped },
+                "fullDescription": { "text": stripped },
+                "helpUri": format!(
+                    "https://github.com/SECBLOK/belay/blob/main/docs/rules.md#{}",
+                    rule_id
+                ),
+                "defaultConfiguration": { "level": level(f.severity) },
                 "properties": props,
             })
         })
@@ -63,10 +156,46 @@ pub fn to_sarif(findings: &[Finding], tool_version: &str) -> Value {
     let results: Vec<Value> = findings
         .iter()
         .map(|f| {
+            let stripped = strip_file_suffix(&f.reason);
+            let (locations, file_or_empty) = match &f.location {
+                Some(loc) if loc.line >= 1 => (
+                    json!([{
+                        "physicalLocation": {
+                            "artifactLocation": { "uri": normalize_uri(&loc.file) },
+                            "region": { "startLine": loc.line },
+                        }
+                    }]),
+                    loc.file.clone(),
+                ),
+                Some(loc) => (
+                    // line == 0: file-scoped finding — never emit startLine: 0.
+                    json!([{
+                        "physicalLocation": {
+                            "artifactLocation": { "uri": normalize_uri(&loc.file) },
+                        }
+                    }]),
+                    loc.file.clone(),
+                ),
+                None => (
+                    // No location known: anchor to the scan root, no region.
+                    json!([{
+                        "physicalLocation": {
+                            "artifactLocation": { "uri": "." },
+                        }
+                    }]),
+                    String::new(),
+                ),
+            };
+            let fingerprint = fnv1a_hex(&format!(
+                "{}\u{0}{}\u{0}{}",
+                f.rule_id, file_or_empty, stripped
+            ));
             json!({
                 "ruleId": f.rule_id,
                 "level": level(f.severity),
-                "message": { "text": f.reason },
+                "message": { "text": stripped },
+                "locations": locations,
+                "partialFingerprints": { "belay/v1": fingerprint },
             })
         })
         .collect();
@@ -84,6 +213,7 @@ pub fn to_sarif(findings: &[Finding], tool_version: &str) -> Value {
                         "rules": rules,
                     }
                 },
+                "columnKind": "utf16CodeUnits",
                 "results": results,
             }
         ],
@@ -97,7 +227,7 @@ pub fn to_sarif(findings: &[Finding], tool_version: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Category, Decision, Finding, Severity};
+    use crate::types::{Category, Decision, Finding, Location, Severity};
 
     fn f(rule: &str, sev: Severity) -> Finding {
         Finding {
@@ -225,6 +355,152 @@ mod tests {
         assert_eq!(
             s["runs"][0]["tool"]["driver"]["informationUri"],
             "https://github.com/SECBLOK/belay"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // New tests: strip_file_suffix helper (both branches).
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn strip_file_suffix_strips_when_present() {
+        assert_eq!(
+            strip_file_suffix("exec() call detected [file: run.py]"),
+            "exec() call detected"
+        );
+    }
+
+    #[test]
+    fn strip_file_suffix_returns_unchanged_when_absent() {
+        assert_eq!(
+            strip_file_suffix("no suffix here"),
+            "no suffix here"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // New tests: locations, fingerprints, rules-catalog enrichment.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn result_has_location_with_region() {
+        let mut finding = f("rce.x", Severity::Critical);
+        finding.location = Some(Location {
+            file: "run.py".into(),
+            line: 42,
+        });
+        let s = to_sarif(&[finding], "0.1.0");
+        assert_eq!(
+            s["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
+                ["startLine"],
+            42
+        );
+        assert_eq!(
+            s["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+                ["uri"],
+            "run.py"
+        );
+    }
+
+    #[test]
+    fn file_scoped_finding_omits_region() {
+        let mut finding = f("rce.x", Severity::Critical);
+        finding.location = Some(Location {
+            file: "run.py".into(),
+            line: 0,
+        });
+        let s = to_sarif(&[finding], "0.1.0");
+        let phys = &s["runs"][0]["results"][0]["locations"][0]["physicalLocation"];
+        assert_eq!(phys["artifactLocation"]["uri"], "run.py");
+        assert!(phys.get("region").is_none());
+    }
+
+    #[test]
+    fn no_location_anchors_to_root() {
+        let finding = f("rce.x", Severity::Critical); // location: None
+        let s = to_sarif(&[finding], "0.1.0");
+        let phys = &s["runs"][0]["results"][0]["locations"][0]["physicalLocation"];
+        assert_eq!(phys["artifactLocation"]["uri"], ".");
+        assert!(phys.get("region").is_none());
+    }
+
+    #[test]
+    fn partial_fingerprint_stable_across_line_change() {
+        let mut f1 = f("rce.x", Severity::Critical);
+        f1.location = Some(Location {
+            file: "run.py".into(),
+            line: 10,
+        });
+        let mut f2 = f("rce.x", Severity::Critical);
+        f2.location = Some(Location {
+            file: "run.py".into(),
+            line: 99,
+        });
+        let s = to_sarif(&[f1, f2], "0.1.0");
+        let fp1 = &s["runs"][0]["results"][0]["partialFingerprints"]["belay/v1"];
+        let fp2 = &s["runs"][0]["results"][1]["partialFingerprints"]["belay/v1"];
+        assert_eq!(fp1, fp2);
+    }
+
+    #[test]
+    fn partial_fingerprint_distinct_across_files() {
+        let mut f1 = f("rce.x", Severity::Critical);
+        f1.location = Some(Location {
+            file: "a.py".into(),
+            line: 10,
+        });
+        let mut f2 = f("rce.x", Severity::Critical);
+        f2.location = Some(Location {
+            file: "b.py".into(),
+            line: 10,
+        });
+        let s = to_sarif(&[f1, f2], "0.1.0");
+        let fp1 = &s["runs"][0]["results"][0]["partialFingerprints"]["belay/v1"];
+        let fp2 = &s["runs"][0]["results"][1]["partialFingerprints"]["belay/v1"];
+        assert_ne!(fp1, fp2);
+    }
+
+    #[test]
+    fn message_strips_file_suffix() {
+        let mut finding = f("rce.x", Severity::Critical);
+        finding.reason = "exec() call detected [file: run.py]".into();
+        let findings = vec![finding];
+        let s = to_sarif(&findings, "0.1.0");
+        assert_eq!(
+            s["runs"][0]["results"][0]["message"]["text"],
+            "exec() call detected"
+        );
+        // Emitting SARIF must not mutate the source Finding.
+        assert_eq!(
+            findings[0].reason,
+            "exec() call detected [file: run.py]"
+        );
+    }
+
+    #[test]
+    fn rule_has_helpuri_and_security_severity() {
+        let s = to_sarif(&[f("rce.pipe_to_shell", Severity::Critical)], "0.1.0");
+        let rule = &s["runs"][0]["tool"]["driver"]["rules"][0];
+        assert_eq!(
+            rule["helpUri"],
+            "https://github.com/SECBLOK/belay/blob/main/docs/rules.md#rce.pipe_to_shell"
+        );
+        assert_eq!(rule["properties"]["security-severity"], "9.0");
+        assert_eq!(rule["name"], "RcePipeToShell");
+    }
+
+    #[test]
+    fn never_emits_startline_zero() {
+        let mut finding = f("rce.x", Severity::Critical);
+        finding.location = Some(Location {
+            file: "run.py".into(),
+            line: 0,
+        });
+        let s = to_sarif(&[finding], "0.1.0");
+        let region = &s["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"];
+        assert!(
+            region.is_null(),
+            "region must be omitted entirely when line == 0, not startLine: 0"
         );
     }
 }

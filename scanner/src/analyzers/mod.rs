@@ -4,5 +4,6 @@ pub mod malware;
 pub mod meta_mcp;
 pub mod osv;
 pub mod patterns;
+pub mod skill;
 pub mod taint;
 pub mod yara;

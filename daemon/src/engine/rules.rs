@@ -165,12 +165,85 @@ pub fn strip_invisible(s: &str) -> String {
     filtered.nfkc().collect()
 }
 
-/// Mirror of Python normalize.norm_cmd: strip invisibles + NFKC first, then collapse whitespace and trim.
+/// Line-continuation fold (wrapper/flag-normalization transform 2): a
+/// backslash immediately followed by a real newline (`\r?\n`) is shell
+/// line-continuation syntax — the shell removes *both* characters, joining
+/// the two physical lines with whatever whitespace surrounds them. Replacing
+/// `\\\r?\n` with a single space (rather than deleting it outright) is the
+/// conservative choice: it can never merge two tokens that should stay
+/// separate, and turns `rm \` + newline + `  -rf /` into `rm    -rf /`,
+/// which the existing whitespace-collapse step then reduces to `rm -rf /` —
+/// a clean substring match with no catalog regex change needed.
+///
+/// Must run **before** [`crate::engine::data_region::mask_data_regions`] and
+/// before whitespace-collapse: by the time whitespace is already collapsed to
+/// single spaces, the newline is gone and a real continuation's backslash is
+/// indistinguishable from one a user actually typed; and the data-region
+/// classifier needs real newlines to bound a shell comment's scope (see its
+/// own module doc).
+fn fold_line_continuations(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0usize;
+    while i < chars.len() {
+        if chars[i] == '\\' {
+            if chars.get(i + 1) == Some(&'\r') && chars.get(i + 2) == Some(&'\n') {
+                out.push(' ');
+                i += 3;
+                continue;
+            }
+            if chars.get(i + 1) == Some(&'\n') {
+                out.push(' ');
+                i += 2;
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+/// Whitespace-collapse (transform 3): every run of whitespace (including
+/// real newlines) becomes a single space, and the result is trimmed. Shared
+/// by [`norm_cmd`] and the canonical-haystack builder in
+/// [`RuleSet::haystacks`] so both haystacks collapse identically.
+fn ws_collapse(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The quote-intact "pre" stage shared by both haystacks: strip invisibles +
+/// NFKC-normalize, then fold backslash-newline line continuations (transforms
+/// 1-2). Real quote delimiters and real newlines are still present in the
+/// output — this is deliberate and load-bearing: it is what
+/// [`RuleSet::haystacks`] hands to `canonicalize::canonicalize` so its
+/// quote-aware segment splitter sees the command's actual quoting instead of
+/// quote delimiters `data_region::mask_data_regions` has already masked to
+/// spaces (see that function's own doc for why).
+fn command_pre(s: &str) -> String {
+    let stripped = strip_invisible(s);
+    fold_line_continuations(&stripped)
+}
+
+/// Mirror of Python normalize.norm_cmd: strip invisibles + NFKC first, fold
+/// line-continuations, then mask inert data regions (comments, echo/printf
+/// args, git commit -m/git log --grep values — see
+/// `data_region::mask_data_regions`), then collapse whitespace and trim.
+///
+/// Ordering is load-bearing throughout: line-continuation folding runs before
+/// masking and before whitespace-collapse (see [`fold_line_continuations`]'s
+/// own doc for why); the data-region classifier runs on the invisible-
+/// stripped, continuation-folded string but BEFORE whitespace-collapse,
+/// because a shell comment's scope is bounded by the physical line — if
+/// newlines were already collapsed to spaces first, a `# comment` on one line
+/// could swallow a genuinely dangerous command on the next line (a new false
+/// negative, the wrong direction to fail in). Masked bytes come back as
+/// single spaces (never deleted), so masked spans collapse away cleanly in
+/// the whitespace-collapse step exactly like real whitespace does today.
 fn norm_cmd(s: &str) -> String {
-    strip_invisible(s)
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    let pre = command_pre(s);
+    let masked = crate::engine::data_region::mask_data_regions(&pre);
+    ws_collapse(&masked)
 }
 
 pub struct CompiledRule {
@@ -190,6 +263,13 @@ pub struct CompiledRule {
 }
 
 impl CompiledRule {
+    /// The rule's translatable English prose: `(id, reason, explain)`. The one
+    /// place the rule_i18n module (and its coverage test) reads a rule's source
+    /// text, so what gets hashed and what gets translated can never drift apart.
+    pub fn i18n_source(&self) -> (&str, &str, Option<&Explain>) {
+        (&self.id, &self.reason, self.explain.as_ref())
+    }
+
     /// Project this rule into a `RuleHit` (used both by `matches` and by the
     /// test-only accessors so the mapping stays in one place).
     fn to_hit(&self) -> RuleHit {
@@ -275,41 +355,197 @@ impl RuleSet {
         Ok(RuleSet { rules, allowlist })
     }
 
-    fn haystack(tc: &ToolCall) -> String {
-        let raw = if tc.tool == "Bash" {
+    /// Applies the Windows-backslash-to-`/` fold shared by every haystack:
+    /// the credential/path rules are written with POSIX `/` separators, and
+    /// Windows agents use `\` (`type H:\Testing\.env`, `C:\Users\x\.aws\credentials`),
+    /// which otherwise slip past every path rule — a real bypass even on a
+    /// hook-enforced CLI. This never touches what is executed, displayed, or
+    /// logged — matching only.
+    fn fold_backslashes(s: String) -> String {
+        s.replace('\\', "/")
+    }
+
+    /// Finishes a Bash haystack from the quote-intact `pre` stage
+    /// ([`command_pre`]): optionally runs wrapper/flag canonicalization
+    /// first (real quotes still intact at that point), then applies
+    /// data-region masking and whitespace-collapse — in that order, matching
+    /// [`norm_cmd`] — and finally the backslash fold. `apply_canonicalize =
+    /// false` reproduces `norm_cmd(cmd)` exactly (the raw haystack,
+    /// unchanged behavior); `apply_canonicalize = true` is the canonical
+    /// haystack, built by masking/collapsing `canonicalize(pre)` instead of
+    /// `pre` itself — see [`RuleSet::haystacks`] for why canonicalize must
+    /// run *before* masking.
+    fn build_bash_haystack(pre: &str, apply_canonicalize: bool) -> String {
+        let owned;
+        let for_masking: &str = if apply_canonicalize {
+            owned = crate::engine::canonicalize::canonicalize(pre);
+            &owned
+        } else {
+            pre
+        };
+        let masked = crate::engine::data_region::mask_data_regions(for_masking);
+        Self::fold_backslashes(ws_collapse(&masked))
+    }
+
+    /// Builds the raw haystack (unchanged behavior), for `Bash` tool calls
+    /// the wrapper/flag-normalized canonical haystack, and — also `Bash`-only
+    /// — any inline-interpreter/heredoc bodies extracted from the command
+    /// (Task 4). All three are derived from the same quote-intact `pre`
+    /// stage ([`command_pre`]) for Bash.
+    ///
+    /// `canonicalize()` runs on `pre` — i.e. **before**
+    /// `data_region::mask_data_regions` and before whitespace-collapse —
+    /// specifically so its quote-aware segment splitter sees the command's
+    /// real quote characters. Running it on the already-masked haystack (the
+    /// prior ordering) was a bug: a disqualified data-consuming argument
+    /// (one containing `$`/backtick/paren, e.g. `$USER`) has its *content*
+    /// left visible but its enclosing quote delimiters masked to spaces, so
+    /// a quote-protected `;` inside that argument — e.g. `echo "$USER; rm -r
+    /// -f /"` — looked, by the time canonicalize saw it, exactly like a bare
+    /// unquoted `;`. canonicalize's segment splitter would then split a new
+    /// fake segment there, put `rm` at that segment's first-token
+    /// (`cmd_i`) position, and its flag-cluster-merge transform would
+    /// fabricate `rm -rf /` out of text that was never anything but echoed
+    /// data — a Deny the raw command never had. With real quotes intact,
+    /// the same splitter correctly keeps the whole quoted argument as one
+    /// segment (its first token is `echo`, not `rm`), so nothing inside it
+    /// is ever touched — see `canonicalize`'s own module doc,
+    /// "Position-scoping".
+    ///
+    /// Bodies are extracted from `mask_data_regions(&pre)` directly — the
+    /// exact same masked-but-not-yet-collapsed string
+    /// `build_bash_haystack(&pre, false)` computes internally on its way to
+    /// `hay_raw` — so extraction runs strictly *after* masking (an
+    /// inline-interpreter/heredoc shape sitting inertly inside a masked data
+    /// region is already blanked to spaces by the time `extract_bodies` sees
+    /// it) and still sees real newlines (needed for heredoc boundary
+    /// detection) since this is captured before `ws_collapse`. See
+    /// `extract`'s own module doc for the full rationale.
+    ///
+    /// A third source, `extract::resolve_script_files` (the
+    /// script-file-resolution feature — see
+    /// `docs/superpowers/specs/2026-07-17-command-gate-script-file-resolution-design.md`),
+    /// runs over the same masked text and is appended to the same body
+    /// vector. It needs the hook payload's working directory to resolve a
+    /// *relative* script path, read from `tc.input["cwd"]` (threaded in by
+    /// `app.rs`'s hook-payload translation, or the raw `beforeShellExecution`/
+    /// `PreToolUse` payload's own top-level `cwd` field when the daemon
+    /// builds `ToolCall` directly from it) — absent `cwd` simply means only
+    /// absolute-path script-exec forms resolve (fail-open, never a block).
+    fn haystacks_with_bodies(
+        tc: &ToolCall,
+    ) -> (String, Option<String>, Vec<crate::engine::extract::ExtractedBody>) {
+        if tc.tool == "Bash" {
             let cmd = tc
                 .input
                 .get("command")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            norm_cmd(cmd)
-        } else if let Some(p) = tc
-            .input
-            .get("file_path")
-            .or_else(|| tc.input.get("path"))
-            .and_then(|v| v.as_str())
-        {
-            strip_invisible(p)
+            let pre = command_pre(cmd);
+            let hay_raw = Self::build_bash_haystack(&pre, false);
+            let hay_canonical = Self::build_bash_haystack(&pre, true);
+            let masked_pre = crate::engine::data_region::mask_data_regions(&pre);
+            let mut bodies = crate::engine::extract::extract_bodies(&masked_pre);
+            let cwd = tc.input.get("cwd").and_then(|v| v.as_str());
+            bodies.extend(crate::engine::extract::resolve_script_files(&masked_pre, cwd));
+            (hay_raw, Some(hay_canonical), bodies)
         } else {
-            tc.input.to_string()
-        };
-        // The credential/path rules are written with POSIX `/` separators. Windows
-        // agents use `\` (`type H:\Testing\.env`, `C:\Users\x\.aws\credentials`),
-        // which otherwise slip past every path rule - a real bypass even on a
-        // hook-enforced CLI. Fold backslashes to `/` for matching only; this never
-        // touches what is executed, displayed, or logged.
-        raw.replace('\\', "/")
+            let raw = if let Some(p) = tc
+                .input
+                .get("file_path")
+                .or_else(|| tc.input.get("path"))
+                .and_then(|v| v.as_str())
+            {
+                strip_invisible(p)
+            } else {
+                tc.input.to_string()
+            };
+            (Self::fold_backslashes(raw), None, Vec::new())
+        }
     }
 
+    /// Matches every applicable rule's patterns against the raw haystack,
+    /// (for `Bash` tool calls) its wrapper/flag-normalized canonical form
+    /// (`canonicalize::canonicalize`), and (also `Bash`-only) every body
+    /// pulled out of the command — inline-interpreter/heredoc bodies
+    /// extracted from the command text itself, plus referenced script files
+    /// the command actually *executes*, resolved and bounded-read off disk
+    /// (`extract::resolve_script_files`) — denying if **any** matches.
+    /// `hay_raw` is always checked unmodified, so canonicalization,
+    /// extraction, and script-file resolution are all strictly additive: a
+    /// bug in any of them can only fail to add coverage, never remove
+    /// coverage a raw match would otherwise have caught. A hit that only
+    /// matched on the canonical form, or only inside one of these bodies,
+    /// gets a reason-string tag so an audit/UI consumer can see why a command
+    /// that doesn't visibly contain the flagged text was still caught. See
+    /// `docs/superpowers/specs/2026-07-17-command-gate-wrapper-normalization-design.md`,
+    /// `docs/superpowers/specs/2026-07-17-command-gate-inline-script-extraction-design.md`,
+    /// and `docs/superpowers/specs/2026-07-17-command-gate-script-file-resolution-design.md`.
     pub fn matches(&self, tc: &ToolCall) -> Vec<RuleHit> {
-        let hay = Self::haystack(tc);
+        let (hay_raw, hay_canonical, bodies) = Self::haystacks_with_bodies(tc);
+        // Each extracted body gets its own raw+canonical haystack, built by
+        // literally calling `build_bash_haystack` on the body's own text —
+        // the exact same function the outer command uses, not a hand-rolled
+        // duplicate. That matters: a body's text (an inline `-c`/heredoc
+        // payload, or a resolved script file's own bytes) is itself
+        // arbitrary shell content that can carry its own comments and
+        // echo/printf/git-message arguments, and without running it through
+        // `data_region::mask_data_regions` the same way the outer command
+        // does, a warning like `echo "danger: rm -rf / will wipe you"` or a
+        // comment like `# do NOT run rm -rf / ever` *inside* a script file
+        // was falsely denied — the data-consuming argument/comment content
+        // was never masked for bodies, only for the outer command. Passing
+        // the body's not-yet-collapsed text (real newlines intact, matching
+        // `build_bash_haystack`'s own "Calling convention" — a multi-line
+        // heredoc/script body needs that for both comment-scoping and
+        // `canonicalize`'s top-level newline segment-splitting to see each
+        // line independently) reuses the same
+        // canonicalize-then-mask-then-collapse-then-fold pipeline the outer
+        // haystacks get, so bodies and the outer command stay identically
+        // normalized.
+        let body_hays: Vec<(String, String, &'static str)> = bodies
+            .iter()
+            .map(|b| {
+                let raw = Self::build_bash_haystack(&b.text, false);
+                let canon = Self::build_bash_haystack(&b.text, true);
+                (raw, canon, b.shape)
+            })
+            .collect();
+
         let mut hits = Vec::new();
         for r in &self.rules {
             if !r.applies_to.iter().any(|t| t == &tc.tool) {
                 continue;
             }
-            if r.patterns.iter().any(|re| re.is_match(&hay)) {
-                hits.push(r.to_hit());
+            let raw_hit = r.patterns.iter().any(|re| re.is_match(&hay_raw));
+            let canon_hit = hay_canonical
+                .as_deref()
+                .is_some_and(|h| r.patterns.iter().any(|re| re.is_match(h)));
+            let body_hit = body_hays.iter().find(|(raw, canon, _)| {
+                r.patterns.iter().any(|re| re.is_match(raw) || re.is_match(canon))
+            });
+
+            if raw_hit || canon_hit || body_hit.is_some() {
+                let mut hit = r.to_hit();
+                if let Some((_, _, shape)) = body_hit.filter(|_| !raw_hit && !canon_hit) {
+                    // `script_file` bodies get their own, more literal tag
+                    // (design doc, Owner Decision 4: `[matched inside
+                    // executed script file]`) — "extracted ... body" reads
+                    // oddly for content that was resolved off disk, not
+                    // pulled out of the command text itself.
+                    let tag = if *shape == "script_file" {
+                        "[matched inside executed script file]".to_string()
+                    } else {
+                        format!("[matched inside extracted {shape} body]")
+                    };
+                    hit.reason = format!("{} {tag}", hit.reason);
+                } else if canon_hit && !raw_hit {
+                    hit.reason = format!(
+                        "{} [matched after wrapper/flag normalization]",
+                        hit.reason
+                    );
+                }
+                hits.push(hit);
             }
         }
         hits
@@ -400,6 +636,54 @@ mod tests {
         assert!(hits
             .iter()
             .any(|h| h.id == "destructive.rm_rf" && h.decision == Decision::Deny));
+    }
+
+    // Match-both (wrapper/flag normalization): a hit that only matches on the
+    // canonical (normalized) form must carry the reason-string tag so an
+    // audit/UI consumer can see why a command that doesn't visibly contain the
+    // flagged text was still caught; a plain raw match must NOT carry it.
+    #[test]
+    fn canonical_only_hit_is_reason_tagged_raw_hit_is_not() {
+        let rs = RuleSet::load().unwrap();
+
+        // Raw match: no normalization was needed, no tag.
+        let raw_hits = rs.matches(&tc("Bash", json!({"command": "rm -rf /"})));
+        let raw_hit = raw_hits
+            .iter()
+            .find(|h| h.id == "destructive.rm_rf")
+            .expect("raw rm -rf / must match destructive.rm_rf");
+        assert!(
+            !raw_hit.reason.contains("[matched after wrapper/flag normalization]"),
+            "a plain raw match must not carry the normalization tag: {}",
+            raw_hit.reason
+        );
+
+        // Canonical-only match: separate short flags only match after
+        // wrapper/flag normalization's cluster-merge — must carry the tag.
+        let canon_hits = rs.matches(&tc("Bash", json!({"command": "rm -r -f /"})));
+        let canon_hit = canon_hits
+            .iter()
+            .find(|h| h.id == "destructive.rm_rf")
+            .expect("rm -r -f / must match destructive.rm_rf after normalization");
+        assert!(
+            canon_hit.reason.contains("[matched after wrapper/flag normalization]"),
+            "a canonical-only match must carry the normalization tag: {}",
+            canon_hit.reason
+        );
+    }
+
+    // Match-both must never apply to non-Bash tool calls (canonicalize only
+    // makes sense for shell command text) — a Read/Write path match is
+    // unaffected by this feature.
+    #[test]
+    fn non_bash_tool_calls_are_unaffected_by_canonicalization() {
+        let rs = RuleSet::load().unwrap();
+        let hits = rs.matches(&tc("Read", json!({"file_path": "/p/.ssh/id_rsa"})));
+        let hit = hits
+            .iter()
+            .find(|h| h.id == "secrets.sensitive_path")
+            .expect("Read of id_rsa must still match secrets.sensitive_path");
+        assert!(!hit.reason.contains("[matched after wrapper/flag normalization]"));
     }
 
     #[test]

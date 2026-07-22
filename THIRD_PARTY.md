@@ -73,6 +73,19 @@ scanner flagging every well-known MCP server / repo as "do not install".
 Further ideas noted for later (per-finding confidence, manifest least-privilege
 checks, MCP tool-poisoning detection, baseline suppression).
 
+**Native detection port (`skillscan` crate).** Beyond the `fileclass` design
+credit above, Belay's `skillscan` leaf crate is a **clean-room Rust
+reimplementation of SkillSpector's skill-aware detection *logic*** — manifest
+least-privilege (declared-vs-observed capability diff), tool-poisoning
+(homoglyph/RTL/hidden-instruction) over `SKILL.md` metadata, rug-pull manifest
+diff, prompt-injection/anti-refusal/SSRF/agent-snooping and the excessive-agency
+/ output-handling / memory-poisoning / tool-misuse / rogue-agent / supply-chain
+regex families, plus SkillSpector's risk-scoring bands (SAFE / CAUTION /
+DO_NOT_INSTALL). **No SkillSpector Python source, rule text, or bundled YARA
+files were copied** — the patterns/algorithms are functional facts reimplemented
+from their documented behaviour. Apache-2.0 permits this; the license text is
+included at `LICENSES/Apache-2.0.txt`.
+
 ## CrowdStrike falcon-installer — https://github.com/CrowdStrike/falcon-installer (MIT)
 
 Engineering *patterns* referenced (no code copied): package-manager-lock

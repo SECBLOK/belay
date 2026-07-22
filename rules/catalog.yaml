@@ -23,8 +23,14 @@ rules:
         - 'rm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|-rf|-fr)\b\s*(/|~|\$HOME|\.|\*)(\s|$)'
         - 'rm\b.*--no-preserve-root'
         # Windows recursive force-delete of a DANGEROUS root (drive root, userprofile, *).
-        - '(remove-item|ri)\b(?=[^|]*\s-(recurse|r)\b)(?=[^|]*\s-(force|fo|f)\b)[^|]*\s[''"]?([a-z]:/?|~|\$home|\$env:userprofile|\*)([''"\s]|$)'
+        # Covers Remove-Item's built-in aliases (ri/rm/del/erase/rd/rmdir), not just the
+        # literal cmdlet name and `ri`.
+        - '\b(remove-item|ri|rm|del|erase|rd|rmdir)\b(?=[^|]*\s-(recurse|r)\b)(?=[^|]*\s-(force|fo|f)\b)[^|]*\s[''"]?([a-z]:/?|~|\$home|\$env:userprofile|\*)([''"\s]|$)'
         - '\b(rd|rmdir)\b(?=[^|]*\s/s\b)(?=[^|]*\s/q\b)[^|]*\s[''"]?([a-z]:/?|%userprofile%|\*)([''"\s]|$)'
+        # -Recurse alone (no -Force) at a bare drive root only — -Force is not
+        # load-bearing for a non-interactive agent session, so this narrower
+        # target class is denied without requiring it.
+        - '\b(remove-item|ri|rm|del|erase|rd|rmdir)\b(?=[^|]*\s-(recurse|r)\b)[^|]*\s[''"]?([a-z]:/?)([''"\s]|$)'
   - id: destructive.disk_wipe
     category: destructive
     severity: critical
@@ -44,6 +50,7 @@ rules:
         - '\bdd\b.*of=/dev/(sd|nvme|vd)'
         - '\bmkfs\.'
         - '\bwipefs\b'
+        - '\bcipher(\.exe)?\b[^|]*\s/w\b'
   - id: destructive.git_force
     category: destructive
     severity: high
@@ -82,6 +89,62 @@ rules:
         - '\bDROP\s+(DATABASE|TABLE)\b'
         - '\bTRUNCATE\b'
         - 'DELETE\s+FROM\s+\w+\s*;'
+  - id: destructive.inhibit_recovery
+    category: destructive
+    severity: critical
+    decision: deny
+    owasp: ASI02
+    atlas: AML.InhibitRecovery
+    reason: disables Windows backup/recovery before or after mass file changes
+    explain:
+      summary: "This disables Windows' own backup and recovery options."
+      what: "It deleted shadow-copy backups or turned off startup repair — the safety nets Windows uses to undo a bad change."
+      why_risky: "Removing these first is a well-known step before mass file destruction: it makes sure there is nothing left to restore from afterward."
+      normal_use: "Almost never as part of ordinary development work; legitimate admin use exists but is rare and usually done through the system UI, not scripted."
+      suggested_action: "Deny unless you are deliberately doing disk/recovery maintenance right now and understand exactly what this removes."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '\bvssadmin(\.exe)?\b[^|]*\bdelete\b[^|]*\bshadows\b'
+        - '\bwmic(\.exe)?\b[^|]*\bshadowcopy\b[^|]*\bdelete\b'
+        - '\bbcdedit(\.exe)?\b[^|]*\brecoveryenabled\s+no\b'
+        - '\bbcdedit(\.exe)?\b[^|]*\bbootstatuspolicy\s+ignoreallfailures\b'
+  - id: sysabuse.fork_bomb
+    category: destructive
+    severity: critical
+    decision: deny
+    owasp: ASI02
+    atlas: AML.Impact
+    reason: fork bomb (self-referential function piped to itself, backgrounded)
+    explain:
+      summary: "This creates a fork bomb — a self-multiplying process explosion."
+      what: "It defined a function (or used the Windows batch self-invocation form) that pipes a copy of itself into another copy of itself and runs that in the background, so every running copy immediately spawns two more."
+      why_risky: "Each copy doubles itself continuously, exhausting the machine's process table and CPU within seconds. The system becomes unresponsive and usually needs a hard reboot to recover — there is no graceful way to stop it once it starts."
+      normal_use: "Never as part of ordinary development work — no legitimate script pipes a backgrounded copy of itself into another copy of itself."
+      suggested_action: "Deny. There is no legitimate reason to run this."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '(\w+|:)\s*\(\s*\)\s*\{(?=[^}]*\|\s*\1(?!\w))[^}]*&'
+        - '%0\s*[|^]\s*%0'
+  - id: sysabuse.disk_device_write
+    category: destructive
+    severity: critical
+    decision: deny
+    owasp: ASI02
+    atlas: AML.Impact
+    reason: raw block-device write
+    explain:
+      summary: "This writes data directly onto a raw disk device."
+      what: "It ran `dd` or a shell redirect that targets a raw block-device path (like /dev/sda, /dev/nvme0n1, or /dev/mmcblk0) instead of a regular file."
+      why_risky: "Writing to a raw device overwrites the partition table and every file on that disk immediately, with no confirmation prompt and no way to undo it."
+      normal_use: "Rare and deliberate — imaging or reflashing a drive is sometimes done on purpose, and even then only the write direction is dangerous (reading FROM a device into a file, for a backup image, is safe and common)."
+      suggested_action: "Deny unless you are intentionally overwriting this exact disk right now and have already backed up anything on it you need."
+    applies_to: [Bash]
+    match:
+      command_regex:
+        - '\bdd\b[^|;&]*\bof=\s*[''"]?/dev/(sd|nvme|hd|vd|disk|mmcblk|loop)\w*'
+        - '>\s*[''"]?/dev/(sd|nvme|hd|vd|disk|mmcblk)\w*'
   # ---- egress ----
   - id: egress.exfil_host
     category: egress
@@ -204,8 +267,8 @@ rules:
         - 'base64\s+-d[^|]*\|\s*(ba|z)?sh'
         - 'eval\s+"?\$\('
         - 'python\d?\s+-c\s+.*exec\('
-        # Windows: powershell -EncodedCommand/-enc <base64>, and FromBase64String | iex.
-        - 'powershell(\.exe)?\b[^|]*\s-e(nc(odedcommand)?)?\s+[A-Za-z0-9+/=]{16,}'
+        # Windows: powershell/pwsh -EncodedCommand/-enc <base64>, and FromBase64String | iex.
+        - '(powershell(\.exe)?|pwsh(\.exe)?)\b[^|]*\s-e(nc(odedcommand)?)?\s+[A-Za-z0-9+/=]{16,}'
         - 'frombase64string\b[^|]*\|\s*(iex|invoke-expression)\b'
   - id: rce.untrusted_install
     category: rce

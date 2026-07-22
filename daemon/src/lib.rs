@@ -28,12 +28,20 @@ pub mod honeypot;
 pub mod host_api;
 pub mod host_config;
 pub mod ipc;
+pub mod kfilter;
 pub mod mcp_proxy;
+pub mod mcp_scan;
 pub mod observe;
 pub mod paths;
 pub mod pending;
+/// Process-ancestry primitives (Linux `/proc` parent-pid walk) backing the
+/// GateGuard self-approval detector — is the resolver a descendant of the
+/// agent that was gated?
+pub mod proc_ancestry;
 pub mod reflex;
 pub mod service;
+/// Discover installed agent skills on disk. Foundation for the Phase-2 triggers.
+pub mod skills;
 pub mod sshguard;
 pub mod state;
 pub mod vuln;

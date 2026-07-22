@@ -6,21 +6,23 @@
 // Color is never the sole signal: action type is shown as text + badge.
 
 import type { ProposedRuleset, EgressRule } from "../../lib/hostTypes";
+import { Trans, Plural, useLingui } from "@lingui/react/macro";
 
 // ── Action badge ──────────────────────────────────────────────────────────────
 
 const ACTION_STYLE: Record<EgressRule["action"], { bg: string; color: string }> = {
-  allow: { bg: "rgba(27,140,58,0.10)", color: "#1B8C3A" },
-  deny:  { bg: "rgba(200,49,42,0.10)", color: "#C8312A" },
+  allow: { bg: "rgba(24,125,52,0.06)", color: "#187D34" },
+  deny:  { bg: "rgba(200,49,42,0.06)", color: "#C8312A" },
 };
 
 function ActionBadge({ action }: { action: EgressRule["action"] }) {
+  const { t } = useLingui();
   const s = ACTION_STYLE[action];
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold uppercase"
       style={{ background: s.bg, color: s.color }}
-      aria-label={`Action: ${action}`}
+      aria-label={t`Action: ${action}`}
     >
       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.color }} aria-hidden />
       {action}
@@ -43,6 +45,7 @@ interface RuleRowProps {
 }
 
 function RuleRow({ rule, pinned }: RuleRowProps) {
+  const { t } = useLingui();
   return (
     <tr
       className="border-b last:border-0"
@@ -54,7 +57,7 @@ function RuleRow({ rule, pinned }: RuleRowProps) {
             }
           : { borderColor: "rgba(0,0,0,0.06)" }
       }
-      aria-label={pinned ? "SSH exemption — always preserved" : undefined}
+      aria-label={pinned ? t`SSH exemption — always preserved` : undefined}
     >
       {/* Host */}
       <td className="px-4 py-3 font-mono text-xs text-[#1C1C1E] max-w-[180px] truncate" title={rule.host}>
@@ -63,7 +66,7 @@ function RuleRow({ rule, pinned }: RuleRowProps) {
           <span
             className="ml-2 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
             style={{ background: "rgba(10,102,214,0.12)", color: "#0A66D6" }}
-            aria-label="SSH exemption pinned row"
+            aria-label={t`SSH exemption pinned row`}
           >
             SSH
           </span>
@@ -81,10 +84,10 @@ function RuleRow({ rule, pinned }: RuleRowProps) {
       </td>
       {/* Comment */}
       <td
-        className="px-4 py-3 text-xs text-[#8E8E93] max-w-[200px] truncate"
+        className="px-4 py-3 text-xs text-[var(--text-tertiary)] max-w-[200px] truncate"
         title={rule.comment}
       >
-        {pinned ? "SSH access preserved" : (rule.comment ?? "")}
+        {pinned ? <Trans>SSH access preserved</Trans> : (rule.comment ?? "")}
       </td>
     </tr>
   );
@@ -97,13 +100,14 @@ export interface ProposedRuleTableProps {
 }
 
 export default function ProposedRuleTable({ ruleset }: ProposedRuleTableProps) {
+  const { t } = useLingui();
   // Separate SSH-exemption rules (pinned at top) from the rest.
   const sshRules = ruleset.rules.filter(isSshExemption);
   const otherRules = ruleset.rules.filter((r) => !isSshExemption(r));
   const hasSshExemption = sshRules.length > 0;
 
   return (
-    <div className="rounded-xl overflow-hidden bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+    <div className="lg-glass overflow-hidden">
       {/* Summary header */}
       <div
         className="px-4 py-3 flex items-start justify-between gap-4 border-b"
@@ -111,15 +115,21 @@ export default function ProposedRuleTable({ ruleset }: ProposedRuleTableProps) {
       >
         <div className="space-y-0.5">
           <p className="text-xs font-semibold text-[#1C1C1E]">{ruleset.description}</p>
-          <p className="text-[11px] text-[#8E8E93]">
-            {ruleset.rules.length} rule{ruleset.rules.length !== 1 ? "s" : ""} proposed
+          <p className="text-[11px] text-[var(--text-tertiary)]">
+            <Plural
+              value={ruleset.rules.length}
+              one="# rule proposed"
+              other="# rules proposed"
+            />
             {(() => {
               // Guard against an empty/invalid generated_at (e.g. a daemon stub),
               // which would otherwise render "Generated Invalid Date".
-              const t = Date.parse(ruleset.generated_at);
-              return Number.isNaN(t) ? null : (
+              const ts = Date.parse(ruleset.generated_at);
+              if (Number.isNaN(ts)) return null;
+              const generated = new Date(ts).toLocaleString();
+              return (
                 <>
-                  {" · "}Generated {new Date(t).toLocaleString()}
+                  {" · "}<Trans>Generated {generated}</Trans>
                 </>
               );
             })()}
@@ -128,28 +138,28 @@ export default function ProposedRuleTable({ ruleset }: ProposedRuleTableProps) {
         {hasSshExemption && (
           <span
             className="shrink-0 text-[11px] font-semibold px-2 py-1 rounded"
-            style={{ background: "rgba(27,140,58,0.10)", color: "#1B8C3A" }}
-            aria-label="SSH port 22 is preserved in this ruleset"
+            style={{ background: "rgba(24,125,52,0.06)", color: "#187D34" }}
+            aria-label={t`SSH port 22 is preserved in this ruleset`}
           >
-            SSH preserved
+            <Trans>SSH preserved</Trans>
           </span>
         )}
       </div>
 
       {ruleset.rules.length === 0 ? (
-        <div className="px-5 py-6 text-sm text-[#8E8E93]">No rules proposed.</div>
+        <div className="px-5 py-6 text-sm text-[var(--text-tertiary)]"><Trans>No rules proposed.</Trans></div>
       ) : (
-        <table className="w-full text-sm" aria-label="Proposed firewall rules">
+        <table className="w-full text-sm" aria-label={t`Proposed firewall rules`}>
           <thead>
             <tr
-              className="text-[11px] uppercase tracking-widest text-[#8E8E93] border-b"
+              className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)] border-b"
               style={{ borderColor: "rgba(0,0,0,0.08)" }}
             >
-              <th className="text-left px-4 py-2.5 font-medium" aria-sort="none">Host</th>
-              <th className="text-left px-4 py-2.5 font-medium" aria-sort="none">Port</th>
-              <th className="text-left px-4 py-2.5 font-medium" aria-sort="none">Protocol</th>
-              <th className="text-left px-4 py-2.5 font-medium" aria-sort="none">Action</th>
-              <th className="text-left px-4 py-2.5 font-medium">Comment</th>
+              <th className="text-left px-4 py-2.5 font-medium" aria-sort="none"><Trans>Host</Trans></th>
+              <th className="text-left px-4 py-2.5 font-medium" aria-sort="none"><Trans>Port</Trans></th>
+              <th className="text-left px-4 py-2.5 font-medium" aria-sort="none"><Trans>Protocol</Trans></th>
+              <th className="text-left px-4 py-2.5 font-medium" aria-sort="none"><Trans>Action</Trans></th>
+              <th className="text-left px-4 py-2.5 font-medium"><Trans>Comment</Trans></th>
             </tr>
           </thead>
           <tbody>

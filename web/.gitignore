@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Lingui compiled catalogs (generated at build by @lingui/vite-plugin)
+src/locales/*.js

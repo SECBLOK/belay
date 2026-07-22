@@ -15,6 +15,7 @@ anyhow = "1"
 tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 belayd = { path = "../daemon", default-features = true }
+skillscan = { path = "../skillscan" }
 indexmap = "2"
 # `native-code-serialization`: `Rules::deserialize` (see `analyzers::malware`)
 # only skips the ~12s Cranelift WASM->native recompile when the blob it reads

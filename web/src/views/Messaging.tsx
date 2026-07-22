@@ -20,6 +20,9 @@ import {
   type ChannelsView,
   type PairResult,
 } from "../lib/api";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 // ── Connector field schema ────────────────────────────────────────────────────
 // `key` is the exact config struct field the Rust side merges — EXCEPT two
@@ -30,10 +33,10 @@ import {
 // the config when left blank so the backend merge keeps the stored value.
 type Field = {
   key: string;
-  label: string;
+  label: MessageDescriptor;
   secret?: boolean;
-  placeholder?: string;
-  hint?: string;
+  placeholder?: string | MessageDescriptor;
+  hint?: MessageDescriptor;
   /** where the value goes on save; default = into the set_channel config */
   target?: "allow" | "inbound";
 };
@@ -42,11 +45,11 @@ type Connector = {
   id: string;
   label: string;
   kind: "two-way" | "notify";
-  guide?: string;
+  guide?: MessageDescriptor;
   /** A setup gotcha worth calling out prominently before the fields (e.g. a
    *  required toggle the user must flip elsewhere first). Rendered as a caution
    *  callout, mirroring the CLI wizard's bold pre-token warning. */
-  warning?: string;
+  warning?: MessageDescriptor;
   /** Static, hardcoded public docs URL — never derived from user input. Opened
    *  via openExternalUrl (OS default browser), never the app's own webview. */
   docsUrl?: string;
@@ -57,10 +60,10 @@ type Connector = {
 
 const ALLOWED_IDS: Field = {
   key: "allowedIds",
-  label: "Add approver IDs",
+  label: msg`Add approver IDs`,
   target: "allow",
-  placeholder: "ids to enroll, comma-separated",
-  hint: "Enroll principals allowed to approve from this connector. This only adds; existing approvers are listed and removable under Approvers below.",
+  placeholder: msg`ids to enroll, comma-separated`,
+  hint: msg`Enroll principals allowed to approve from this connector. This only adds; existing approvers are listed and removable under Approvers below.`,
 };
 
 const CONNECTORS: Connector[] = [
@@ -68,11 +71,11 @@ const CONNECTORS: Connector[] = [
     id: "telegram",
     label: "Telegram",
     kind: "two-way",
-    guide: "@BotFather → /newbot for the token; numeric id from @userinfobot.",
+    guide: msg`@BotFather → /newbot for the token; numeric id from @userinfobot.`,
     docsUrl: "https://core.telegram.org/bots#how-do-i-create-a-bot",
-    required: [{ key: "bot_token", label: "Bot token", secret: true }],
+    required: [{ key: "bot_token", label: msg`Bot token`, secret: true }],
     recommended: [
-      { key: "chat_id", label: "Chat ID", placeholder: "Home chat/DM id" },
+      { key: "chat_id", label: msg`Chat ID`, placeholder: msg`Home chat/DM id` },
       ALLOWED_IDS,
     ],
     advanced: [],
@@ -81,13 +84,12 @@ const CONNECTORS: Connector[] = [
     id: "discord",
     label: "Discord",
     kind: "two-way",
-    guide: "Discord Developer Portal → app → Bot → token.",
-    warning:
-      'Enable "Message Content Intent" (Bot → Privileged Gateway Intents) before saving. Without it the bot connects but can\'t read your Allow/Deny replies, so approvals silently do nothing.',
+    guide: msg`Discord Developer Portal → app → Bot → token.`,
+    warning: msg`Enable "Message Content Intent" (Bot → Privileged Gateway Intents) before saving. Without it the bot connects but can't read your Allow/Deny replies, so approvals silently do nothing.`,
     docsUrl: "https://discord.com/developers/docs/quick-start/getting-started",
     required: [
-      { key: "bot_token", label: "Bot token", secret: true },
-      { key: "channel_id", label: "Channel ID", placeholder: "a 1:1 DM channel id" },
+      { key: "bot_token", label: msg`Bot token`, secret: true },
+      { key: "channel_id", label: msg`Channel ID`, placeholder: msg`a 1:1 DM channel id` },
     ],
     recommended: [ALLOWED_IDS],
     advanced: [],
@@ -96,13 +98,13 @@ const CONNECTORS: Connector[] = [
     id: "whatsapp",
     label: "WhatsApp",
     kind: "two-way",
-    guide: "Twilio console → Account SID + Auth Token; from/to are whatsapp: numbers.",
+    guide: msg`Twilio console → Account SID + Auth Token; from/to are whatsapp: numbers.`,
     docsUrl: "https://www.twilio.com/docs/whatsapp/api",
     required: [
-      { key: "account_sid", label: "Account SID" },
-      { key: "auth_token", label: "Auth token", secret: true },
-      { key: "from", label: "From", placeholder: "whatsapp:+1…" },
-      { key: "to", label: "To", placeholder: "whatsapp:+1…" },
+      { key: "account_sid", label: msg`Account SID` },
+      { key: "auth_token", label: msg`Auth token`, secret: true },
+      { key: "from", label: msg`From`, placeholder: "whatsapp:+1…" },
+      { key: "to", label: msg`To`, placeholder: "whatsapp:+1…" },
     ],
     recommended: [ALLOWED_IDS],
     advanced: [],
@@ -113,11 +115,11 @@ const CONNECTORS: Connector[] = [
     kind: "two-way",
     docsUrl: "https://spec.matrix.org/latest/client-server-api/#login",
     required: [
-      { key: "access_token", label: "Access token", secret: true },
-      { key: "room_id", label: "Room ID", placeholder: "a 1:1 direct room" },
+      { key: "access_token", label: msg`Access token`, secret: true },
+      { key: "room_id", label: msg`Room ID`, placeholder: msg`a 1:1 direct room` },
     ],
     recommended: [{ ...ALLOWED_IDS, placeholder: "@user:server, …" }],
-    advanced: [{ key: "base", label: "Homeserver base URL", placeholder: "https://matrix.org" }],
+    advanced: [{ key: "base", label: msg`Homeserver base URL`, placeholder: "https://matrix.org" }],
   },
   {
     id: "mattermost",
@@ -125,9 +127,9 @@ const CONNECTORS: Connector[] = [
     kind: "two-way",
     docsUrl: "https://developers.mattermost.com/integrate/reference/bot-accounts/",
     required: [
-      { key: "token", label: "Token", secret: true },
-      { key: "channel_id", label: "Channel ID", placeholder: "a DM channel (type D)" },
-      { key: "base", label: "Server URL", placeholder: "https://mattermost.example.com" },
+      { key: "token", label: msg`Token`, secret: true },
+      { key: "channel_id", label: msg`Channel ID`, placeholder: msg`a DM channel (type D)` },
+      { key: "base", label: msg`Server URL`, placeholder: "https://mattermost.example.com" },
     ],
     recommended: [ALLOWED_IDS],
     advanced: [],
@@ -136,22 +138,21 @@ const CONNECTORS: Connector[] = [
     id: "slack",
     label: "Slack",
     kind: "two-way",
-    guide:
-      "Slack app → Bot token + Signing Secret; add /hook/slack as the interactivity Request URL behind your TLS proxy.",
+    guide: msg`Slack app → Bot token + Signing Secret; add /hook/slack as the interactivity Request URL behind your TLS proxy.`,
     docsUrl: "https://api.slack.com/authentication/basics",
     required: [
-      { key: "token", label: "Bot token", secret: true, placeholder: "xoxb-…" },
-      { key: "channel", label: "Channel", placeholder: "a DM/user id" },
+      { key: "token", label: msg`Bot token`, secret: true, placeholder: "xoxb-…" },
+      { key: "channel", label: msg`Channel`, placeholder: msg`a DM/user id` },
     ],
     recommended: [ALLOWED_IDS],
     advanced: [
-      { key: "base", label: "API base URL" },
+      { key: "base", label: msg`API base URL` },
       {
         key: "slack_signing_secret",
-        label: "Signing secret",
+        label: msg`Signing secret`,
         secret: true,
         target: "inbound",
-        hint: "Verifies inbound interactivity callbacks (set on the inbound receiver).",
+        hint: msg`Verifies inbound interactivity callbacks (set on the inbound receiver).`,
       },
     ],
   },
@@ -160,11 +161,11 @@ const CONNECTORS: Connector[] = [
     label: "ntfy",
     kind: "notify",
     docsUrl: "https://docs.ntfy.sh/publish/",
-    required: [{ key: "topic", label: "Topic" }],
+    required: [{ key: "topic", label: msg`Topic` }],
     recommended: [],
     advanced: [
-      { key: "token", label: "Token", secret: true },
-      { key: "base", label: "Server URL", placeholder: "https://ntfy.sh" },
+      { key: "token", label: msg`Token`, secret: true },
+      { key: "base", label: msg`Server URL`, placeholder: "https://ntfy.sh" },
     ],
   },
   {
@@ -173,7 +174,7 @@ const CONNECTORS: Connector[] = [
     kind: "notify",
     // Generic platform — no single public setup guide, matching Hermes leaving
     // docs_url empty for this kind of adapter.
-    required: [{ key: "url", label: "URL", placeholder: "https://…" }],
+    required: [{ key: "url", label: msg`URL`, placeholder: "https://…" }],
     recommended: [],
     advanced: [],
   },
@@ -181,10 +182,10 @@ const CONNECTORS: Connector[] = [
     id: "teams",
     label: "Microsoft Teams",
     kind: "notify",
-    guide: "Teams channel → Connectors → Incoming Webhook.",
+    guide: msg`Teams channel → Connectors → Incoming Webhook.`,
     docsUrl:
       "https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook",
-    required: [{ key: "webhook_url", label: "Webhook URL", placeholder: "https://…" }],
+    required: [{ key: "webhook_url", label: msg`Webhook URL`, placeholder: "https://…" }],
     recommended: [],
     advanced: [],
   },
@@ -196,8 +197,8 @@ const CONNECTORS: Connector[] = [
     required: [
       {
         key: "webhook_url",
-        label: "Webhook URL",
-        placeholder: "group-robot URL with key",
+        label: msg`Webhook URL`,
+        placeholder: msg`group-robot URL with key`,
       },
     ],
     recommended: [],
@@ -330,7 +331,7 @@ const CONNECTOR_ICON: Record<string, (props: { size?: number }) => ReactElement>
 function ConnectorIcon({ id, size }: { id: string; size?: number }) {
   const C = CONNECTOR_ICON[id];
   if (C) return <C size={size} />;
-  return <LetterBadge letter={labelFor(id).charAt(0).toUpperCase()} bg="#8E8E93" size={size} />;
+  return <LetterBadge letter={labelFor(id).charAt(0).toUpperCase()} bg="var(--text-tertiary)" size={size} />;
 }
 
 // Small muted-tone status pill — mirrors Hermes's SetupPill(active=false)/
@@ -420,6 +421,11 @@ function ToggleSwitch({
 }
 
 export default function Messaging() {
+  const { t } = useLingui();
+  // Resolve a field string that may be a plain literal (format examples / URLs,
+  // left untranslated) or a translatable MessageDescriptor.
+  const resolveMaybeMsg = (v?: string | MessageDescriptor): string | undefined =>
+    v == null ? undefined : typeof v === "string" ? v : t(v);
   const [view, setView] = useState<ChannelsView | null>(null);
   const [disabled, setDisabled] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -457,20 +463,20 @@ export default function Messaging() {
         // messaging feature — almost always a second/older Belay install
         // whose daemon grabbed the shared control socket first. Make that
         // actionable instead of cryptic.
-        const err = r.error ?? "Messaging is not enabled in this build.";
+        const err = r.error ?? t`Messaging is not enabled in this build.`;
         setDisabled(
           err === "unknown command"
-            ? "A daemon without messaging is answering — usually a second Belay install, or a BELAY_BIN env var pointing at an older/open build. Quit all Belay apps, `unset BELAY_BIN` if set, then relaunch so this build's daemon takes over."
+            ? t`A daemon without messaging is answering — usually a second Belay install, or a BELAY_BIN env var pointing at an older/open build. Quit all Belay apps, \`unset BELAY_BIN\` if set, then relaunch so this build's daemon takes over.`
             : err,
         );
       }
     } catch (e) {
       setView(null);
-      setDisabled((e as Error)?.message ?? "Could not reach the daemon.");
+      setDisabled((e as Error)?.message ?? t`Could not reach the daemon.`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refresh();
@@ -554,7 +560,7 @@ export default function Messaging() {
       // 3. Persist the connector config + allowlist.
       const r = await setChannel(c.id, config, allow);
       if (r && r.ok === false) {
-        flash("err", r.error ?? "Save failed");
+        flash("err", r.error ?? t`Save failed`);
         return;
       }
 
@@ -564,7 +570,7 @@ export default function Messaging() {
       if (signingSecret) {
         const ir = await setInbound({ slack_signing_secret: signingSecret });
         if (ir && ir.ok === false) {
-          flash("err", ir.error ?? "Inbound save failed");
+          flash("err", ir.error ?? t`Inbound save failed`);
           return;
         }
       }
@@ -576,9 +582,9 @@ export default function Messaging() {
       await restartDaemon();
       seededFor.current = null;
       await refresh();
-      flash("ok", "Saved — daemon restarting…");
+      flash("ok", t`Saved — daemon restarting…`);
     } catch (e) {
-      flash("err", (e as Error)?.message ?? "Save failed");
+      flash("err", (e as Error)?.message ?? t`Save failed`);
     } finally {
       setSaving(false);
     }
@@ -589,15 +595,15 @@ export default function Messaging() {
     try {
       const r = await removeChannel(connector.id);
       if (r && r.ok === false) {
-        flash("err", r.error ?? "Remove failed");
+        flash("err", r.error ?? t`Remove failed`);
         return;
       }
       await restartDaemon();
       seededFor.current = null;
       await refresh();
-      flash("ok", `Removed ${connector.label} — daemon restarting…`);
+      flash("ok", t`Removed ${connector.label} — daemon restarting…`);
     } catch (e) {
-      flash("err", (e as Error)?.message ?? "Remove failed");
+      flash("err", (e as Error)?.message ?? t`Remove failed`);
     } finally {
       setSaving(false);
     }
@@ -612,14 +618,19 @@ export default function Messaging() {
     try {
       const r = await setChannelEnabled(id, next);
       if (r && r.ok === false) {
-        flash("err", r.error ?? "Could not update");
+        flash("err", r.error ?? t`Could not update`);
         return;
       }
       await restartDaemon();
       await refresh();
-      flash("ok", `${next ? "Enabled" : "Disabled"} ${connector.label} — daemon restarting…`);
+      flash(
+        "ok",
+        next
+          ? t`Enabled ${connector.label} — daemon restarting…`
+          : t`Disabled ${connector.label} — daemon restarting…`,
+      );
     } catch (e) {
-      flash("err", (e as Error)?.message ?? "Could not update");
+      flash("err", (e as Error)?.message ?? t`Could not update`);
     } finally {
       setTogglingId(null);
     }
@@ -632,13 +643,13 @@ export default function Messaging() {
     try {
       const r = await channelAllowRemove(platform, principal);
       if (r.ok) {
-        flash("ok", `Removed ${principal} from ${labelFor(platform)}`);
+        flash("ok", t`Removed ${principal} from ${labelFor(platform)}`);
         await refresh();
       } else {
-        flash("err", r.error ?? "Remove failed");
+        flash("err", r.error ?? t`Remove failed`);
       }
     } catch (e) {
-      flash("err", (e as Error)?.message ?? "Remove failed");
+      flash("err", (e as Error)?.message ?? t`Remove failed`);
     } finally {
       setRemovingKey(null);
     }
@@ -652,10 +663,10 @@ export default function Messaging() {
       if (r.ok && r.code) {
         setPair(r);
       } else {
-        flash("err", r.error ?? "Could not start pairing");
+        flash("err", r.error ?? t`Could not start pairing`);
       }
     } catch (e) {
-      flash("err", (e as Error)?.message ?? "Could not start pairing");
+      flash("err", (e as Error)?.message ?? t`Could not start pairing`);
     } finally {
       setPairingId(null);
     }
@@ -679,13 +690,13 @@ export default function Messaging() {
         <div>
           <span className="flex flex-wrap items-center gap-2">
             <label htmlFor={id} className="text-sm font-semibold text-[var(--text-primary)]">
-              {f.label}
+              {t(f.label)}
             </label>
             {isSaved && (
-              <span className="text-[0.66rem] font-medium text-[var(--accent)]">Saved</span>
+              <span className="text-[0.66rem] font-medium text-[var(--accent)]"><Trans>Saved</Trans></span>
             )}
           </span>
-          {f.hint && <p className="mt-0.5 text-[13px] text-[var(--text-secondary)]">{f.hint}</p>}
+          {f.hint && <p className="mt-0.5 text-[13px] text-[var(--text-secondary)]">{t(f.hint)}</p>}
         </div>
         <input
           id={id}
@@ -693,7 +704,7 @@ export default function Messaging() {
           autoComplete="off"
           value={form[f.key] ?? ""}
           onChange={(e) => setField(f.key, e.target.value)}
-          placeholder={f.secret ? "leave blank to keep current" : f.placeholder}
+          placeholder={f.secret ? t`leave blank to keep current` : resolveMaybeMsg(f.placeholder)}
           className="w-full rounded-md border border-[var(--border-hairline)] bg-[var(--surface-base)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
         />
       </div>
@@ -715,25 +726,29 @@ export default function Messaging() {
   return (
     <div className="px-8 py-6 max-w-5xl mx-auto text-left">
       <header className="mb-6 pb-5 border-b border-[var(--border-hairline)]">
-        <h1 className="text-lg font-semibold text-[var(--text-primary)]">Messaging</h1>
+        <h1 className="text-lg font-semibold text-[var(--text-primary)]"><Trans>Messaging</Trans></h1>
         <p className="text-[13px] text-[var(--text-secondary)] mt-1 max-w-2xl">
-          Approve or deny parked actions from a chat app. Two-way channels can approve;
-          notify-only channels alert you to approve elsewhere.
+          <Trans>
+            Approve or deny parked actions from a chat app. Two-way channels can approve;
+            notify-only channels alert you to approve elsewhere.
+          </Trans>
         </p>
       </header>
 
-      {loading && <p className="text-sm text-[var(--text-secondary)]">Loading…</p>}
+      {loading && <p className="text-sm text-[var(--text-secondary)]"><Trans>Loading…</Trans></p>}
 
       {!loading && disabled && (
         <div
           className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-overlay)] p-5 text-sm text-[var(--text-secondary)]"
           role="status"
         >
-          <p className="font-medium text-[var(--text-primary)] mb-1">Messaging is off</p>
+          <p className="font-medium text-[var(--text-primary)] mb-1"><Trans>Messaging is off</Trans></p>
           <p>{disabled}</p>
           <p className="mt-2">
-            Enable it by running a daemon built with <code>--features channels</code> and adding a{" "}
-            <code>~/.belay/channels.json</code> (0600) with your bot credentials.
+            <Trans>
+              Enable it by running a daemon built with <code>--features channels</code> and adding a{" "}
+              <code>~/.belay/channels.json</code> (0600) with your bot credentials.
+            </Trans>
           </p>
         </div>
       )}
@@ -745,14 +760,14 @@ export default function Messaging() {
             {/* Left rail: connector list */}
             <nav className="md:w-56 shrink-0">
               <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] mb-2">
-                Connectors
+                <Trans>Connectors</Trans>
               </h2>
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder='Try "discord"'
-                aria-label="Search connectors"
+                placeholder={t`Try "discord"`}
+                aria-label={t`Search connectors`}
                 className="mb-2 w-full rounded-md border border-[var(--border-hairline)] bg-[var(--surface-base)] px-2.5 py-1.5 text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
               />
               <ul className="flex flex-col gap-0.5">
@@ -785,7 +800,7 @@ export default function Messaging() {
                 })}
               </ul>
               {visibleConnectors.length === 0 && (
-                <p className="px-2.5 py-2 text-[12px] text-[var(--text-secondary)]">No connectors match.</p>
+                <p className="px-2.5 py-2 text-[12px] text-[var(--text-secondary)]"><Trans>No connectors match.</Trans></p>
               )}
             </nav>
 
@@ -804,8 +819,8 @@ export default function Messaging() {
                     </h2>
                     {/* Real, always-true-when-shown facts only — no fabricated
                         "gateway stopped" pill (we have no such split). */}
-                    {!platformEnabled && <Pill>Disabled</Pill>}
-                    {!configured && <Pill>Needs setup</Pill>}
+                    {!platformEnabled && <Pill><Trans>Disabled</Trans></Pill>}
+                    {!configured && <Pill><Trans>Needs setup</Trans></Pill>}
                   </div>
                   <p className="flex items-center gap-1.5 mt-1 text-[11px] text-[var(--text-secondary)]">
                     <span className="inline-flex items-center gap-1.5">
@@ -816,10 +831,10 @@ export default function Messaging() {
                           background: configured ? "var(--semantic-allow)" : "var(--text-tertiary)",
                         }}
                       />
-                      {configured ? "Configured" : "Not set up"}
+                      {configured ? <Trans>Configured</Trans> : <Trans>Not set up</Trans>}
                     </span>
                     <span aria-hidden="true">·</span>
-                    <span>{connector.kind === "two-way" ? "Two-way" : "Notify-only"}</span>
+                    <span>{connector.kind === "two-way" ? <Trans>Two-way</Trans> : <Trans>Notify-only</Trans>}</span>
                   </p>
                 </div>
               </div>
@@ -835,19 +850,19 @@ export default function Messaging() {
                   }}
                 >
                   <span className="font-semibold" style={{ color: "var(--semantic-ask)" }}>
-                    Before you start:{" "}
+                    <Trans>Before you start:</Trans>{" "}
                   </span>
-                  {connector.warning}
+                  {resolveMaybeMsg(connector.warning)}
                 </div>
               )}
 
               {(connector.guide || docsUrl) && (
                 <div className="mb-6">
                   <h3 className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)] mb-1">
-                    Get your credentials
+                    <Trans>Get your credentials</Trans>
                   </h3>
                   {connector.guide && (
-                    <p className="text-[13px] text-[var(--text-secondary)] leading-snug">{connector.guide}</p>
+                    <p className="text-[13px] text-[var(--text-secondary)] leading-snug">{resolveMaybeMsg(connector.guide)}</p>
                   )}
                   {docsUrl && (
                     <div className={connector.guide ? "mt-2.5" : ""}>
@@ -865,7 +880,7 @@ export default function Messaging() {
                         }}
                         className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[var(--accent)] hover:underline"
                       >
-                        Open setup guide
+                        <Trans>Open setup guide</Trans>
                         <ExternalLinkGlyph />
                       </a>
                     </div>
@@ -874,8 +889,8 @@ export default function Messaging() {
               )}
 
               <div className="flex flex-col gap-6">
-                {section("Required", connector.required)}
-                {section("Recommended", connector.recommended)}
+                {section(t`Required`, connector.required)}
+                {section(t`Recommended`, connector.recommended)}
 
                 {connector.advanced.length > 0 && (
                   <div className="flex flex-col gap-3">
@@ -886,7 +901,7 @@ export default function Messaging() {
                       className="flex items-center gap-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)] text-left hover:text-[var(--text-primary)]"
                     >
                       <ChevronIcon open={advancedOpen} />
-                      Advanced ({connector.advanced.length})
+                      <Trans>Advanced ({connector.advanced.length})</Trans>
                     </button>
                     {advancedOpen && (
                       <div id={`advanced-${connector.id}`} className="flex flex-col gap-1">
@@ -906,9 +921,9 @@ export default function Messaging() {
                     checked={platformEnabled}
                     disabled={togglingId === connector.id}
                     onCheckedChange={(next) => void toggleEnabled(next)}
-                    label={`${platformEnabled ? "Disable" : "Enable"} ${connector.label}`}
+                    label={platformEnabled ? t`Disable ${connector.label}` : t`Enable ${connector.label}`}
                   />
-                  <span className="text-[13px] font-medium text-[var(--text-primary)]">Enabled</span>
+                  <span className="text-[13px] font-medium text-[var(--text-primary)]"><Trans>Enabled</Trans></span>
                 </div>
                 <div className="ml-auto flex items-center gap-4">
                   <button
@@ -916,7 +931,7 @@ export default function Messaging() {
                     disabled={saving}
                     className="text-sm font-medium px-4 py-2 rounded-md bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {saving ? "Saving…" : "Save changes"}
+                    {saving ? <Trans>Saving…</Trans> : <Trans>Save changes</Trans>}
                   </button>
                   {configured && (
                     <button
@@ -924,7 +939,7 @@ export default function Messaging() {
                       disabled={saving}
                       className="text-[13px] font-medium text-[var(--semantic-deny)] hover:underline disabled:opacity-50"
                     >
-                      Remove connector
+                      <Trans>Remove connector</Trans>
                     </button>
                   )}
                 </div>
@@ -937,18 +952,18 @@ export default function Messaging() {
               top-dividers rather than card boxes. Full width; no left offset,
               since there's no card edge left to align with. */}
           <section className="border-t border-[var(--border-hairline)] pt-6">
-            <h2 className="text-base font-semibold text-[var(--text-primary)] mb-2">Inbound receiver</h2>
+            <h2 className="text-base font-semibold text-[var(--text-primary)] mb-2"><Trans>Inbound receiver</Trans></h2>
             {view.inbound ? (
               <p className="text-sm text-[var(--text-secondary)]">
-                Listening on <code>{view.inbound.bind}</code> — verifiers:{" "}
+                <Trans>Listening on <code>{view.inbound.bind}</code> — verifiers:</Trans>{" "}
                 {view.inbound.line ? "Line " : ""}
                 {view.inbound.slack ? "Slack" : ""}
-                {!view.inbound.line && !view.inbound.slack ? "none" : ""}. Expose it via your TLS
-                reverse proxy; callbacks are signature-verified.
+                {!view.inbound.line && !view.inbound.slack ? "none" : ""}
+                <Trans>. Expose it via your TLS reverse proxy; callbacks are signature-verified.</Trans>
               </p>
             ) : (
               <p className="text-sm text-[var(--text-secondary)]">
-                Not configured. Two-way webhook platforms (Slack/Line) need the inbound receiver.
+                <Trans>Not configured. Two-way webhook platforms (Slack/Line) need the inbound receiver.</Trans>
               </p>
             )}
           </section>
@@ -956,18 +971,20 @@ export default function Messaging() {
           {/* Approvers (allowlist) */}
           <section className="border-t border-[var(--border-hairline)] pt-6">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-base font-semibold text-[var(--text-primary)]">Approvers</h2>
+              <h2 className="text-base font-semibold text-[var(--text-primary)]"><Trans>Approvers</Trans></h2>
               <span className="text-[11px] text-[var(--text-secondary)]">
-                {view.allow.length} enrolled · max {view.max_replies_per_min}/min each
+                <Trans>{view.allow.length} enrolled · max {view.max_replies_per_min}/min each</Trans>
               </span>
             </div>
             <p className="text-[13px] text-[var(--text-secondary)] mb-3">
-              Approvals are default-deny: only the enrolled principals below can allow or deny alerts.
+              <Trans>Approvals are default-deny: only the enrolled principals below can allow or deny alerts.</Trans>
             </p>
             {view.allow.length === 0 ? (
               <p className="text-sm text-[var(--text-secondary)]">
-                No one is enrolled yet. Start a pairing below, then reply <code>pair &lt;code&gt;</code>{" "}
-                from the account you want to approve with.
+                <Trans>
+                  No one is enrolled yet. Start a pairing below, then reply <code>pair &lt;code&gt;</code>{" "}
+                  from the account you want to approve with.
+                </Trans>
               </p>
             ) : (
               <ul className="flex flex-col gap-1.5">
@@ -985,7 +1002,7 @@ export default function Messaging() {
                       disabled={removingKey === `${a.platform}:${a.principal}`}
                       className="text-[12px] font-medium text-[var(--semantic-deny)] hover:underline shrink-0 disabled:opacity-50"
                     >
-                      Remove
+                      <Trans>Remove</Trans>
                     </button>
                   </li>
                 ))}
@@ -995,10 +1012,12 @@ export default function Messaging() {
 
           {/* Pair a new approver */}
           <section className="border-t border-[var(--border-hairline)] pt-6">
-            <h2 className="text-base font-semibold text-[var(--text-primary)] mb-2">Pair an approver</h2>
+            <h2 className="text-base font-semibold text-[var(--text-primary)] mb-2"><Trans>Pair an approver</Trans></h2>
             <p className="text-sm text-[var(--text-secondary)] mb-3">
-              Generates a one-time code. The approver DMs <code>pair &lt;code&gt;</code> from the
-              account to enroll — the daemon captures their id automatically.
+              <Trans>
+                Generates a one-time code. The approver DMs <code>pair &lt;code&gt;</code> from the
+                account to enroll — the daemon captures their id automatically.
+              </Trans>
             </p>
             <div className="flex flex-wrap gap-2">
               {pairablePlatforms.map((p) => (
@@ -1008,12 +1027,12 @@ export default function Messaging() {
                   disabled={pairingId !== null}
                   className="text-sm font-medium px-3 py-1.5 rounded-md bg-[var(--accent-subtle)] text-[var(--accent)] hover:opacity-90 disabled:opacity-50"
                 >
-                  {pairingId === p.id ? "Starting…" : `Pair via ${p.label}`}
+                  {pairingId === p.id ? t`Starting…` : t`Pair via ${p.label}`}
                 </button>
               ))}
               {pairablePlatforms.length === 0 && (
                 <span className="text-sm text-[var(--text-secondary)]">
-                  Configure a two-way connector first.
+                  <Trans>Configure a two-way connector first.</Trans>
                 </span>
               )}
             </div>
@@ -1034,7 +1053,7 @@ export default function Messaging() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-base font-semibold text-[var(--text-primary)] mb-1">
-              Pair via {labelFor(pair.platform ?? "")}
+              <Trans>Pair via {labelFor(pair.platform ?? "")}</Trans>
             </h3>
             <p className="text-sm text-[var(--text-secondary)] mb-4">{pair.instructions}</p>
             <div className="text-center text-2xl font-mono font-bold tracking-[0.3em] text-[var(--accent)] bg-[var(--accent-subtle)] rounded-lg py-3 select-all">
@@ -1048,7 +1067,7 @@ export default function Messaging() {
               }}
               className="mt-4 w-full text-sm font-medium px-3 py-2 rounded-md bg-[var(--accent)] text-white hover:opacity-90"
             >
-              Done
+              <Trans>Done</Trans>
             </button>
           </div>
         </div>

@@ -441,6 +441,36 @@ enum Cmd {
         )]
         args: Vec<String>,
     },
+
+    /// Toggle the proactive skill dir-watcher on/off (Phase-2b safety fix:
+    /// the off-switch). The watcher polls installed skill directories every
+    /// ~30s and auto-quarantines `DO_NOT_INSTALL` verdicts; this lets an
+    /// operator disable that behavior entirely. Persisted to
+    /// `~/.belay/skill_watch.json`; takes effect on the next `belay daemon`
+    /// start (the daemon reads the toggle once, at watch-loop setup).
+    #[command(name = "skill-watch")]
+    SkillWatch {
+        /// on or off.
+        #[arg(value_enum)]
+        state: OnOff,
+    },
+
+    /// Re-approve an installed skill: snapshot its current SKILL.md manifest as
+    /// the approved baseline, clearing any drift alert (Phase-2d rug-pull
+    /// detection). Accepts an installed skill name or a path to the skill dir.
+    #[command(name = "skill-approve")]
+    SkillApprove {
+        /// Installed skill name, or a path to the skill directory.
+        skill: String,
+    },
+}
+
+/// The `on|off` state for `belay skill-watch` (mirrors `EvidenceAction`'s
+/// build|verify enum).
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum OnOff {
+    On,
+    Off,
 }
 
 /// The `build|verify` action for `belay evidence` (mirrors Python's
@@ -1405,8 +1435,25 @@ fn run_evidence(
     }
 }
 
+/// Make the Windows console emit UTF-8 so translated (CJK) output renders
+/// instead of mojibake. `cmd.exe` and PowerShell 5.1 default to a legacy OEM
+/// codepage; a garbled security warning is a FAILED warning. `SetConsoleOutputCP`
+/// is best-effort — it's a no-op when there is no console (service/redirected),
+/// and it can still fall short if the console FONT lacks the glyphs (that is a
+/// user-side font choice we cannot fix from here). Off Windows this is empty.
+#[cfg(windows)]
+fn set_console_utf8() {
+    // CP_UTF8 = 65001. Ignore the result: failure just leaves the prior codepage.
+    unsafe {
+        windows_sys::Win32::System::Console::SetConsoleOutputCP(65001);
+    }
+}
+#[cfg(not(windows))]
+fn set_console_utf8() {}
+
 #[tokio::main]
 async fn main() -> ExitCode {
+    set_console_utf8();
     let cli = Cli::parse();
     match cli.cmd {
         // Sync entrypoints — these block / exit on their own.
@@ -1627,6 +1674,58 @@ async fn main() -> ExitCode {
             ssh_source,
         } => run_firewall(&action, confirm_within, ssh_source.as_deref()).await,
         Cmd::Egress { action, args } => run_egress(&action, &args),
+        Cmd::SkillWatch { state } => run_skill_watch(state),
+        Cmd::SkillApprove { skill } => run_skill_approve(&skill),
+    }
+}
+
+/// Run `belay skill-watch on|off` (Phase-2b safety fix: the off-switch).
+fn run_skill_watch(state: OnOff) -> ExitCode {
+    let on = matches!(state, OnOff::On);
+    match belayd::host_config::set_skill_watch_enabled(on) {
+        Ok(()) => {
+            println!(
+                "skill dir-watch {} — restart the daemon to apply",
+                if on { "enabled" } else { "disabled" }
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("belay skill-watch: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Run `belay skill-approve <name|path>` (Phase-2d re-baseline).
+fn run_skill_approve(skill: &str) -> ExitCode {
+    let dir: std::path::PathBuf = {
+        let p = std::path::PathBuf::from(skill);
+        if p.is_dir() && p.join("SKILL.md").exists() {
+            p
+        } else {
+            match belayd::skills::enumerate::enumerate_skills()
+                .into_iter()
+                .find(|s| s.name == skill)
+                .and_then(|s| s.manifest.parent().map(|d| d.to_path_buf()))
+            {
+                Some(d) => d,
+                None => {
+                    eprintln!("no installed skill named '{skill}' (and not a skill-dir path)");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+    };
+    match belayd::skills::approve(&dir) {
+        Ok(perms) => {
+            println!("approved skill at {} (baseline permissions: {perms:?})", dir.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -2196,6 +2295,22 @@ fn sudo_available() -> bool {
         .unwrap_or(false)
 }
 
+/// Apply the interactive Skill-Judge decision onto an already-built AiChoice.
+/// Pure so the wiring is unit-testable without a TTY; the interactive prompt
+/// (below, in run_setup) is the only caller that isn't a test. A judge model of
+/// None means "inherit the global model."
+#[cfg(feature = "ai")]
+fn apply_judge_choice(
+    ai: &mut belay_manage::setup::AiChoice,
+    enable: bool,
+    gate: bool,
+    model: Option<String>,
+) {
+    ai.skill_judge_enabled = enable;
+    ai.skill_judge_gate_enabled = gate;
+    ai.skill_judge_model = if enable || gate { model } else { None };
+}
+
 /// `belay setup`: run the interactive wizard's pure prompt logic
 /// (`belay_manage::setup::run_setup`) over the real stdin/stdout to get
 /// a `SetupPlan`, then EXECUTE it — this is the only side-effecting half; the
@@ -2216,6 +2331,8 @@ fn sudo_available() -> bool {
 /// which this one-shot CLI invocation cannot provide.
 fn run_setup(yes: bool, quick: bool, home: Option<String>) -> ExitCode {
     use std::io::IsTerminal;
+    #[cfg(feature = "ai")]
+    use std::io::Write;
 
     // Reserved for the Custom flow (Task 2). The interactive wizard's own
     // default choice IS the Quick path today, so this flag is currently a
@@ -2234,7 +2351,11 @@ fn run_setup(yes: bool, quick: bool, home: Option<String>) -> ExitCode {
         styled,
     };
 
-    let plan = {
+    // `mut` is only exercised by the Skill-Judge prompt below, which is
+    // `ai`-feature-gated — silence the unused_mut lint on non-`ai` builds
+    // rather than duplicating this whole block behind a feature split.
+    #[cfg_attr(not(feature = "ai"), allow(unused_mut))]
+    let mut plan = {
         let stdin = std::io::stdin();
         let mut input = stdin.lock();
         let stdout = std::io::stdout();
@@ -2247,6 +2368,54 @@ fn run_setup(yes: bool, quick: bool, home: Option<String>) -> ExitCode {
             }
         }
     };
+
+    // Skill Judge prompt (ai feature only). Only when AI is being configured
+    // AND we're interactive; a bare Enter leaves the judge off (security
+    // default). The recommended model comes from the daemon's single
+    // recommendation authority (belayd::ai::recommend), never a manage-side
+    // mirror. (plan §5, §6.3)
+    #[cfg(feature = "ai")]
+    if interactive {
+        if let Some(ai) = plan.ai.as_mut() {
+            let stdin = std::io::stdin();
+            let mut input = stdin.lock();
+            let stdout = std::io::stdout();
+            let mut output = stdout.lock();
+            let want = belay_manage::setup::prompt_yes_no(
+                &mut output,
+                &mut input,
+                "Turn on the Skill Judge? (uses the LLM to catch malicious skills; off by default)",
+                false,
+            )
+            .unwrap_or(false);
+            if want {
+                let rec = belayd::ai::recommend::recommend_for(&ai.provider);
+                if let Some(r) = rec {
+                    let _ = writeln!(output, "  recommended judge model: {} — {}", r.recommended_judge, r.note);
+                }
+                // Blank => inherit the global AI model (None). Type an id (e.g. the
+                // recommended one shown above) to override. Matches the GUI, whose
+                // judge model picker also defaults to Inherit.
+                let model = belay_manage::setup::prompt_line(
+                    &mut output,
+                    &mut input,
+                    "Judge model (blank = inherit the AI model)",
+                    "",
+                )
+                .unwrap_or_default();
+                let model_opt = if model.trim().is_empty() { None } else { Some(model) };
+                // Also gate installs? (synchronous, off by default)
+                let gate = belay_manage::setup::prompt_yes_no(
+                    &mut output,
+                    &mut input,
+                    "Also gate installs synchronously? (~1–5s at install time)",
+                    false,
+                )
+                .unwrap_or(false);
+                apply_judge_choice(ai, true, gate, model_opt);
+            }
+        }
+    }
 
     // Styled summary: bold labels; green when a capability is on/configured,
     // dim when off/none - so the important decisions stand out. Plain text when
@@ -2283,7 +2452,14 @@ fn run_setup(yes: bool, quick: bool, home: Option<String>) -> ExitCode {
         .map(|c| c.platform.clone())
         .unwrap_or_else(|| "(none)".to_string());
 
+    let lang_label = belay_manage::setup::LOCALE_OPTIONS
+        .iter()
+        .find(|(tag, _)| *tag == plan.locale)
+        .map(|(_, label)| *label)
+        .unwrap_or(&plan.locale);
+
     println!("\n{}", bold("Setup plan:"));
+    println!("  {}{}", bold("language:           "), value(true, lang_label));
     println!(
         "  {}{}",
         bold("agents to protect:  "),
@@ -2312,6 +2488,14 @@ fn run_setup(yes: bool, quick: bool, home: Option<String>) -> ExitCode {
         bold("install service:    "),
         onoff(plan.install_service)
     );
+
+    // Execute: persist the locale FIRST. Everything below can print, and the
+    // GUI/tray read this file on next start; a failure here is loud rather
+    // than silent, because a setup that appears to accept a language and then
+    // comes up in English looks like the product ignored the operator.
+    if let Err(e) = belayd::host_config::set_locale(&plan.locale) {
+        eprintln!("belay setup: failed to save the language setting: {e}");
+    }
 
     // Execute: protect each planned agent (best-effort — `run_protect` already
     // prints its own error on failure; keep going through the rest of the list).
@@ -2789,7 +2973,7 @@ mod win_service;
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Cmd};
+    use super::{Cli, Cmd, OnOff};
 
     #[test]
     fn host_scan_excludes_filter_relative_to_root() {
@@ -2883,6 +3067,26 @@ mod tests {
             Cmd::Scan { exclude, .. } => assert!(exclude.is_empty()),
             _ => panic!("expected Scan subcommand"),
         }
+    }
+
+    /// Phase-2b Fix 3: `belay skill-watch on|off` parses to the matching
+    /// `OnOff` variant (the CLI off-switch for the skill dir-watcher).
+    #[test]
+    fn skill_watch_on_off_parses() {
+        let on = Cli::try_parse_from(["belay", "skill-watch", "on"]).unwrap();
+        assert!(matches!(on.cmd, Cmd::SkillWatch { state: OnOff::On }));
+
+        let off = Cli::try_parse_from(["belay", "skill-watch", "off"]).unwrap();
+        assert!(matches!(off.cmd, Cmd::SkillWatch { state: OnOff::Off }));
+
+        assert!(Cli::try_parse_from(["belay", "skill-watch"]).is_err(), "state is required");
+    }
+
+    /// Phase-2d: `belay skill-approve <name|path>` parses to `Cmd::SkillApprove`.
+    #[test]
+    fn skill_approve_parses() {
+        let cli = Cli::try_parse_from(["belay", "skill-approve", "my-skill"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::SkillApprove { .. }));
     }
 
     #[test]
@@ -3461,4 +3665,49 @@ mod tests {
     }
 
     // ─── end setup wizard ai_key backup tests ──────────────────────────────────
+}
+
+#[cfg(all(test, feature = "ai"))]
+mod judge_prompt_tests {
+    use super::apply_judge_choice;
+    use belay_manage::setup::AiChoice;
+
+    fn base() -> AiChoice {
+        AiChoice {
+            mode: "cloud".into(),
+            provider: "anthropic".into(),
+            model: "claude-haiku-4-5".into(),
+            base_url: None,
+            cloud_consent: true,
+            key: Some("sk-x".into()),
+            skill_judge_enabled: false,
+            skill_judge_gate_enabled: false,
+            skill_judge_model: None,
+        }
+    }
+
+    #[test]
+    fn declining_leaves_judge_off() {
+        let mut ai = base();
+        apply_judge_choice(&mut ai, false, false, None);
+        assert!(!ai.skill_judge_enabled);
+        assert!(!ai.skill_judge_gate_enabled);
+        assert!(ai.skill_judge_model.is_none());
+    }
+
+    #[test]
+    fn accepting_sets_flags_and_model() {
+        let mut ai = base();
+        apply_judge_choice(&mut ai, true, true, Some("claude-sonnet-5".into()));
+        assert!(ai.skill_judge_enabled);
+        assert!(ai.skill_judge_gate_enabled);
+        assert_eq!(ai.skill_judge_model.as_deref(), Some("claude-sonnet-5"));
+    }
+
+    #[test]
+    fn recommend_for_is_the_recommendation_source() {
+        // The prompt's default model comes from the daemon's single authority.
+        let rec = belayd::ai::recommend::recommend_for("anthropic").unwrap();
+        assert_eq!(rec.recommended_judge, "claude-sonnet-5");
+    }
 }

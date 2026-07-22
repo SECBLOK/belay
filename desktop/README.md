@@ -37,6 +37,26 @@ cd desktop/src-tauri && cargo build
 The first build pulls the full tauri/wry/webkit stack and can take several
 minutes.
 
+> [!WARNING]
+> **A bare `cargo build` produces a COMPILE-CHECK binary only — do NOT run it as
+> the app.** It skips `beforeBuildCommand`, so the web frontend (`web/dist`) is
+> never re-embedded and the window opens **blank white**. This is the #1 cause
+> of a "blank desktop" — the binary is fine, it just has no UI inside it. Tell:
+> a runnable binary is ~62 MB (frontend embedded in `.rodata`); a bare-`cargo`
+> one is ~1.5 MB smaller. Diagnose with
+> `readelf -S target/release/belay-desktop | grep -A1 .rodata` — a small
+> `.rodata` (~7.8 MB vs ~8.8+ MB) means no embedded frontend.
+>
+> **To produce a RUNNABLE binary, always go through `tauri build`** (it runs the
+> frontend build + sidecar staging first):
+>
+> ```sh
+> cd desktop/src-tauri && cargo tauri build --no-bundle
+> ```
+>
+> `cargo build` and `tauri build` even use different cargo hash slots under
+> `target/release/deps/`, so they never clobber each other.
+
 ## Tests
 
 The pure-Rust logic (e.g. NDJSON audit parsing) runs without the full Tauri stack:

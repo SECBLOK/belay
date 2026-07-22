@@ -32,6 +32,7 @@ use crate::engine::decide::decide;
 use crate::engine::rules::RuleSet;
 use crate::engine::types::{Decision, SessionState, ToolCall};
 use crate::ipc::{read_frame, write_frame};
+use crate::mcp_scan::scan_response_for_injection;
 
 // ──────────────────────────────────────────────────────────────
 // effective_calls — project an MCP tools/call onto the rule catalog
@@ -321,7 +322,7 @@ async fn decide_one(cfg: &GateConfig, tc: &ToolCall) -> (Decision, CallMeta) {
     // the Python shim (no cross-call taint).
     let in_proc: Option<(Decision, CallMeta)> = cfg.ruleset.as_ref().map(|rs| {
         let mut state = SessionState::new(&cfg.server_name);
-        let v = decide(rs, tc, &mut state);
+        let v = crate::skills::gate::more_restrictive(decide(rs, tc, &mut state), crate::skills::gate::gate_install(tc));
         let meta = CallMeta {
             reason: Some(v.reason).filter(|r| !r.is_empty()),
             severity: Some(v.severity.as_wire_str()),
@@ -523,6 +524,74 @@ fn audit_tools_call(
     }
 }
 
+/// Best-effort ALERT-ONLY audit row for a prompt-injection/exfil marker found
+/// in an MCP RESPONSE line (server→agent, `s2c`).
+///
+/// This is detection-only: the response byte stream is NEVER gated on this
+/// finding — every response line is forwarded to the agent byte-for-byte
+/// unchanged regardless of the scan result (see the `s2c` task in
+/// [`pump_streams`]). This function only writes an audit row so the finding is
+/// visible in the Live Feed; it mirrors `audit_tools_call`'s `AuditWriter`
+/// usage and is likewise best-effort (never panics or fails the pump).
+fn audit_mcp_response_alert(cfg: &GateConfig, reason: &str) {
+    let path = audit_path();
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut w) = crate::audit::AuditWriter::open(&path) {
+        let _ = w.append(json!({
+            "ts": now_rfc3339(),
+            "event": "mcp/response_alert",
+            "session": cfg.server_name,
+            "tool": format!("mcp__{}__response", cfg.server_name),
+            // Alert-only: the response was always allowed through unchanged.
+            "verdict": "allow",
+            "reason": reason,
+            "rules": [],
+            "input": Value::Null,
+            "severity": "high",
+            "category": "recon",
+            "explain": Value::Null,
+        }));
+    }
+}
+
+/// Best-effort audit row for a HIGH-CONFIDENCE secret redacted out of an MCP
+/// RESPONSE line (server→agent, `s2c`).
+///
+/// Unlike [`audit_mcp_response_alert`] this event corresponds to an actual
+/// mutation of the forwarded bytes (see the `s2c` task in [`pump_streams`]),
+/// but the row itself carries no secret material — only the matched pattern
+/// ids and a count, so the audit log stays a safe breadcrumb ("what kind of
+/// secret, how many") rather than a second place the secret value could leak
+/// from. Mirrors `audit_tools_call`/`audit_mcp_response_alert`'s
+/// `AuditWriter` usage; best-effort and never fails the pump.
+fn audit_mcp_secret_redaction(cfg: &GateConfig, ids: &[&str]) {
+    let path = audit_path();
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut w) = crate::audit::AuditWriter::open(&path) {
+        let _ = w.append(json!({
+            "ts": now_rfc3339(),
+            "event": "mcp/secret_redacted",
+            "session": cfg.server_name,
+            "tool": format!("mcp__{}__response", cfg.server_name),
+            "verdict": "allow",
+            "reason": format!(
+                "redacted {} high-confidence secret(s) from MCP response: {}",
+                ids.len(),
+                ids.join(", ")
+            ),
+            "rules": [],
+            "input": Value::Null,
+            "severity": "high",
+            "category": "secrets",
+            "explain": Value::Null,
+        }));
+    }
+}
+
 /// Current time as an RFC3339 UTC string, reusing the daemon's no-chrono helper.
 fn now_rfc3339() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -585,6 +654,12 @@ pub async fn pump_streams<RI, WO, WCI, RCO>(
     let cfg = std::sync::Arc::new(cfg);
 
     // s2c: child stdout → our stdout, byte-transparent (read_until, NOT lines()).
+    //
+    // An alert-only injection/exfil scan runs on every line here (see
+    // `scan_response_for_injection` / `audit_mcp_response_alert`), but it NEVER
+    // affects what gets forwarded: `buf` is sent to `s2c_tx` exactly as read,
+    // whether or not the scan flags it.
+    let s2c_cfg = std::sync::Arc::clone(&cfg);
     let s2c_tx = tx.clone();
     let s2c = tokio::spawn(async move {
         let mut reader = BufReader::new(child_out);
@@ -593,7 +668,33 @@ pub async fn pump_streams<RI, WO, WCI, RCO>(
             match reader.read_until(b'\n', &mut buf).await {
                 Ok(0) => break, // EOF
                 Ok(_) => {
-                    if s2c_tx.send(OutMsg::Bytes(buf)).await.is_err() {
+                    // Alert-only: classify, then ALWAYS forward `buf` unchanged.
+                    // D1's injection scan stays independent of the redaction
+                    // below — it always runs over the ORIGINAL bytes.
+                    if let Some(reason) = scan_response_for_injection(&buf) {
+                        audit_mcp_response_alert(&s2c_cfg, &reason);
+                    }
+
+                    // High-confidence secret redaction (config-gated, default
+                    // on). When the toggle is off, or no high-confidence
+                    // pattern matches, `buf` is forwarded byte-transparent —
+                    // same invariant as the injection scan above. Only a
+                    // matched+enabled case swaps in the redacted copy, whose
+                    // trailing `\n` survives because the patterns never match
+                    // a newline (see `redact_high_confidence_secrets`).
+                    let out_buf = if crate::host_config::mcp_redact_secrets_enabled() {
+                        match crate::observe::secrets::redact_high_confidence_secrets(&buf) {
+                            Some((redacted, ids)) => {
+                                audit_mcp_secret_redaction(&s2c_cfg, &ids);
+                                redacted
+                            }
+                            None => buf,
+                        }
+                    } else {
+                        buf
+                    };
+
+                    if s2c_tx.send(OutMsg::Bytes(out_buf)).await.is_err() {
                         break;
                     }
                 }

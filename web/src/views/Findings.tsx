@@ -1,8 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { getFindings, streamAudit, type Finding } from "../lib/api";
-import { C, useChartReflow, ago, VERDICT_C, severityOf, categoryOf } from "../components/dash";
+import { C, useChartReflow, ago, VERDICT_C, severityOf, categoryOf, SEV_LABEL } from "../components/dash";
 import { humanizeRule, describeAction, verdictWord } from "../lib/humanize";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 function bucketKey(ts: string): string | null {
   const t = Date.parse(ts);
@@ -14,12 +17,13 @@ function bucketKey(ts: string): string | null {
 
 
 function SevTag({ f }: { f: Finding }) {
+  const { t } = useLingui();
   const s = severityOf(f.verdict, f.rules);
-  if (!s) return <span className="text-[11px] text-[#8E8E93]">—</span>;
+  if (!s) return <span className="text-[11px] text-[var(--text-tertiary)]">—</span>;
   return (
     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide"
-      style={{ background: `${s.color}1f`, color: s.color }}>
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />{s.label}
+      style={{ background: `${s.color}0f`, color: s.color }}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />{SEV_LABEL[s.label] ? t(SEV_LABEL[s.label]) : s.label}
     </span>
   );
 }
@@ -29,7 +33,7 @@ const FilterChip = ({ label, count, active, color, onClick }:
   <button onClick={onClick}
     className="px-2.5 py-1 rounded-md text-xs flex items-center gap-1.5 border transition-colors"
     style={{
-      background: active ? `${color}22` : "transparent",
+      background: active ? `${color}0f` : "transparent",
       borderColor: active ? `${color}88` : C.grid,
       color: active ? color : C.muted,
     }}>
@@ -40,13 +44,14 @@ const FilterChip = ({ label, count, active, color, onClick }:
 );
 
 // Verdict → plain-English outcome word
-function outcomeWord(v: string): string {
-  if (v === "deny") return "Blocked";
-  if (v === "ask") return "Waiting";
-  return "Allowed";
+function outcomeWord(v: string): MessageDescriptor {
+  if (v === "deny") return msg`Blocked`;
+  if (v === "ask") return msg`Waiting`;
+  return msg`Allowed`;
 }
 
 export default function Findings() {
+  const { t } = useLingui();
   const [rows, setRows] = useState<Finding[]>([]);
   const [verdicts, setVerdicts] = useState<Set<string>>(new Set());
   const [tool, setTool] = useState("");
@@ -109,7 +114,7 @@ export default function Findings() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-2">
           {(["deny", "ask", "allow"] as const).map((v) => {
-            const DISPLAY: Record<string, string> = { deny: "Blocked", ask: "Needs review", allow: "Allowed" };
+            const DISPLAY: Record<string, string> = { deny: t`Blocked`, ask: t`Needs review`, allow: t`Allowed` };
             return (
               <FilterChip key={v} label={DISPLAY[v]} count={counts[v] ?? 0} color={VERDICT_C[v]}
                 active={verdicts.has(v)} onClick={() => toggleVerdict(v)} />
@@ -119,21 +124,23 @@ export default function Findings() {
         <select value={tool} onChange={(e) => setTool(e.target.value)}
           className="bg-white rounded-md text-xs text-[#1C1C1E] px-2 py-1.5 outline-none"
           style={{ border: "1px solid rgba(0,0,0,0.14)" }}>
-          <option value="">All tools</option>
-          {tools.map((t) => <option key={t} value={t}>{t}</option>)}
+          <option value=""><Trans>All tools</Trans></option>
+          {tools.map((tl) => <option key={tl} value={tl}>{tl}</option>)}
         </select>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tool, rule, reason…"
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t`Search tool, rule, reason…`}
           className="flex-1 min-w-[200px] max-w-[320px] bg-white rounded-md text-xs text-[#1C1C1E] px-3 py-1.5 outline-none font-mono"
           style={{ border: "1px solid rgba(0,0,0,0.14)" }}
           onFocus={(e) => (e.currentTarget.style.borderColor = "#0A66D6")}
           onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(0,0,0,0.14)")} />
         {hasFilters && (
-          <button onClick={clearAll} className="text-xs text-[#8E8E93] hover:text-[#1C1C1E]">clear</button>
+          <button onClick={clearAll} className="text-xs text-[var(--text-tertiary)] hover:text-[#1C1C1E]"><Trans>clear</Trans></button>
         )}
         <div className="ml-auto flex items-center gap-4">
-          <span className="text-xs text-[#8E8E93]">
-            <span className="font-mono tabular-nums text-[#1C1C1E]">{filtered.length}</span> of{" "}
-            <span className="font-mono tabular-nums">{rows.length}</span>
+          <span className="text-xs text-[var(--text-tertiary)]">
+            <Trans>
+              <span className="font-mono tabular-nums text-[#1C1C1E]">{filtered.length}</span> of{" "}
+              <span className="font-mono tabular-nums">{rows.length}</span>
+            </Trans>
           </span>
           {spark.length > 1 && (
             <div className="w-[140px] h-[34px]">
@@ -151,33 +158,33 @@ export default function Findings() {
 
       {/* advanced columns toggle */}
       <div className="flex items-center gap-2">
-        <label className="flex items-center gap-2 text-xs text-[#8E8E93] cursor-pointer select-none">
+        <label className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] cursor-pointer select-none">
           <input
             type="checkbox"
             checked={advanced}
             onChange={(e) => setAdvanced(e.target.checked)}
             className="w-3.5 h-3.5 accent-[#0A66D6]"
-            aria-label="Show advanced columns"
+            aria-label={t`Show advanced columns`}
           />
-          Show advanced columns
+          <Trans>Show advanced columns</Trans>
         </label>
       </div>
 
       {/* table */}
-      <div className="rounded-xl overflow-hidden bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+      <div className="lg-glass overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[600px]">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-widest text-[#8E8E93]" style={{ borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
-                <th className="py-2.5 px-3 font-normal w-20">Time</th>
-                <th className="py-2.5 px-2 font-normal">What happened</th>
-                <th className="py-2.5 px-2 font-normal w-24">Outcome</th>
+              <tr className="text-left text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]" style={{ borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+                <th className="py-2.5 px-3 font-normal w-20"><Trans>Time</Trans></th>
+                <th className="py-2.5 px-2 font-normal"><Trans>What happened</Trans></th>
+                <th className="py-2.5 px-2 font-normal w-24"><Trans>Outcome</Trans></th>
                 {advanced && <>
-                  <th className="py-2.5 px-2 font-normal w-24">Severity</th>
-                  <th className="py-2.5 px-2 font-normal w-24">Category</th>
-                  <th className="py-2.5 px-2 font-normal w-32">Tool</th>
-                  <th className="py-2.5 px-2 font-normal w-40">Rule</th>
-                  <th className="py-2.5 px-3 font-normal w-20 text-right">Session</th>
+                  <th className="py-2.5 px-2 font-normal w-24"><Trans>Severity</Trans></th>
+                  <th className="py-2.5 px-2 font-normal w-24"><Trans>Category</Trans></th>
+                  <th className="py-2.5 px-2 font-normal w-32"><Trans>Tool</Trans></th>
+                  <th className="py-2.5 px-2 font-normal w-40"><Trans>Rule</Trans></th>
+                  <th className="py-2.5 px-3 font-normal w-20 text-right"><Trans>Session</Trans></th>
                 </>}
               </tr>
             </thead>
@@ -194,7 +201,7 @@ export default function Findings() {
                     <tr onClick={() => setOpen(isOpen ? null : id)}
                       className="transition-colors cursor-pointer hover:bg-[rgba(0,0,0,0.03)]"
                       style={{ borderBottom: "1px solid rgba(0,0,0,0.06)", boxShadow: `inset 3px 0 0 ${border}` }}>
-                      <td className="py-2 px-3 font-mono text-[11px] text-[#8E8E93] whitespace-nowrap" title={r.ts}>{ago(r.ts)}</td>
+                      <td className="py-2 px-3 font-mono text-[11px] text-[var(--text-tertiary)] whitespace-nowrap" title={r.ts}>{ago(r.ts)}</td>
                       <td className="py-2 px-2 max-w-0 w-full">
                         <div className="text-[13px] truncate" title={`${verdictWord(r.verdict)} — ${describeAction(r)}`}>
                           <span className="font-semibold" style={{ color: outcomeCol }}>{verdictWord(r.verdict)}</span>
@@ -203,7 +210,7 @@ export default function Findings() {
                       </td>
                       <td className="py-2 px-2 whitespace-nowrap">
                         <span className="text-[12px] font-semibold" style={{ color: outcomeCol }}>
-                          {outcomeWord(r.verdict)}
+                          {t(outcomeWord(r.verdict))}
                         </span>
                       </td>
                       {advanced && <>
@@ -216,7 +223,7 @@ export default function Findings() {
                               title={cat}>
                               {humanizeRule(cat)}
                             </button>
-                          ) : <span className="text-[#8E8E93] text-[11px]">—</span>}
+                          ) : <span className="text-[var(--text-tertiary)] text-[11px]">—</span>}
                         </td>
                         <td className="py-2 px-2">
                           <button onClick={(e) => { e.stopPropagation(); setTool(r.tool); }}
@@ -233,22 +240,22 @@ export default function Findings() {
                                 title={r.rules[0]}>
                                 {humanizeRule(r.rules[0])}
                               </button>
-                              {r.rules.length > 1 && <span className="text-[10px] text-[#8E8E93]">+{r.rules.length - 1}</span>}
+                              {r.rules.length > 1 && <span className="text-[10px] text-[var(--text-tertiary)]">+{r.rules.length - 1}</span>}
                             </span>
-                          ) : <span className="text-[#8E8E93] text-[11px]">—</span>}
+                          ) : <span className="text-[var(--text-tertiary)] text-[11px]">—</span>}
                         </td>
-                        <td className="py-2 px-3 font-mono text-[11px] text-[#8E8E93] text-right">{r.session ? r.session.slice(-6) : "—"}</td>
+                        <td className="py-2 px-3 font-mono text-[11px] text-[var(--text-tertiary)] text-right">{r.session ? r.session.slice(-6) : "—"}</td>
                       </>}
                     </tr>
                     {isOpen && (
                       <tr style={{ background: "#F5F5F7", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
                         <td colSpan={colSpanCount} className="px-4 py-3">
                           <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1.5 text-[12px] font-mono">
-                            <div><span className="text-[#8E8E93]">ts </span><span className="text-[#1C1C1E]">{r.ts}</span></div>
-                            <div><span className="text-[#8E8E93]">event </span><span className="text-[#1C1C1E]">{r.event || "—"}</span></div>
-                            <div><span className="text-[#8E8E93]">tool </span><span className="text-[#1C1C1E]">{r.tool || "—"}</span></div>
-                            <div><span className="text-[#8E8E93]">session </span><span className="text-[#1C1C1E]">{r.session || "—"}</span></div>
-                            <div className="col-span-2 lg:col-span-4"><span className="text-[#8E8E93]">reason </span><span className="text-[#1C1C1E]">{r.reason || "—"}</span></div>
+                            <div><span className="text-[var(--text-tertiary)]">ts </span><span className="text-[#1C1C1E]">{r.ts}</span></div>
+                            <div><span className="text-[var(--text-tertiary)]">event </span><span className="text-[#1C1C1E]">{r.event || "—"}</span></div>
+                            <div><span className="text-[var(--text-tertiary)]">tool </span><span className="text-[#1C1C1E]">{r.tool || "—"}</span></div>
+                            <div><span className="text-[var(--text-tertiary)]">session </span><span className="text-[#1C1C1E]">{r.session || "—"}</span></div>
+                            <div className="col-span-2 lg:col-span-4"><span className="text-[var(--text-tertiary)]">reason </span><span className="text-[#1C1C1E]">{r.reason || "—"}</span></div>
                             {(r.rules || []).length > 0 && (
                               <div className="col-span-2 lg:col-span-4 flex flex-wrap gap-1.5 pt-1">
                                 {r.rules.map((rule) => (
@@ -270,15 +277,15 @@ export default function Findings() {
         </div>
 
         {filtered.length === 0 && (
-          <div className="py-16 text-center text-sm text-[#8E8E93]">
+          <div className="py-16 text-center text-sm text-[var(--text-tertiary)]">
             {rows.length === 0
-              ? "No findings recorded yet — the engine will populate this feed as agents run."
-              : <>No findings match the current filters. <button onClick={clearAll} className="hover:underline" style={{ color: "#0856B3" }}>Clear filters</button></>}
+              ? <Trans>No findings recorded yet — the engine will populate this feed as agents run.</Trans>
+              : <><Trans>No findings match the current filters.</Trans> <button onClick={clearAll} className="hover:underline" style={{ color: "#0856B3" }}><Trans>Clear filters</Trans></button></>}
           </div>
         )}
         {filtered.length > RENDER_CAP && (
-          <div className="py-2 text-center text-[11px] text-[#8E8E93]" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
-            Showing newest {RENDER_CAP} of {filtered.length} matches — narrow the filter to see more
+          <div className="py-2 text-center text-[11px] text-[var(--text-tertiary)]" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+            <Trans>Showing newest {RENDER_CAP} of {filtered.length} matches — narrow the filter to see more</Trans>
           </div>
         )}
       </div>

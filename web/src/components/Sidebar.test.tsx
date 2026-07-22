@@ -8,6 +8,9 @@ vi.mock("../lib/api", () => ({
     by_category: {}, trend: [], top_rules: [],
   }),
   getPending: vi.fn().mockResolvedValue([{ id: "x" }]),
+  // LanguagePicker (rendered in the sidebar footer) reads/writes the locale.
+  getLocale: vi.fn().mockResolvedValue({ locale: "en", supported: ["en", "zh-Hans"] }),
+  setLocale: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 import Sidebar from "./Sidebar";

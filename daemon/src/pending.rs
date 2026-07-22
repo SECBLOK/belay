@@ -74,12 +74,35 @@ impl ResolveSource {
     }
 }
 
+/// Self-approval lineage detail carried alongside a [`Resolution`]. `Local`
+/// resolutions carry the real (possibly-detected) value; every other source
+/// (`Channel`, and the synthetic timeout/disconnected/map_full/poisoned
+/// fail-closed paths) always carries [`SelfApprovalInfo::default()`] — those
+/// paths have no local resolver pid to compare against, so self-approval is
+/// definitionally not applicable (fail-open: absence of evidence is treated
+/// as absence of self-approval, never the reverse).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SelfApprovalInfo {
+    /// `true` iff process ancestry POSITIVELY PROVED the resolver is a
+    /// descendant of the gated request's agent pid — i.e.
+    /// `proc_ancestry::is_ancestor_of(gating_pid, resolver_pid) ==
+    /// Some(true)`. This is audit-truth and is recorded regardless of
+    /// whether enforcement is on.
+    pub detected: bool,
+    /// `true` iff `detected` AND enforcement was ON at resolve time, meaning
+    /// the resolution actually delivered to the parked gate thread(s) below
+    /// was forcibly overridden to `Deny` regardless of what the resolver
+    /// asked for.
+    pub blocked: bool,
+}
+
 /// Resolution decision delivered over a pending entry's channel, tagged with the
-/// source that produced it (`Local` from IPC, `Channel` from a messaging reply).
+/// source that produced it (`Local` from IPC, `Channel` from a messaging reply)
+/// and any self-approval lineage detail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resolution {
-    Allow(ResolveSource),
-    Deny(ResolveSource),
+    Allow(ResolveSource, SelfApprovalInfo),
+    Deny(ResolveSource, SelfApprovalInfo),
 }
 
 /// Outcome of parking a request — what the gate path returns to the client.
@@ -118,6 +141,14 @@ pub struct PendingEntry {
     /// is unguessable/unenumerable. Present only in the `channels` build.
     #[cfg(feature = "channels")]
     pub nonce: String,
+    /// The GATED AGENT's pid (NOT the hook/mcp child that made the `gate` IPC
+    /// call — that peer's pid's PARENT). `None` whenever it couldn't be
+    /// determined (non-Linux, a `/proc` read failure, or the caller simply
+    /// not supplying one) — the self-approval guard fails open on `None`; it
+    /// never engages for this entry. Set once at park time and never mutated;
+    /// a coalesced retry of the SAME (session, tool, input) keeps the FIRST
+    /// park's value rather than overwriting it.
+    pub gating_pid: Option<u32>,
 }
 
 /// Shared interactive-approval state, cloned (via `Arc`) into each connection
@@ -236,7 +267,10 @@ impl Approvals {
 
     /// Park a would-ask request until the user resolves it or the timeout fires.
     /// Thin wrapper over [`park_with_source`] for callers that don't need to know
-    /// how the decision was reached.
+    /// how the decision was reached. Always passes `gating_pid: None` — the
+    /// self-approval guard is a no-op for every caller that goes through this
+    /// wrapper (fail-open); only [`park_with_source`]'s callers that supply a
+    /// real gating pid (the `gate` IPC path) can ever trigger it.
     #[allow(clippy::too_many_arguments)]
     pub fn park(
         &self,
@@ -251,13 +285,19 @@ impl Approvals {
         explain: Option<Value>,
     ) -> ParkOutcome {
         self.park_with_source(
-            session, tool, input, reason, rule, created_ms, severity, category, explain,
+            session, tool, input, reason, rule, created_ms, severity, category, explain, None,
         )
         .0
     }
 
-    /// Park a would-ask request, returning both the outcome and the SOURCE that
-    /// produced it (for the `approval.resolved` audit event).
+    /// Park a would-ask request, returning the outcome, the SOURCE that
+    /// produced it (for the `approval.resolved` audit event), and any
+    /// self-approval lineage detail attached by the resolver.
+    ///
+    /// `gating_pid` is the AGENT's pid (not the hook/mcp child that made the
+    /// `gate` call) — the value the self-approval guard compares the eventual
+    /// resolver's pid against. `None` disables the guard for this entry
+    /// entirely (fail-open).
     ///
     /// FAIL-CLOSED: map-full → `Deny` (not enqueued); timeout/disconnect → `Deny`;
     /// only an explicit `Resolution::Allow` returns `Allow`. The entry is always
@@ -274,7 +314,8 @@ impl Approvals {
         severity: &str,
         category: Option<&str>,
         explain: Option<Value>,
-    ) -> (ParkOutcome, ResolveSource) {
+        gating_pid: Option<u32>,
+    ) -> (ParkOutcome, ResolveSource, SelfApprovalInfo) {
         let (tx, rx) = mpsc::channel::<Resolution>();
         let sig = Self::sig(session, tool, input);
 
@@ -287,14 +328,24 @@ impl Approvals {
         // instead of two independent prompts whose conflicting replies made the
         // acted-on choice nondeterministic. `primary_id` is Some only for the
         // first (owning) park; a coalesced waiter attaches its resolver and never
-        // inserts, alerts, or evicts the shared entry.
+        // inserts, alerts, or evicts the shared entry. NOTE: a coalesced waiter
+        // does NOT overwrite `gating_pid` on the shared entry — the FIRST park's
+        // value is kept, since that's genuinely the agent pid that asked the
+        // original question (a retry's own `gating_pid` argument is simply
+        // discarded once coalesced).
         #[cfg(feature = "channels")]
         let mut notice: Option<PendingNotice> = None;
         let primary_id: Option<String> = {
             let mut map = match self.pending.lock() {
                 Ok(m) => m,
                 // poisoned → fail closed
-                Err(_) => return (ParkOutcome::Deny, ResolveSource::Poisoned),
+                Err(_) => {
+                    return (
+                        ParkOutcome::Deny,
+                        ResolveSource::Poisoned,
+                        SelfApprovalInfo::default(),
+                    )
+                }
             };
             if let Some(entry) = map
                 .values_mut()
@@ -306,7 +357,11 @@ impl Approvals {
                 None
             } else {
                 if map.len() >= MAX_PENDING {
-                    return (ParkOutcome::Deny, ResolveSource::MapFull);
+                    return (
+                        ParkOutcome::Deny,
+                        ResolveSource::MapFull,
+                        SelfApprovalInfo::default(),
+                    );
                 }
                 let id = self.next_id(session, created_ms);
                 #[cfg(feature = "channels")]
@@ -327,6 +382,7 @@ impl Approvals {
                         resolvers: vec![tx],
                         #[cfg(feature = "channels")]
                         nonce: nonce.clone(),
+                        gating_pid,
                     },
                 );
                 #[cfg(feature = "channels")]
@@ -358,15 +414,21 @@ impl Approvals {
             cb(n);
         }
 
-        let (outcome, source) = match rx.recv_timeout(self.timeout) {
-            Ok(Resolution::Allow(src)) => (ParkOutcome::Allow, src),
+        let (outcome, source, self_approval) = match rx.recv_timeout(self.timeout) {
+            Ok(Resolution::Allow(src, sa)) => (ParkOutcome::Allow, src, sa),
             // Explicit deny carries its own source; timeout / sender-dropped map
             // to the corresponding fail-closed source. All → DENY.
-            Ok(Resolution::Deny(src)) => (ParkOutcome::Deny, src),
-            Err(RecvTimeoutError::Timeout) => (ParkOutcome::Deny, ResolveSource::Timeout),
-            Err(RecvTimeoutError::Disconnected) => {
-                (ParkOutcome::Deny, ResolveSource::Disconnected)
-            }
+            Ok(Resolution::Deny(src, sa)) => (ParkOutcome::Deny, src, sa),
+            Err(RecvTimeoutError::Timeout) => (
+                ParkOutcome::Deny,
+                ResolveSource::Timeout,
+                SelfApprovalInfo::default(),
+            ),
+            Err(RecvTimeoutError::Disconnected) => (
+                ParkOutcome::Deny,
+                ResolveSource::Disconnected,
+                SelfApprovalInfo::default(),
+            ),
         };
 
         // Only the primary owns the entry lifecycle: reclaim its slot on return. A
@@ -377,7 +439,7 @@ impl Approvals {
                 map.remove(&id);
             }
         }
-        (outcome, source)
+        (outcome, source, self_approval)
     }
 
     /// Snapshot of the pending queue for `get_pending` (no resolver leaked).
@@ -414,26 +476,99 @@ impl Approvals {
     /// `scope == "always" && allow` also records the stable signature so future
     /// identical requests are allowed without re-parking. An unknown id returns
     /// `false` and must NOT error the daemon.
+    ///
+    /// Thin wrapper over [`respond_local`] with `resolver_pid: None` and
+    /// `enforce_self_approval: false` — every existing caller of this method
+    /// (every test, and any future caller that doesn't have a resolver pid to
+    /// offer) gets EXACTLY today's behaviour: the self-approval guard never
+    /// engages, because with no resolver pid there is nothing to compare
+    /// against (fail-open).
     pub fn respond(&self, id: &str, allow: bool, scope: &str) -> bool {
+        self.respond_local(id, allow, scope, None, false).0
+    }
+
+    /// Resolve a parked request from the LOCAL IPC path (`respond_approval`),
+    /// with self-approval detection.
+    ///
+    /// - `resolver_pid` is the resolving peer's pid (`stream.peer_pid().ok()`
+    ///   from the connection making this call) — `None` on any platform/error
+    ///   where it's unavailable.
+    /// - `enforce_self_approval` is `host_config::gateguard_enforce_enabled()`,
+    ///   read by the ipc.rs caller so this module stays config-agnostic.
+    ///
+    /// Self-approval is `entry.gating_pid == resolver_pid`, OR
+    /// `proc_ancestry::is_ancestor_of(entry.gating_pid, resolver_pid) ==
+    /// Some(true)` — EVERY other combination (either pid `None`, a gating pid
+    /// of 0/1, or a non-`Some(true)` ancestry result) is `false` (fail-open).
+    /// The equality arm covers an agent that resolves from its own process:
+    /// `is_ancestor_of(A, A)` is `Some(false)`, since a process is not its own
+    /// ancestor, so ancestry alone would miss the most direct self-approval.
+    ///
+    /// When self-approval is detected AND `enforce_self_approval`, the
+    /// resolution actually delivered to the parked gate thread(s) is
+    /// forcibly overridden to `Deny` regardless of `allow` — and, since that
+    /// override makes the effective decision `Deny`, no `scope:"always"`
+    /// signature is ever recorded for a blocked self-approval either.
+    ///
+    /// Returns `(found, self_approval_detected, blocked)`.
+    pub fn respond_local(
+        &self,
+        id: &str,
+        allow: bool,
+        scope: &str,
+        resolver_pid: Option<u32>,
+        enforce_self_approval: bool,
+    ) -> (bool, bool, bool) {
         let entry = match self.pending.lock() {
             Ok(mut map) => map.remove(id),
-            Err(_) => return false,
+            Err(_) => return (false, false, false),
         };
         let entry = match entry {
             Some(e) => e,
-            None => return false, // unknown id — caller returns ok:false, daemon lives
+            None => return (false, false, false), // unknown id — caller returns ok:false, daemon lives
         };
 
-        if allow && scope == "always" {
+        // FAIL-OPEN: the ONLY ways `self_approval` becomes `true` are both pids
+        // being known AND either (a) the resolver IS the gated agent, or (b) the
+        // ancestry walk returning the POSITIVE, confident `Some(true)`. A missing
+        // pid on either side, or `is_ancestor_of` returning `Some(false)`/`None`,
+        // all fall through to `false`.
+        //
+        // The equality arm matters: `gating_pid` is `parent(gate_peer)`, i.e. the
+        // agent that spawned the hook. If that same process answers its own
+        // request in-process instead of forking a helper, `resolver == agent` -
+        // and `is_ancestor_of(A, A)` is `Some(false)`, because a process is not
+        // its own ancestor. Without this arm the guard caught an agent that
+        // shells out to resolve but missed the agent that just opens the socket
+        // itself, which is the easier move of the two.
+        //
+        // `agent <= 1` is excluded for the same reason `is_ancestor_of` excludes
+        // it: pid 0/1 is kernel/init, and an unknown/unresolved gating pid must
+        // never be treated as a positive match.
+        let self_approval = matches!(
+            (entry.gating_pid, resolver_pid),
+            (Some(agent), Some(resolver))
+                if agent > 1
+                    && (agent == resolver
+                        || crate::proc_ancestry::is_ancestor_of(agent, resolver) == Some(true))
+        );
+        let blocked = self_approval && enforce_self_approval;
+        let effective_allow = allow && !blocked;
+
+        if effective_allow && scope == "always" {
             if let Ok(mut set) = self.approved.lock() {
                 set.insert(Self::sig(&entry.session, &entry.tool, &entry.input));
             }
         }
 
-        let resolution = if allow {
-            Resolution::Allow(ResolveSource::Local)
+        let info = SelfApprovalInfo {
+            detected: self_approval,
+            blocked,
+        };
+        let resolution = if effective_allow {
+            Resolution::Allow(ResolveSource::Local, info)
         } else {
-            Resolution::Deny(ResolveSource::Local)
+            Resolution::Deny(ResolveSource::Local, info)
         };
         // If the parked thread already gave up (timeout), the receiver is gone;
         // send() Err is harmless — the gate already failed closed.
@@ -443,7 +578,7 @@ impl Approvals {
         for tx in &entry.resolvers {
             let _ = tx.send(resolution);
         }
-        true
+        (true, self_approval, blocked)
     }
 
     /// Resolve a parked request by its CSPRNG `nonce` (messaging-channel path).
@@ -457,6 +592,11 @@ impl Approvals {
     /// `scope:"always"` authority is never installable over messaging — it stays
     /// local-operator-only via [`respond`]. The requested scope is therefore
     /// ignored beyond that guarantee (no `approved` signature is recorded here).
+    ///
+    /// This path is HUMAN-ONLY by construction (an authorized, out-of-band
+    /// messaging principal) and has no local resolver pid to compare — it
+    /// never carries self-approval lineage detail (always
+    /// [`SelfApprovalInfo::default()`], i.e. `detected: false`).
     #[cfg(feature = "channels")]
     pub fn respond_by_nonce(&self, nonce: &str, allow: bool, _scope: &str) -> bool {
         let entry = match self.pending.lock() {
@@ -471,9 +611,9 @@ impl Approvals {
         };
         let Some(entry) = entry else { return false };
         let resolution = if allow {
-            Resolution::Allow(ResolveSource::Channel)
+            Resolution::Allow(ResolveSource::Channel, SelfApprovalInfo::default())
         } else {
-            Resolution::Deny(ResolveSource::Channel)
+            Resolution::Deny(ResolveSource::Channel, SelfApprovalInfo::default())
         };
         // Losing racer (timeout already fired) → receiver gone → send Err, harmless.
         // Fan the outcome to EVERY waiter coalesced onto this park (normally one):
@@ -501,6 +641,15 @@ impl Approvals {
             .ok()
             .and_then(|m| m.get(id).map(|e| e.resolvers.len()))
             .unwrap_or(0)
+    }
+
+    /// Test-only: the `gating_pid` recorded on entry `id`. Outer `Option` is
+    /// "was the id found at all"; inner is the field itself (which is
+    /// legitimately `Option<u32>` — `None` means the guard is disabled for
+    /// that entry, not "id not found").
+    #[cfg(test)]
+    fn gating_pid_for(&self, id: &str) -> Option<Option<u32>> {
+        self.pending.lock().ok().and_then(|m| m.get(id).map(|e| e.gating_pid))
     }
 }
 
@@ -608,12 +757,14 @@ mod tests {
     fn park_with_source_reports_timeout_then_local() {
         // No responder → fail-closed deny, source = Timeout (audited as such).
         let a = Approvals::with_timeout(Duration::from_millis(40));
-        let (out, src) = a.park_with_source(
+        let (out, src, sa) = a.park_with_source(
             "s", "Bash", &json!({"command": "x"}), "r", "rule.x", now_ms(), "info", None, None,
+            None,
         );
         assert_eq!(out, ParkOutcome::Deny);
         assert_eq!(src, ResolveSource::Timeout);
         assert_eq!(src.label(), "timeout");
+        assert!(!sa.detected, "a timeout must never report self-approval");
 
         // An explicit local respond(allow) → allow, source = Local.
         let a2 = fast();
@@ -628,13 +779,18 @@ mod tests {
             };
             assert!(a2c.respond(&id, true, "once"));
         });
-        let (out, src) = a2.park_with_source(
+        let (out, src, sa) = a2.park_with_source(
             "s", "Bash", &json!({"command": "y"}), "r", "rule.y", now_ms(), "info", None, None,
+            None,
         );
         h.join().unwrap();
         assert_eq!(out, ParkOutcome::Allow);
         assert_eq!(src, ResolveSource::Local);
         assert_eq!(src.label(), "local");
+        assert!(
+            !sa.detected,
+            "a plain respond() (no resolver pid supplied) must never report self-approval"
+        );
     }
 
     #[test]
@@ -996,5 +1152,308 @@ mod tests {
         );
         h.join().unwrap();
         assert_eq!(out, ParkOutcome::Allow);
+    }
+
+    // ── Task 2: self-approval guard ───────────────────────────────────────────
+
+    #[test]
+    fn park_with_source_stores_gating_pid() {
+        let a = Approvals::with_timeout(Duration::from_secs(5));
+        let a2 = a.clone();
+        let h = thread::spawn(move || {
+            a2.park_with_source(
+                "s", "Bash", &json!({"command": "x"}), "r", "rule.x", now_ms(), "info", None,
+                None, Some(4242),
+            )
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(a.gating_pid_for(&id), Some(Some(4242)));
+        assert!(a.respond(&id, false, "once"));
+        let (out, _src, _sa) = h.join().unwrap();
+        assert_eq!(out, ParkOutcome::Deny);
+    }
+
+    #[test]
+    fn coalesced_retry_keeps_the_first_parks_gating_pid() {
+        // Regression guard for the "keep the FIRST park's gating_pid" rule: a
+        // retry of the identical (session, tool, input) while the primary is
+        // still pending must coalesce WITHOUT overwriting the agent pid the
+        // self-approval guard will compare against.
+        let a = Approvals::with_timeout(Duration::from_secs(5));
+        let input = json!({ "command": "cat /tmp/aidefender-test/.env" });
+
+        let a1 = a.clone();
+        let in1 = input.clone();
+        let h1 = thread::spawn(move || {
+            a1.park_with_source(
+                "s1", "Bash", &in1, "r", "secrets.sensitive_path", 1, "high", Some("secrets"),
+                None, Some(111),
+            )
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(a.gating_pid_for(&id), Some(Some(111)));
+
+        // A retry of the IDENTICAL request with a DIFFERENT gating_pid.
+        let a2 = a.clone();
+        let in2 = input.clone();
+        let h2 = thread::spawn(move || {
+            a2.park_with_source(
+                "s1", "Bash", &in2, "r", "secrets.sensitive_path", 2, "high", Some("secrets"),
+                None, Some(999),
+            )
+        });
+        loop {
+            if a.waiters_for(&id) == 2 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            a.gating_pid_for(&id),
+            Some(Some(111)),
+            "a coalesced retry must NOT overwrite the first park's gating_pid"
+        );
+
+        assert!(a.respond(&id, true, "once"));
+        let (out1, _, _) = h1.join().unwrap();
+        let (out2, _, _) = h2.join().unwrap();
+        assert_eq!(out1, ParkOutcome::Allow);
+        assert_eq!(out2, ParkOutcome::Allow);
+    }
+
+    /// Fail-open sweep: every combination that lacks a POSITIVE, confident
+    /// ancestry match — missing gating_pid, missing resolver_pid, or an
+    /// unrelated resolver — must deliver the REQUESTED allow unchanged, even
+    /// with `enforce_self_approval` forced on. Proves the guard can only ever
+    /// narrow to Deny via an explicit `Some(true)`, never as a side effect of
+    /// missing data.
+    #[test]
+    fn every_fail_open_case_never_blocks_an_allow_even_with_enforcement_on() {
+        for (gating_pid, resolver_pid) in [
+            (None, Some(1u32)),
+            (Some(std::process::id()), None),
+            (Some(std::process::id()), Some(1)),
+        ] {
+            let a = Approvals::with_timeout(Duration::from_secs(5));
+            let a2 = a.clone();
+            let h = thread::spawn(move || {
+                a2.park_with_source(
+                    "s", "Bash", &json!({"c": 1}), "r", "rule.x", now_ms(), "info", None, None,
+                    gating_pid,
+                )
+            });
+            let id = loop {
+                let snap = a.snapshot();
+                if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                    break first["id"].as_str().unwrap().to_string();
+                }
+                thread::sleep(Duration::from_millis(5));
+            };
+            let (found, self_approval, blocked) =
+                a.respond_local(&id, true, "once", resolver_pid, true);
+            assert!(found);
+            assert!(
+                !self_approval,
+                "case gating_pid={gating_pid:?} resolver_pid={resolver_pid:?} must not detect self-approval"
+            );
+            assert!(!blocked);
+            let (out, _, sa) = h.join().unwrap();
+            assert_eq!(
+                out,
+                ParkOutcome::Allow,
+                "case gating_pid={gating_pid:?} resolver_pid={resolver_pid:?} must not block"
+            );
+            assert!(!sa.detected);
+            assert!(!sa.blocked);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn respond_local_detects_self_approval_from_a_real_descendant() {
+        // This test process stands in for "the agent": it's the real,
+        // kernel-verified parent of the spawned child, which stands in for
+        // "the agent's own resolving helper" — is_ancestor_of(gating_pid,
+        // resolver_pid) must be Some(true) via the real /proc walk.
+        let mut child = std::process::Command::new("sleep")
+            .arg("2")
+            .spawn()
+            .expect("spawn sleep");
+        let resolver_pid = child.id();
+        let gating_pid = std::process::id();
+
+        let a = Approvals::with_timeout(Duration::from_secs(5));
+        let a2 = a.clone();
+        let h = thread::spawn(move || {
+            a2.park_with_source(
+                "s", "Bash", &json!({"c": 1}), "r", "rule.x", now_ms(), "info", None, None,
+                Some(gating_pid),
+            )
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+
+        // Enforcement OFF: self-approval is DETECTED and would be AUDITED,
+        // but the requested Allow is still honored (audit-only).
+        let (found, self_approval, blocked) =
+            a.respond_local(&id, true, "once", Some(resolver_pid), false);
+        assert!(found);
+        assert!(self_approval, "the spawned child IS a descendant of this process");
+        assert!(!blocked, "enforcement is off — must not override");
+        let (out, _src, sa) = h.join().unwrap();
+        assert_eq!(out, ParkOutcome::Allow, "enforcement off must honor the Allow");
+        assert!(sa.detected);
+        assert!(!sa.blocked);
+
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn respond_local_enforce_on_overrides_self_approval_to_deny() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("2")
+            .spawn()
+            .expect("spawn sleep");
+        let resolver_pid = child.id();
+        let gating_pid = std::process::id();
+
+        let a = Approvals::with_timeout(Duration::from_secs(5));
+        let a2 = a.clone();
+        let input = json!({"c": 2});
+        let in1 = input.clone();
+        let h = thread::spawn(move || {
+            a2.park_with_source(
+                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, Some(gating_pid),
+            )
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+
+        // The resolver asks for Allow with scope:"always" — enforcement must
+        // override BOTH the delivered decision AND suppress the durable
+        // "always" signature (the whole resolution is overridden, not just
+        // the immediate decision).
+        let (found, self_approval, blocked) =
+            a.respond_local(&id, true, "always", Some(resolver_pid), true);
+        assert!(found);
+        assert!(self_approval);
+        assert!(blocked, "enforcement on + detected self-approval must block");
+        let (out, _src, sa) = h.join().unwrap();
+        assert_eq!(
+            out,
+            ParkOutcome::Deny,
+            "must be overridden to Deny regardless of the Allow request"
+        );
+        assert!(sa.detected);
+        assert!(sa.blocked);
+        assert!(
+            !a.is_approved_always("s", "Bash", &input),
+            "a blocked self-approval must never install a durable always-allow"
+        );
+
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// The degenerate self-approval ancestry alone cannot see: the gated agent
+    /// answers its OWN parked request from its own process, so
+    /// `resolver == gating_pid`. `is_ancestor_of(A, A)` is `Some(false)` (a
+    /// process is not its own ancestor), so before the equality arm this - the
+    /// most direct form of self-approval, and the easiest for an agent to
+    /// perform - sailed straight through while the fork-a-helper variant was
+    /// correctly blocked.
+    #[test]
+    fn respond_local_blocks_self_approval_when_resolver_is_the_agent_itself() {
+        let pid = std::process::id();
+        // The precondition that makes the equality arm necessary.
+        assert_eq!(
+            crate::proc_ancestry::is_ancestor_of(pid, pid),
+            Some(false),
+            "a process must not be its own ancestor - equality is what catches this"
+        );
+
+        let a = Approvals::with_timeout(Duration::from_secs(5));
+        let a2 = a.clone();
+        let input = json!({"c": 3});
+        let in1 = input.clone();
+        let h = thread::spawn(move || {
+            a2.park_with_source(
+                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, Some(pid),
+            )
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+
+        let (found, self_approval, blocked) = a.respond_local(&id, true, "always", Some(pid), true);
+        assert!(found);
+        assert!(
+            self_approval,
+            "a resolver that IS the gated agent must count as self-approval"
+        );
+        assert!(blocked, "enforcement on + detected self-approval must block");
+        let (out, _src, sa) = h.join().unwrap();
+        assert_eq!(out, ParkOutcome::Deny, "must be overridden to Deny");
+        assert!(sa.detected);
+        assert!(sa.blocked);
+        assert!(
+            !a.is_approved_always("s", "Bash", &input),
+            "a blocked self-approval must never install a durable always-allow"
+        );
+    }
+
+    /// pid 0/1 is kernel/init. An unresolved or bogus gating pid must never
+    /// match, or the equality arm would turn "gating pid unknown" into
+    /// "everything is self-approval" the moment a resolver reported pid 1.
+    #[test]
+    fn respond_local_never_treats_init_pid_as_self_approval() {
+        let a = Approvals::with_timeout(Duration::from_millis(400));
+        let a2 = a.clone();
+        let in1 = json!({"c": 4});
+        let h = thread::spawn(move || {
+            a2.park_with_source(
+                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, Some(1),
+            )
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+        let (found, self_approval, blocked) = a.respond_local(&id, true, "once", Some(1), true);
+        assert!(found);
+        assert!(!self_approval, "pid 1 must never be a positive match");
+        assert!(!blocked);
+        assert_eq!(h.join().unwrap().0, ParkOutcome::Allow, "the allow must stand");
     }
 }

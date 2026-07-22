@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod commands;
 pub mod notify;
+pub mod shape;
 pub mod tray;
 pub mod uds;
 
@@ -73,17 +74,45 @@ fn notify_cycle(app: &tauri::AppHandle, rows: &[audit::AuditRow]) {
     if let Some(win) = app.get_webview_window("toast") {
         // Hand the copy to the toast UI, anchor bottom-right, then reveal it
         // WITHOUT stealing focus from the user's active window.
-        let _ = app.emit_to("toast", "toast", serde_json::json!({ "title": title, "body": body }));
-        tray::position_toast(&win);
+        // `paw` tells the shared web bundle whether THIS build actually clips the
+        // window to the paw silhouette (Windows only, see shape.rs) - the same
+        // Toast.tsx ships to Linux/macOS too, and they get no SetWindowRgn clip,
+        // so they must keep the plain rounded-card look rather than an unclipped
+        // black rectangle with text positioned for a shape that isn't there.
+        let paw = cfg!(target_os = "windows");
+        let _ = app.emit_to(
+            "toast",
+            "toast",
+            serde_json::json!({ "title": title, "body": body, "paw": paw }),
+        );
+        // Show BEFORE sizing/positioning, and set the size explicitly. The
+        // window is built `.visible(false)`, so under WebKitGTK it is never
+        // realized and reports 0 x 0 - it would map at zero size (invisible)
+        // and anchor off the corner. `show()` alone does not apply the built
+        // size, so re-assert it here.
         let _ = win.show();
+        let _ = win.set_size(tauri::LogicalSize::new(tray::TOAST_W, tray::TOAST_H));
+        // Re-applied on every show: a resize resets the window region.
+        shape::install_paw_shape(&win);
+        tray::position_toast(&win);
     }
 }
+
+/// How many historical rows to replay into the UI on the first pass. The audit
+/// log is append-only and unbounded; the views keep only their own CAP (500)
+/// rows, so replaying more just burns CPU and delays the first live cycle.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+const BACKLOG_PRIME_MAX: usize = 500;
 
 /// Tail the audit log like `tail -f`: track the byte offset and only process
 /// **newly-appended** lines. The previous implementation reopened the file from
 /// offset 0 every cycle and re-notified for every historical row, flooding the
 /// screen with toasts. We now prime the existing backlog into the UI without
 /// notifying (it is history), then notify only for genuinely new rows.
+///
+/// The backlog is replayed CAPPED (see `BACKLOG_PRIME_MAX`): emitting an
+/// unbounded log row-by-row starved this loop for minutes, and notifications
+/// cannot fire until it completes.
 #[cfg(all(feature = "tauri", feature = "tokio"))]
 async fn tail_audit(app: tauri::AppHandle) {
     use tokio::io::AsyncSeekExt;
@@ -129,8 +158,26 @@ async fn tail_audit(app: tauri::AppHandle) {
                     }
                 }
 
-                // Surface every new row to the UI (history + fresh alike).
-                for row in &batch {
+                // Surface new rows to the UI (history + fresh alike).
+                //
+                // The FIRST pass is the whole on-disk backlog, and that log is
+                // append-only: on this dev box it had already reached 27k rows
+                // / 30MB. Emitting each one individually serializes a row and
+                // dispatches it to every webview, and the UI does a state
+                // update per event - measured at ~14 cores pegged for over 12
+                // minutes, during which this loop never reaches notify_cycle,
+                // so NO notification can fire. It gets worse as the log grows.
+                //
+                // The views cap themselves at 500 rows anyway (CAP in
+                // Alerts/Timeline), so priming with everything was ~98% waste.
+                // Prime with the most recent slice; steady-state batches are
+                // tiny and still emit in full.
+                let to_emit: &[audit::AuditRow] = if primed {
+                    &batch
+                } else {
+                    &batch[batch.len().saturating_sub(BACKLOG_PRIME_MAX)..]
+                };
+                for row in to_emit {
                     let _ = app.emit("audit-event", row.clone());
                 }
                 // Notify only once primed (i.e. skip the start-up backlog).
@@ -218,7 +265,7 @@ pub fn run() {
             let _toast = WebviewWindowBuilder::new(
                 app, "toast", WebviewUrl::App("index.html#toast".into()))
                 .title("Belay")
-                .inner_size(360.0, 96.0)
+                .inner_size(tray::TOAST_W, tray::TOAST_H)
                 .resizable(false)
                 .decorations(false)
                 .always_on_top(true)
@@ -262,6 +309,9 @@ pub fn run() {
             commands::get_fleet,
             commands::get_egress,
             commands::get_pending,
+            commands::get_trust,
+            commands::get_locale,
+            commands::set_locale,
             commands::respond_approval,
             commands::set_protection,
             commands::explain_action,
@@ -294,6 +344,7 @@ pub fn run() {
             commands::run_scan,
             commands::hide_toast,
             commands::get_recent_audit,
+            commands::get_recent_approvals,
             commands::list_agents,
             commands::protect_agent,
             commands::unprotect_agent,
@@ -324,6 +375,8 @@ pub fn run() {
             commands::delete_quarantine,
             commands::get_ssh_guard,
             commands::set_ssh_guard,
+            commands::list_skills,
+            commands::approve_skill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

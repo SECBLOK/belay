@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useUpdater } from "../lib/updater";
 
 /**
@@ -9,6 +10,7 @@ import { useUpdater } from "../lib/updater";
  * banner, and it benefits from the periodic re-check.
  */
 export default function UpdateControl({ className = "" }: { className?: string }) {
+  const { t } = useLingui();
   const u = useUpdater();
   const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,25 +32,27 @@ export default function UpdateControl({ className = "" }: { className?: string }
 
   const status =
     u.available && u.version
-      ? `Belay ${u.version} is available.`
+      ? t`Belay ${u.version} is available.`
       : u.checking
-        ? "Checking for updates…"
+        ? t`Checking for updates…`
         : u.checkedAt
-          ? `You're on the latest version${u.current ? ` (v${u.current})` : ""}.`
+          ? u.current
+            ? t`You're on the latest version (v${u.current}).`
+            : t`You're on the latest version.`
           : u.current
-            ? `Version ${u.current}.`
+            ? t`Version ${u.current}.`
             : "";
 
   return (
     <div
-      className={`flex items-center justify-between rounded-lg border border-[rgba(0,0,0,0.08)] bg-[#F5F5F7] px-4 py-3 ${className}`}
+      className={`flex items-center justify-between lg-glass px-4 py-3 ${className}`}
     >
       <div className="pr-3">
-        <div className="text-sm font-medium text-[#1C1C1E]">Updates</div>
-        <div className="text-xs text-[#8E8E93]">
+        <div className="text-sm font-medium text-[#1C1C1E]"><Trans>Updates</Trans></div>
+        <div className="text-xs text-[var(--text-tertiary)]">
           {status}
           {(error || u.error) && (
-            <span className="ml-1 text-[#C8312A]">Update failed: {error ?? u.error}</span>
+            <span className="ml-1 text-[#C8312A]"><Trans>Update failed: {error ?? u.error}</Trans></span>
           )}
         </div>
       </div>
@@ -60,17 +64,17 @@ export default function UpdateControl({ className = "" }: { className?: string }
           className="shrink-0 rounded-md px-3 py-1 text-sm text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60"
           style={{ background: "var(--accent, #0A66D6)" }}
         >
-          {installing ? "Installing…" : "Install & restart"}
+          {installing ? t`Installing…` : t`Install & restart`}
         </button>
       ) : (
         <button
           data-testid="update-check"
           disabled={u.checking}
           onClick={() => u.checkNow()}
-          title="Check dl.belay.secblok.io for a newer signed release"
+          title={t`Check dl.belay.secblok.io for a newer signed release`}
           className="shrink-0 rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1 text-sm text-[#1C1C1E] transition-colors hover:bg-[#EFEFF4] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {u.checking ? "Checking…" : "Check for updates"}
+          {u.checking ? t`Checking…` : t`Check for updates`}
         </button>
       )}
     </div>

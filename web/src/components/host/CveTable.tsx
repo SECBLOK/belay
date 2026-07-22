@@ -5,6 +5,7 @@
 import type { CveFinding } from "../../lib/hostTypes";
 import SeverityDot from "./SeverityDot";
 import KevBadge from "./KevBadge";
+import { Trans, useLingui } from "@lingui/react/macro";
 
 const SEV_RANK: Record<string, number> = {
   critical: 4,
@@ -33,13 +34,14 @@ interface CveTableProps {
 }
 
 export default function CveTable({ findings }: CveTableProps) {
+  const { t } = useLingui();
   if (findings.length === 0) {
     return (
       <div
         className="rounded-xl px-5 py-6 text-sm text-[#636366]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        No CVE findings.
+        <Trans>No CVE findings.</Trans>
       </div>
     );
   }
@@ -47,19 +49,19 @@ export default function CveTable({ findings }: CveTableProps) {
   const sorted = sortFindings(findings);
 
   return (
-    <div className="rounded-xl overflow-hidden bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-      <table className="w-full text-sm" aria-label="CVE findings">
+    <div className="lg-glass overflow-hidden">
+      <table className="w-full text-sm" aria-label={t`CVE findings`}>
         <thead>
           <tr
-            className="text-[11px] uppercase tracking-widest text-[#8E8E93] border-b"
+            className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)] border-b"
             style={{ borderColor: "rgba(0,0,0,0.08)" }}
           >
-            <th className="text-left px-4 py-2.5 font-medium" aria-sort="descending">CVE</th>
-            <th className="text-left px-4 py-2.5 font-medium">Package</th>
-            <th className="text-left px-4 py-2.5 font-medium" aria-sort="none">Severity</th>
-            <th className="text-left px-4 py-2.5 font-medium">EPSS</th>
-            <th className="text-left px-4 py-2.5 font-medium">Fixed in</th>
-            <th className="text-left px-4 py-2.5 font-medium">Status</th>
+            <th className="text-left px-4 py-2.5 font-medium" aria-sort="descending"><Trans>CVE</Trans></th>
+            <th className="text-left px-4 py-2.5 font-medium"><Trans>Package</Trans></th>
+            <th className="text-left px-4 py-2.5 font-medium" aria-sort="none"><Trans>Severity</Trans></th>
+            <th className="text-left px-4 py-2.5 font-medium"><Trans>EPSS</Trans></th>
+            <th className="text-left px-4 py-2.5 font-medium"><Trans>Fixed in</Trans></th>
+            <th className="text-left px-4 py-2.5 font-medium"><Trans>Status</Trans></th>
           </tr>
         </thead>
         <tbody>
@@ -74,19 +76,19 @@ export default function CveTable({ findings }: CveTableProps) {
               </td>
               <td className="px-4 py-3 text-xs text-[#636366] font-mono">
                 {f.package}
-                <span className="text-[#8E8E93] ml-1">{f.installed_version}</span>
+                <span className="text-[var(--text-tertiary)] ml-1">{f.installed_version}</span>
               </td>
               <td className="px-4 py-3">
                 <SeverityDot severity={f.severity} />
               </td>
               <td
                 className="px-4 py-3 text-xs font-mono tabular-nums text-[#636366]"
-                title="EPSS — probability of exploitation within 30 days"
+                title={t`EPSS — probability of exploitation within 30 days`}
               >
-                {f.epss != null ? `${Math.round(f.epss * 100)}%` : <span className="text-[#8E8E93]">—</span>}
+                {f.epss != null ? `${Math.round(f.epss * 100)}%` : <span className="text-[var(--text-tertiary)]">—</span>}
               </td>
               <td className="px-4 py-3 text-xs font-mono text-[#636366]">
-                {f.fixed_version ?? <span className="text-[#C8312A]">No fix</span>}
+                {f.fixed_version ?? <span className="text-[#C8312A]"><Trans>No fix</Trans></span>}
               </td>
               <td className="px-4 py-3">
                 {f.kev && <KevBadge />}

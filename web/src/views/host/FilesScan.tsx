@@ -4,7 +4,6 @@
 import { useEffect, useState } from "react";
 import {
   runHostScan,
-  getScanResults,
   getSchedule,
   setSchedule,
   listQuarantine,
@@ -14,25 +13,32 @@ import {
 import type { HostFinding, ScanSchedule, QuarantineEntry } from "../../lib/hostTypes";
 import SeverityDot from "../../components/host/SeverityDot";
 import QuarantineList from "../../components/host/QuarantineList";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 // ── Verdict badge ─────────────────────────────────────────────────────────────
 
-const VERDICT_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  malicious: { bg: "rgba(200,49,42,0.10)", color: "#C8312A", label: "Malicious" },
-  suspicious: { bg: "rgba(178,123,0,0.10)", color: "#B27B00", label: "Suspicious" },
-  clean:      { bg: "rgba(27,140,58,0.10)",  color: "#1B8C3A", label: "Clean" },
+const VERDICT_STYLE: Record<string, { bg: string; color: string; label: MessageDescriptor }> = {
+  malicious: { bg: "rgba(200,49,42,0.06)", color: "#C8312A", label: msg`Malicious` },
+  suspicious: { bg: "rgba(145,100,0,0.06)", color: "#916400", label: msg`Suspicious` },
+  clean:      { bg: "rgba(24,125,52,0.06)",  color: "#187D34", label: msg`Clean` },
 };
 
 function VerdictBadge({ verdict }: { verdict: HostFinding["verdict"] }) {
-  const s = VERDICT_STYLE[verdict] ?? { bg: "rgba(0,0,0,0.06)", color: "#636366", label: verdict };
+  const { t } = useLingui();
+  const s = VERDICT_STYLE[verdict];
+  const bg = s?.bg ?? "rgba(0,0,0,0.06)";
+  const color = s?.color ?? "#636366";
+  const label = s ? t(s.label) : verdict;
   return (
     <span
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold"
-      style={{ background: s.bg, color: s.color }}
-      aria-label={`Verdict: ${s.label}`}
+      style={{ background: bg, color }}
+      aria-label={t`Verdict: ${label}`}
     >
-      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.color }} aria-hidden />
-      {s.label}
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} aria-hidden />
+      {label}
     </span>
   );
 }
@@ -59,6 +65,7 @@ interface ScheduleCardProps {
 }
 
 function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
+  const { t } = useLingui();
   const [selected, setSelected] = useState<ScheduleOption>(cronToOption(schedule));
   const [scope, setScope] = useState<ScanSchedule["scope"]>(schedule.scope);
   const [saving, setSaving] = useState(false);
@@ -80,14 +87,14 @@ function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
   };
 
   const OPTIONS: { value: ScheduleOption; label: string }[] = [
-    { value: "off", label: "Off" },
-    { value: "daily", label: "Daily" },
-    { value: "weekly", label: "Weekly" },
+    { value: "off", label: t`Off` },
+    { value: "daily", label: t`Daily` },
+    { value: "weekly", label: t`Weekly` },
   ];
 
   return (
-    <div className="rounded-xl bg-white p-5 space-y-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-      <h3 className="text-[11px] uppercase tracking-widest text-[#8E8E93]">Scheduled scan</h3>
+    <div className="lg-glass p-5 space-y-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+      <h3 className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]"><Trans>Scheduled scan</Trans></h3>
 
       {/* Frequency */}
       <div className="flex gap-2 flex-wrap">
@@ -111,7 +118,7 @@ function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
       {/* Scope */}
       {selected !== "off" && (
         <div className="flex items-center gap-3">
-          <span className="text-xs text-[#636366]">Scan scope</span>
+          <span className="text-xs text-[#636366]"><Trans>Scan scope</Trans></span>
           <button
             onClick={() => setScope(scope === "full" ? "quick" : "full")}
             role="switch"
@@ -120,10 +127,10 @@ function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
             style={
               scope === "full"
                 ? { background: "rgba(10,102,214,0.10)", color: "#0A66D6" }
-                : { background: "rgba(0,0,0,0.06)", color: "#8E8E93" }
+                : { background: "rgba(0,0,0,0.06)", color: "var(--text-tertiary)" }
             }
           >
-            {scope === "full" ? "Full scan" : "Quick scan"}
+            {scope === "full" ? t`Full scan` : t`Quick scan`}
           </button>
         </div>
       )}
@@ -135,12 +142,12 @@ function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
           className="px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40"
           style={{ background: "#0A66D6", color: "#fff" }}
         >
-          {saving ? "Saving…" : "Save schedule"}
+          {saving ? t`Saving…` : t`Save schedule`}
         </button>
       )}
       {saved && (
-        <p className="text-xs" style={{ color: "#1B8C3A" }}>
-          Schedule saved.
+        <p className="text-xs" style={{ color: "#187D34" }}>
+          <Trans>Schedule saved.</Trans>
         </p>
       )}
     </div>
@@ -149,30 +156,42 @@ function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
 
 // ── Results table ─────────────────────────────────────────────────────────────
 
-function ResultsTable({ findings }: { findings: HostFinding[] }) {
+function ResultsTable({ findings, scanned }: { findings: HostFinding[]; scanned: number }) {
+  const { t } = useLingui();
   if (findings.length === 0) {
+    // A clean scan is NOT a no-op: report what was covered so the operator can
+    // see it actually ran (the count + green check), rather than an ambiguous
+    // "no findings" that looks identical to nothing having happened.
     return (
       <div
-        className="rounded-xl px-5 py-6 text-sm text-[#636366]"
+        className="rounded-xl px-5 py-6 text-sm flex items-center gap-2.5"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        No scan findings.
+        <span aria-hidden style={{ color: "var(--semantic-allow, #187D34)", fontSize: "16px" }}>✓</span>
+        <span className="text-[#1C1C1E]">
+          <Plural
+            value={scanned}
+            _0="Scan complete — no files to scan."
+            one="Scan complete — scanned # file, no threats found."
+            other="Scan complete — scanned # files, no threats found."
+          />
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl overflow-hidden bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-      <table className="w-full text-sm" aria-label="Scan findings">
+    <div className="lg-glass overflow-hidden">
+      <table className="w-full text-sm" aria-label={t`Scan findings`}>
         <thead>
           <tr
-            className="text-[11px] uppercase tracking-widest text-[#8E8E93] border-b"
+            className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)] border-b"
             style={{ borderColor: "rgba(0,0,0,0.08)" }}
           >
-            <th className="text-left px-4 py-2.5 font-medium" aria-sort="none">File</th>
-            <th className="text-left px-4 py-2.5 font-medium" aria-sort="none">Verdict</th>
-            <th className="text-left px-4 py-2.5 font-medium" aria-sort="none">Severity</th>
-            <th className="text-left px-4 py-2.5 font-medium">Reason</th>
+            <th className="text-left px-4 py-2.5 font-medium" aria-sort="none"><Trans>File</Trans></th>
+            <th className="text-left px-4 py-2.5 font-medium" aria-sort="none"><Trans>Verdict</Trans></th>
+            <th className="text-left px-4 py-2.5 font-medium" aria-sort="none"><Trans>Severity</Trans></th>
+            <th className="text-left px-4 py-2.5 font-medium"><Trans>Reason</Trans></th>
           </tr>
         </thead>
         <tbody>
@@ -207,13 +226,14 @@ function ResultsTable({ findings }: { findings: HostFinding[] }) {
 type ScanState =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "done"; findings: HostFinding[] }
+  | { kind: "done"; findings: HostFinding[]; scanned: number }
   | { kind: "error"; message: string }
   | { kind: "desktop-only" };
 
 const DESKTOP_ONLY_MSG = "Available in the Belay desktop app";
 
 export default function FilesScan() {
+  const { t } = useLingui();
   const [scanState, setScanState] = useState<ScanState>({ kind: "idle" });
   const [scope, setScope] = useState<"full" | "quick">("full");
   const [schedule, setScheduleState] = useState<ScanSchedule | null>(null);
@@ -231,7 +251,9 @@ export default function FilesScan() {
       .then(([sched, qEntries]) => {
         if (cancelled) return;
         setScheduleState(sched);
-        setQuarantine(qEntries);
+        // Honesty split: only actual files belong on the Files surface.
+        // Quarantined agent skills (`kind: "dir"`) are shown on the Skills tab.
+        setQuarantine(qEntries.filter((e) => e.kind !== "dir"));
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -247,11 +269,8 @@ export default function FilesScan() {
   const doScan = async () => {
     setScanState({ kind: "loading" });
     try {
-      // The browser path returns findings directly from the POST; the desktop
-      // (Tauri) path returns an empty array and we poll getScanResults instead.
-      const direct = await runHostScan({ quick: scope === "quick" });
-      const findings = direct.length > 0 ? direct : await getScanResults();
-      setScanState({ kind: "done", findings });
+      const { findings, scanned } = await runHostScan({ quick: scope === "quick" });
+      setScanState({ kind: "done", findings, scanned });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes(DESKTOP_ONLY_MSG) || msg.includes("desktop app")) {
@@ -280,10 +299,10 @@ export default function FilesScan() {
   if (initLoading) {
     return (
       <div
-        className="rounded-xl px-5 py-8 text-center text-sm text-[#8E8E93]"
+        className="rounded-xl px-5 py-8 text-center text-sm text-[var(--text-tertiary)]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        Loading…
+        <Trans>Loading…</Trans>
       </div>
     );
   }
@@ -294,8 +313,8 @@ export default function FilesScan() {
         className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        <p className="text-[#1C1C1E] font-medium">Something went wrong</p>
-        <p className="font-mono text-xs text-[#8E8E93]">{initError}</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Something went wrong</Trans></p>
+        <p className="font-mono text-xs text-[var(--text-tertiary)]">{initError}</p>
       </div>
     );
   }
@@ -310,15 +329,15 @@ export default function FilesScan() {
           className="px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             background: scanState.kind === "loading" ? "rgba(0,0,0,0.06)" : "#0A66D6",
-            color: scanState.kind === "loading" ? "#8E8E93" : "#fff",
+            color: scanState.kind === "loading" ? "var(--text-tertiary)" : "#fff",
           }}
         >
-          {scanState.kind === "loading" ? "Scanning…" : "Scan now"}
+          {scanState.kind === "loading" ? t`Scanning…` : t`Scan now`}
         </button>
 
         {/* Scope selector */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#8E8E93]">Scope:</span>
+          <span className="text-xs text-[var(--text-tertiary)]"><Trans>Scope:</Trans></span>
           {(["full", "quick"] as const).map((s) => (
             <button
               key={s}
@@ -331,7 +350,7 @@ export default function FilesScan() {
               }
               aria-pressed={scope === s}
             >
-              {s === "full" ? "Full" : "Quick"}
+              {s === "full" ? t`Full` : t`Quick`}
             </button>
           ))}
         </div>
@@ -343,10 +362,12 @@ export default function FilesScan() {
           className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1"
           style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
         >
-          <p className="text-[#1C1C1E] font-medium">Desktop app required</p>
+          <p className="text-[#1C1C1E] font-medium"><Trans>Desktop app required</Trans></p>
           <p>
-            Host scanning runs in the Belay desktop app, where it can inspect
-            files directly on your computer.
+            <Trans>
+              Host scanning runs in the Belay desktop app, where it can inspect
+              files directly on your computer.
+            </Trans>
           </p>
         </div>
       )}
@@ -356,20 +377,20 @@ export default function FilesScan() {
           className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1"
           style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
         >
-          <p className="text-[#1C1C1E] font-medium">Scan failed</p>
-          <p className="font-mono text-xs text-[#8E8E93]">{scanState.message}</p>
+          <p className="text-[#1C1C1E] font-medium"><Trans>Scan failed</Trans></p>
+          <p className="font-mono text-xs text-[var(--text-tertiary)]">{scanState.message}</p>
           <button
             onClick={() => setScanState({ kind: "idle" })}
             className="text-xs hover:underline mt-1"
             style={{ color: "#0856B3" }}
           >
-            Dismiss
+            <Trans>Dismiss</Trans>
           </button>
         </div>
       )}
 
       {scanState.kind === "done" && (
-        <ResultsTable findings={scanState.findings} />
+        <ResultsTable findings={scanState.findings} scanned={scanState.scanned} />
       )}
 
       {/* Schedule card */}
@@ -379,8 +400,8 @@ export default function FilesScan() {
 
       {/* Quarantine list */}
       <div>
-        <h3 className="text-[11px] uppercase tracking-widest text-[#8E8E93] mb-2">
-          Quarantine
+        <h3 className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)] mb-2">
+          <Trans>Quarantine</Trans>
         </h3>
         <QuarantineList
           entries={quarantine}

@@ -10,17 +10,43 @@ import { invoke } from "@tauri-apps/api/core";
 import { getPosture, getPending, getBootStart, setBootStart } from "../lib/api";
 import { setProtection } from "../lib/ipc";
 import type { PostureSummary } from "../lib/api";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
-// Derive a human-readable status label from the posture.
-function statusLabel(posture: PostureSummary | null): string {
-  if (!posture) return "Loading…";
+// Derive the posture's STATE - deliberately not its label.
+//
+// This used to return the display string, and the colour was chosen by
+// comparing it: `status === "Action needed" ? red : green`. That works only
+// while the string is English. Translate it and the comparison silently never
+// matches, so a tray that needs action renders GREEN - the failure mode is a
+// security surface saying "fine" when it means "look at me". The state is now
+// the thing that is branched on, and the label is derived from it.
+type PostureState = "loading" | "action" | "monitoring" | "protected";
+
+function postureState(posture: PostureSummary | null): PostureState {
+  if (!posture) return "loading";
   const score = posture.score ?? 100;
   const deny = posture.deny ?? 0;
   const ask = posture.ask ?? 0;
-  if (deny > 0 || score < 60) return "Action needed";
-  if (ask > 0) return "Monitoring";
-  return "Protected";
+  if (deny > 0 || score < 60) return "action";
+  if (ask > 0) return "monitoring";
+  return "protected";
 }
+
+const STATUS_LABEL: Record<PostureState, MessageDescriptor> = {
+  loading: msg`Loading…`,
+  action: msg`Action needed`,
+  monitoring: msg`Monitoring`,
+  protected: msg`Protected`,
+};
+
+const STATUS_COLOR: Record<PostureState, string> = {
+  loading: "var(--semantic-allow, #187D34)",
+  action: "var(--semantic-deny, #C8312A)",
+  monitoring: "var(--semantic-allow, #187D34)",
+  protected: "var(--semantic-allow, #187D34)",
+};
 
 // Belay brand accent (falls back if the CSS var is absent in the popover window).
 const ACCENT = "var(--accent, #0A66D6)";
@@ -107,29 +133,32 @@ export default function TrayPopover() {
     await invoke("focus_main");
   }
 
-  const status = statusLabel(posture);
+  const { t } = useLingui();
+  const state = postureState(posture);
 
   return (
     <div
       style={{
         width: "320px",
         height: "400px",
-        background: "#FFFFFF",
+        // OPAQUE ambient (never transparent - see header note: transparency blanks
+        // WebKitGTK in VMs, and see-through chrome makes small text unreadable).
+        // The glass look comes from the frosted panels inside, not the window.
+        background: "var(--lg-ambient)",
         color: "#1C1C1E",
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: "var(--font-sans, system-ui, sans-serif)",
         display: "flex",
         flexDirection: "column",
-        padding: "20px",
+        padding: "18px",
         boxSizing: "border-box",
         userSelect: "none",
         boxShadow: "var(--shadow-popover)",
       }}
     >
-      {/* Header - branded (accent shield + accent wordmark) */}
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill={ACCENT} aria-hidden="true">
-          <path d="M12 2 4 5v6c0 5 3.4 8.3 8 11 4.6-2.7 8-6 8-11V5l-8-3z" />
-        </svg>
+      {/* Header - branded (guard-dog mascot + accent wordmark) */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "18px" }}>
+        <img src="/mascot/happy.png" alt="" width={26} height={26}
+          style={{ display: "block", filter: "drop-shadow(0 2px 3px rgba(17,24,39,0.2))" }} />
         <span style={{ fontWeight: 700, fontSize: "16px", letterSpacing: "0.02em", color: ACCENT }}>
           Belay
         </span>
@@ -138,33 +167,39 @@ export default function TrayPopover() {
       {/* Status */}
       <div
         style={{
-          background: "#F5F5F7",
-          borderRadius: "8px",
+          background: "rgba(255,255,255,0.72)",
+          backdropFilter: "blur(14px) saturate(160%)",
+          WebkitBackdropFilter: "blur(14px) saturate(160%)",
+          boxShadow: "var(--lg-shadow-card)",
+          borderRadius: "14px",
           padding: "14px 16px",
           marginBottom: "12px",
           border: "1px solid rgba(0,0,0,0.08)",
         }}
       >
-        <div style={{ fontSize: "11px", color: "#8E8E93", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>
-          Status
+        <div style={{ fontSize: "11px", color: "var(--text-tertiary, #6C6C71)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>
+          <Trans>Status</Trans>
         </div>
         <div
           data-testid="popover-status"
           style={{
             fontSize: "18px",
             fontWeight: 600,
-            color: paused ? "var(--semantic-ask, #B27B00)" : status === "Action needed" ? "var(--semantic-deny, #C8312A)" : "var(--semantic-allow, #1B8C3A)",
+            color: paused ? "var(--semantic-ask, #916400)" : STATUS_COLOR[state],
           }}
         >
-          {paused ? "Paused" : status}
+          {paused ? t`Paused` : t(STATUS_LABEL[state])}
         </div>
       </div>
 
       {/* Pending approvals */}
       <div
         style={{
-          background: "#F5F5F7",
-          borderRadius: "8px",
+          background: "rgba(255,255,255,0.72)",
+          backdropFilter: "blur(14px) saturate(160%)",
+          WebkitBackdropFilter: "blur(14px) saturate(160%)",
+          boxShadow: "var(--lg-shadow-card)",
+          borderRadius: "14px",
           padding: "14px 16px",
           marginBottom: "auto",
           display: "flex",
@@ -174,12 +209,12 @@ export default function TrayPopover() {
         }}
       >
         <div>
-          <div style={{ fontSize: "11px", color: "#8E8E93", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>
-            Actions waiting for you
+          <div style={{ fontSize: "11px", color: "var(--text-tertiary, #6C6C71)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>
+            <Trans>Actions waiting for you</Trans>
           </div>
           <div
             data-testid="popover-pending"
-            style={{ fontSize: "18px", fontWeight: 600, color: pendingCount > 0 ? "var(--semantic-ask, #B27B00)" : "#8E8E93" }}
+            style={{ fontSize: "18px", fontWeight: 600, color: pendingCount > 0 ? "var(--semantic-ask, #916400)" : "var(--text-tertiary, #6C6C71)" }}
           >
             {pendingCount}
           </div>
@@ -187,7 +222,7 @@ export default function TrayPopover() {
         {pendingCount > 0 && (
           <span
             style={{
-              background: "var(--semantic-ask, #B27B00)",
+              background: "var(--semantic-ask, #916400)",
               color: "#FFFFFF",
               borderRadius: "9999px",
               padding: "2px 8px",
@@ -209,15 +244,15 @@ export default function TrayPopover() {
             onClick={handleToggleBoot}
             disabled={bootBusy}
             aria-pressed={bootOn}
-            title="Run Belay automatically when this computer starts (needs Administrator once)"
+            title={t`Run Belay automatically when this computer starts (needs Administrator once)`}
             style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              background: "rgba(0,0,0,0.04)",
+              background: "rgba(255,255,255,0.66)",
               color: "#1C1C1E",
               border: "1px solid rgba(0,0,0,0.08)",
-              borderRadius: "6px",
+              borderRadius: "12px",
               padding: "10px",
               fontSize: "14px",
               fontWeight: 500,
@@ -225,7 +260,7 @@ export default function TrayPopover() {
               opacity: bootBusy ? 0.7 : 1,
             }}
           >
-            <span>Start on boot</span>
+            <span><Trans>Start on boot</Trans></span>
             <span
               aria-hidden="true"
               style={{
@@ -259,10 +294,10 @@ export default function TrayPopover() {
           onClick={handlePauseResume}
           disabled={toggling}
           style={{
-            background: "rgba(0,0,0,0.06)",
+            background: "rgba(255,255,255,0.66)",
             color: "#1C1C1E",
             border: "1px solid rgba(0,0,0,0.08)",
-            borderRadius: "6px",
+            borderRadius: "12px",
             padding: "10px",
             fontSize: "14px",
             fontWeight: 500,
@@ -271,7 +306,7 @@ export default function TrayPopover() {
             transition: "background 0.15s",
           }}
         >
-          {paused ? "Resume protection" : "Pause protection"}
+          {paused ? t`Resume protection` : t`Pause protection`}
         </button>
 
         <button
@@ -281,7 +316,7 @@ export default function TrayPopover() {
             background: ACCENT,
             color: "#FFFFFF",
             border: "none",
-            borderRadius: "6px",
+            borderRadius: "12px",
             padding: "10px",
             fontSize: "14px",
             fontWeight: 500,
@@ -289,7 +324,7 @@ export default function TrayPopover() {
             transition: "background 0.15s",
           }}
         >
-          Open dashboard
+          <Trans>Open dashboard</Trans>
         </button>
       </div>
 

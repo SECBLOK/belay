@@ -75,6 +75,17 @@ fn golden_table() -> Vec<(&'static str, i64, &'static str, Vec<Finding>)> {
                     Severity::Critical,
                     "YARA match: Detects piping download to shell interpreter [file: SKILL.md]",
                 ),
+                // Third, corroborating detection of the same curl|sh: the
+                // skillscan detector reads SKILL.md itself, so this malicious
+                // sample now trips the rce/yara pair AND skillscan's own rule.
+                // A true positive on a deliberately malicious corpus entry -
+                // the golden just predates skillscan being wired in. Score
+                // (100) and DO_NOT_INSTALL are unchanged.
+                gf(
+                    "skill.rce.pipe_to_shell",
+                    Severity::Critical,
+                    "A remote script is fetched and piped directly into an interpreter. [file: SKILL.md]",
+                ),
             ],
         ),
         (
@@ -184,5 +195,68 @@ fn cli_exit_code_on_high_score() {
         Some(0),
         "expected exit 0 for benign target, got {:?}",
         status.code()
+    );
+}
+
+/// `--format sarif` over a corpus dir with a known-precise-line finding must
+/// emit a real `region.startLine` in `runs[0].results[].locations[0]`.
+///
+/// This is the Step-4 e2e location assertion for the SARIF-enrichment
+/// change (Task 1 added `locations`/`partialFingerprints`/a richer rules
+/// catalog to `scanner::sarif::to_sarif`; `golden_sarif.rs` covers the
+/// belay-native fixture parity, this test covers the real CLI binary's
+/// `--format sarif` output end to end).
+///
+/// `malicious/decode_exec/run.py` has `exec(decoded)` on line 15 — the
+/// `ast.exec` analyzer anchors its finding there. We spawn the actual
+/// compiled `scanner` binary (not `run_scan` directly) so this exercises the
+/// full CLI → `run_cli` → `print_result_and_exit` → stdout path.
+#[test]
+fn sarif_format_emits_precise_location() {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let target = std::path::Path::new(manifest).join("tests/corpus_scan/malicious/decode_exec");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_scanner"))
+        .args(["scan", target.to_str().unwrap(), "--format", "sarif"])
+        .current_dir(manifest)
+        .output()
+        .expect("failed to spawn scanner binary");
+
+    assert!(
+        output.status.success() || output.status.code() == Some(1),
+        "unexpected exit status: {:?}",
+        output.status
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let sarif: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("SARIF stdout not valid JSON: {e}\nstdout={stdout}"));
+
+    let results = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results must be an array");
+    assert!(!results.is_empty(), "expected at least one SARIF result");
+
+    let ast_result = results
+        .iter()
+        .find(|r| r["ruleId"] == "ast.exec")
+        .unwrap_or_else(|| panic!("expected an ast.exec result, got: {results:#?}"));
+
+    let uri = ast_result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        .as_str()
+        .expect("ast.exec result must carry a locations[0].physicalLocation.artifactLocation.uri");
+    assert!(
+        !uri.contains('\\'),
+        "SARIF uri must be forward-slash, got {uri:?}"
+    );
+
+    let start_line = ast_result["locations"][0]["physicalLocation"]["region"]["startLine"]
+        .as_i64()
+        .unwrap_or_else(|| {
+            panic!("ast.exec result must carry locations[0].physicalLocation.region.startLine, got: {ast_result:#?}")
+        });
+    assert_eq!(
+        start_line, 15,
+        "ast.exec finding for run.py's exec(decoded) call must anchor to line 15"
     );
 }

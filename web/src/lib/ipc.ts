@@ -4,7 +4,7 @@
 // lib/api.ts delegates here when running inside the Tauri desktop window.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { PostureSummary, Finding, Explain, AiConfig } from "./api";
+import type { PostureSummary, Finding, Explain, AiConfig, TrustSummary, ResolveResult } from "./api";
 import type {
   HostFinding,
   ScanSchedule,
@@ -17,10 +17,16 @@ import type {
   Ban,
   HardeningPosture,
   VulnPosture,
+  SkillSummary,
 } from "./hostTypes";
 
 export const getPosture = (): Promise<PostureSummary> => invoke("get_posture");
+export const getTrust = (): Promise<TrustSummary> => invoke("get_trust");
 export const getFindings = (): Promise<Finding[]> => invoke("get_findings");
+export const getLocale = (): Promise<{ locale: string; supported: string[] }> =>
+  invoke("get_locale");
+export const setLocale = (locale: string): Promise<{ ok: boolean; error?: string }> =>
+  invoke("set_locale", { locale });
 export const getSessions = () => invoke("get_sessions");
 export const getEgress = () => invoke("get_egress");
 
@@ -38,7 +44,7 @@ export const resolve = (
   id: string,
   decision: "allow" | "deny",
   scope: "once" | "always" = "once",
-) => invoke("respond_approval", { id, decision, scope });
+): Promise<ResolveResult> => invoke("respond_approval", { id, decision, scope });
 
 // Toggle the daemon-held protection flag (Task 7).
 export const setProtection = (on: boolean) => invoke("set_protection", { on });
@@ -97,6 +103,11 @@ export const unprotectAgent = (name: string) => invoke("unprotect_agent", { name
 export const getRecentAudit = (limit = 200): Promise<any[]> =>
   invoke<any[]>("get_recent_audit", { limit }).catch(() => []);
 
+// Recent approval-provenance rows (approval.resolved/respond) for the Alerts
+// feed. Separate store from the gate audit log; fail-safe to [].
+export const getRecentApprovals = (limit = 200): Promise<any[]> =>
+  invoke<any[]>("get_recent_approvals", { limit }).catch(() => []);
+
 // Subscribe to the live audit feed emitted by the Rust side as "audit-event".
 export function streamAudit(onRow: (row: any) => void): () => void {
   const un = listen("audit-event", (e: any) => onRow(e.payload));
@@ -125,7 +136,7 @@ export function openAuditStream(h: {
 // Each mirrors the api.ts stub; the Tauri command names use snake_case.
 
 // Host scan
-export const runHostScan = (options?: { quick?: boolean }): Promise<{ jobId: string }> =>
+export const runHostScan = (options?: { quick?: boolean }): Promise<{ jobId: string; scanned: number }> =>
   invoke("run_host_scan", { options: options ?? {} });
 
 export const getScanResults = (jobId?: string): Promise<HostFinding[]> =>
@@ -147,6 +158,13 @@ export const restoreQuarantine = (id: string): Promise<void> =>
 
 export const deleteQuarantine = (id: string): Promise<void> =>
   invoke("delete_quarantine", { id });
+
+// Skills
+export const listSkills = (): Promise<SkillSummary[]> =>
+  invoke("list_skills");
+
+export const approveSkill = (path: string): Promise<string[]> =>
+  invoke("approve_skill", { path });
 
 // Firewall
 export const getProposedRuleset = (): Promise<ProposedRuleset> =>

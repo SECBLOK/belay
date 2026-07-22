@@ -84,3 +84,57 @@ it("polls get_pending on an interval", async () => {
   await flush();
   expect(calls()).toBeGreaterThan(firstCalls);
 });
+
+// The daemon's `ok:true` means "resolved", NOT "you got what you asked for":
+// the GateGuard self-approval guard can override an Allow to Deny. If the
+// surface ignores that, the row just disappears and the operator is left
+// believing they allowed the action. Resolving also DRAINS the queue, so the
+// notice has to outlive `pendings` becoming empty.
+it("tells the operator when an Allow was overridden by the self-approval guard", async () => {
+  const one = [{ id: "ap-1", session: "claude", tool: "Bash", input: { command: "cat .env" }, reason: "r", rule: "x", created_ms: 0 }];
+  let drained = false;
+  invoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_pending") return Promise.resolve(pendingResponse(drained ? [] : one));
+    if (cmd === "respond_approval") {
+      drained = true; // the request is gone from the queue after resolving
+      return Promise.resolve({ ok: true, decision: "deny", requested: "allow", self_approval_blocked: true });
+    }
+    return Promise.resolve({});
+  });
+
+  render(<ApprovalSurface />);
+  await flush();
+  expect(screen.queryByTestId("self-approval-blocked")).toBeNull();
+
+  // Buttons arm after a ~1s keystroke guard.
+  await act(async () => { vi.advanceTimersByTime(1100); });
+  await act(async () => { screen.getByText("Allow once").click(); });
+  await flush();
+
+  const banner = screen.getByTestId("self-approval-blocked");
+  expect(banner.textContent).toContain("Approval blocked");
+  // Survives the now-empty queue rather than vanishing with the card.
+  await act(async () => { vi.advanceTimersByTime(1100); });
+  await flush();
+  expect(screen.getByTestId("self-approval-blocked")).toBeTruthy();
+});
+
+it("stays silent when the Allow was honored", async () => {
+  const one = [{ id: "ap-2", session: "claude", tool: "Bash", input: { command: "ls" }, reason: "r", rule: "x", created_ms: 0 }];
+  let drained = false;
+  invoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_pending") return Promise.resolve(pendingResponse(drained ? [] : one));
+    if (cmd === "respond_approval") {
+      drained = true;
+      return Promise.resolve({ ok: true, decision: "allow", requested: "allow", self_approval_blocked: false });
+    }
+    return Promise.resolve({});
+  });
+
+  render(<ApprovalSurface />);
+  await flush();
+  await act(async () => { vi.advanceTimersByTime(1100); });
+  await act(async () => { screen.getByText("Allow once").click(); });
+  await flush();
+  expect(screen.queryByTestId("self-approval-blocked")).toBeNull();
+});

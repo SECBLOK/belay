@@ -10,6 +10,8 @@ vi.mock("../lib/api", () => ({
     top_rules: [{ rule_id: "destructive.rm_rf", count: 1, category: "destructive" }],
   }),
   streamAudit: vi.fn().mockReturnValue(() => {}),
+  getTrust: vi.fn().mockResolvedValue({ sessions: [] }),
+  getRecentApprovals: vi.fn().mockResolvedValue([]),
 }));
 it("renders score via Show details disclosure", async () => {
   render(<Posture />);

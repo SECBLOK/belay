@@ -1,6 +1,7 @@
 import type { Pending } from "./ApprovalCard";
 import { humanizeRule } from "../lib/humanize";
 import { severityOf } from "./dash";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 
 type Decision = "allow" | "deny";
 
@@ -14,6 +15,7 @@ export default function BatchDigest({
   onResolveAll: (d: Decision) => void;
   onExpand: () => void;
 }) {
+  const { t } = useLingui();
   // Group by human label (not raw rule id), preserving first-seen order.
   // Key: human label string; value: { items, rule (first seen), severity }
   const groups = new Map<string, { items: Pending[]; rule: string }>();
@@ -25,10 +27,11 @@ export default function BatchDigest({
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-modal p-6 max-w-md w-full space-y-4" style={{ boxShadow: "var(--shadow-modal)" }} role="alertdialog" aria-label="Approvals required">
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4"
+      style={{ background: "rgba(18,20,31,0.46)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}>
+      <div className="lg-modal alert-enter p-6 max-w-md w-full space-y-4" role="alertdialog" aria-label={t`Approvals required`}>
         <div className="text-text-primary font-semibold text-title1">
-          {pendings.length} pending approvals
+          <Plural value={pendings.length} one="# pending approval" other="# pending approvals" />
         </div>
         <ul className="space-y-2">
           {[...groups.entries()].map(([label, { items, rule }]) => {
@@ -58,7 +61,7 @@ export default function BatchDigest({
             style={{ background: "var(--semantic-deny)" }}
             onClick={() => onResolveAll("deny")}
           >
-            Deny all
+            <Trans>Deny all</Trans>
           </button>
           <div className="grid grid-cols-2 gap-2">
             {/* Allow all: de-emphasized (outline/ghost) */}
@@ -66,13 +69,13 @@ export default function BatchDigest({
               className="py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
               onClick={() => onResolveAll("allow")}
             >
-              Allow all
+              <Trans>Allow all</Trans>
             </button>
             <button
               className="py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
               onClick={onExpand}
             >
-              Review individually
+              <Trans>Review individually</Trans>
             </button>
           </div>
         </div>

@@ -67,6 +67,32 @@ pub struct AiConfig {
     pub base_url: Option<String>,
     #[serde(default)]
     pub cloud_consent: bool,
+    /// Per-task override for [`AiTask::Explain`]. `None` (the default) falls
+    /// back to the global `model` — see [`AiConfig::model_for`].
+    #[serde(default)]
+    pub explain_model: Option<String>,
+    /// Per-task override for [`AiTask::SkillJudge`]. `None` (the default)
+    /// falls back to the global `model` — see [`AiConfig::model_for`].
+    #[serde(default)]
+    pub skill_judge_model: Option<String>,
+    /// Separate opt-in from `mode != Off`: this flag lets the skill-install
+    /// meta-filter (daemon/src/skills/judge.rs) actually run. Off by default —
+    /// enabling the general explainer does NOT implicitly enable this, because
+    /// this feature changes what the operator gets asked about, not just what
+    /// text they're shown.
+    #[serde(default)]
+    pub skill_judge_enabled: bool,
+    /// Separate opt-in from `skill_judge_enabled`: lets the SAME LLM
+    /// meta-filter also run on the synchronous install-gate path
+    /// (`judge_skill_gate` in daemon/src/skills/judge.rs), not just the
+    /// async watcher. Off by default and independent of the watcher flag —
+    /// an operator can enable the zero-latency async judge without opting
+    /// into the latency-on-install synchronous one, or vice versa, because
+    /// the gate path sits on the live tool-call critical path and a cold
+    /// model changes the operator's install-time experience in a way the
+    /// watcher path never does.
+    #[serde(default)]
+    pub skill_judge_gate_enabled: bool,
 }
 
 impl Default for AiConfig {
@@ -77,8 +103,22 @@ impl Default for AiConfig {
             model: default_model(),
             base_url: None,
             cloud_consent: false,
+            explain_model: None,
+            skill_judge_model: None,
+            skill_judge_enabled: false,
+            skill_judge_gate_enabled: false,
         }
     }
+}
+
+/// A distinct AI-backed task inside the daemon, each of which can be routed
+/// to its own model via [`AiConfig::model_for`] (e.g. a small/fast model for
+/// the synchronous skill-install gate vs. a larger one for on-demand
+/// explanations).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiTask {
+    Explain,
+    SkillJudge,
 }
 
 impl AiConfig {
@@ -100,6 +140,24 @@ impl AiConfig {
     /// Whether the AI explainer is enabled (any mode other than `Off`).
     pub fn enabled(&self) -> bool {
         !matches!(self.mode, AiMode::Off)
+    }
+
+    /// Resolve the model name to use for a given [`AiTask`]: the task's
+    /// per-task override if set, else the global `model`.
+    ///
+    /// SECURITY INVARIANT: this returns a model NAME ONLY. It can never
+    /// change `provider`, `mode`, `base_url`, or `cloud_consent` — those
+    /// stay global and are never per-task. A per-task model override can
+    /// therefore never route a task to a different provider, a different
+    /// endpoint, or (most importantly) silently flip a local-only task to
+    /// cloud: whatever provider/mode/base_url/cloud_consent the operator
+    /// configured applies uniformly to every task, no matter which model
+    /// name `model_for` resolves to.
+    pub fn model_for(&self, task: AiTask) -> &str {
+        match task {
+            AiTask::Explain => self.explain_model.as_deref().unwrap_or(&self.model),
+            AiTask::SkillJudge => self.skill_judge_model.as_deref().unwrap_or(&self.model),
+        }
     }
 
     /// Persist to `path` as JSON, owner-only (0600; defense-in-depth — this
@@ -168,9 +226,25 @@ impl AiConfig {
             .get("base_url")
             .and_then(|v| v.as_str())
             .map(str::to_string);
+        let explain_model = args
+            .get("explain_model")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let skill_judge_model = args
+            .get("skill_judge_model")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         let cloud_consent = args
             .get("cloud_consent")
             .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let skill_judge_enabled = args
+            .get("skill_judge_enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let skill_judge_gate_enabled = args
+            .get("skill_judge_gate_enabled")
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
         if mode == AiMode::Cloud && !cloud_consent {
@@ -186,6 +260,10 @@ impl AiConfig {
             model,
             base_url,
             cloud_consent,
+            explain_model,
+            skill_judge_model,
+            skill_judge_enabled,
+            skill_judge_gate_enabled,
         })
     }
 }
@@ -266,12 +344,105 @@ mod tests {
     }
 
     #[test]
+    fn load_missing_skill_judge_enabled_key_defaults_false() {
+        // An old ai.json written before this field existed must still parse,
+        // with skill_judge_enabled defaulting to false (additive/backward-compatible).
+        let tmp = TempJsonFile::new("no-skill-judge-key");
+        tmp.write(r#"{"mode":"local","model":"qwen2.5"}"#);
+        let cfg = AiConfig::load(&tmp.path);
+        assert!(!cfg.skill_judge_enabled);
+    }
+
+    #[test]
+    fn load_skill_judge_enabled_true_round_trips() {
+        let tmp = TempJsonFile::new("skill-judge-true");
+        tmp.write(r#"{"mode":"local","skill_judge_enabled":true}"#);
+        let cfg = AiConfig::load(&tmp.path);
+        assert!(cfg.skill_judge_enabled);
+    }
+
+    #[test]
+    fn load_missing_skill_judge_gate_enabled_key_defaults_false() {
+        // An old ai.json written before this field existed must still parse,
+        // with skill_judge_gate_enabled defaulting to false
+        // (additive/backward-compatible), independent of skill_judge_enabled.
+        let tmp = TempJsonFile::new("no-skill-judge-gate-key");
+        tmp.write(r#"{"mode":"local","skill_judge_enabled":true}"#);
+        let cfg = AiConfig::load(&tmp.path);
+        assert!(cfg.skill_judge_enabled);
+        assert!(!cfg.skill_judge_gate_enabled);
+    }
+
+    #[test]
+    fn load_skill_judge_gate_enabled_true_round_trips() {
+        let tmp = TempJsonFile::new("skill-judge-gate-true");
+        tmp.write(r#"{"mode":"local","skill_judge_gate_enabled":true}"#);
+        let cfg = AiConfig::load(&tmp.path);
+        assert!(cfg.skill_judge_gate_enabled);
+        // Independent of the watcher flag, which was never set here.
+        assert!(!cfg.skill_judge_enabled);
+    }
+
+    #[test]
     fn default_config_has_sensible_provider_and_model() {
         let cfg = AiConfig::default();
         assert_eq!(cfg.provider, "ollama");
         assert_eq!(cfg.model, "qwen2.5");
         assert_eq!(cfg.mode, AiMode::Off);
         assert!(!cfg.enabled());
+    }
+
+    // ── Task 1: `AiTask` + per-task model overrides + `model_for` resolver ────
+
+    #[test]
+    fn model_for_falls_back_to_global_model_when_overrides_absent() {
+        let cfg = AiConfig {
+            model: "qwen2.5".into(),
+            ..AiConfig::default()
+        };
+        assert_eq!(cfg.model_for(AiTask::Explain), "qwen2.5");
+        assert_eq!(cfg.model_for(AiTask::SkillJudge), "qwen2.5");
+    }
+
+    #[test]
+    fn model_for_uses_per_task_override_when_set() {
+        let cfg = AiConfig {
+            model: "qwen2.5".into(),
+            explain_model: Some("gemma3:4b".into()),
+            skill_judge_model: Some("gemma4:27b".into()),
+            ..AiConfig::default()
+        };
+        assert_eq!(cfg.model_for(AiTask::Explain), "gemma3:4b");
+        assert_eq!(cfg.model_for(AiTask::SkillJudge), "gemma4:27b");
+    }
+
+    #[test]
+    fn load_missing_per_task_model_keys_default_to_global_model() {
+        let tmp = TempJsonFile::new("no-per-task-model-keys");
+        tmp.write(r#"{"mode":"local","model":"qwen2.5"}"#);
+        let cfg = AiConfig::load(&tmp.path);
+        assert_eq!(cfg.explain_model, None);
+        assert_eq!(cfg.skill_judge_model, None);
+        assert_eq!(cfg.model_for(AiTask::Explain), "qwen2.5");
+        assert_eq!(cfg.model_for(AiTask::SkillJudge), "qwen2.5");
+    }
+
+    #[test]
+    fn default_model_is_still_qwen25_unchanged() {
+        // Owner decision: recommend-only, no default bump.
+        assert_eq!(AiConfig::default().model, "qwen2.5");
+    }
+
+    #[test]
+    fn from_args_round_trips_per_task_models() {
+        let args = serde_json::json!({
+            "mode": "local",
+            "skill_judge_model": "gemma4:27b"
+        });
+        let cfg = AiConfig::from_args(&args).unwrap();
+        assert_eq!(cfg.skill_judge_model.as_deref(), Some("gemma4:27b"));
+        assert_eq!(cfg.explain_model, None);
+        assert_eq!(cfg.model_for(AiTask::SkillJudge), "gemma4:27b");
     }
 
     // ── Task 7: `from_args` validator (owner-gated `set_ai_config` IPC) ───────
@@ -353,6 +524,49 @@ mod tests {
     }
 
     #[test]
+    fn from_args_round_trips_skill_judge_enabled() {
+        let args = serde_json::json!({"mode": "local", "skill_judge_enabled": true});
+        let cfg = AiConfig::from_args(&args).expect("local mode with skill_judge_enabled");
+        assert!(cfg.skill_judge_enabled);
+
+        let args_absent = serde_json::json!({"mode": "local"});
+        let cfg_absent = AiConfig::from_args(&args_absent).expect("skill_judge_enabled optional");
+        assert!(!cfg_absent.skill_judge_enabled, "missing key must default to false");
+    }
+
+    #[test]
+    fn from_args_round_trips_skill_judge_gate_enabled() {
+        let args = serde_json::json!({"mode": "local", "skill_judge_gate_enabled": true});
+        let cfg = AiConfig::from_args(&args).expect("local mode with skill_judge_gate_enabled");
+        assert!(cfg.skill_judge_gate_enabled);
+        assert!(!cfg.skill_judge_enabled, "must not implicitly enable the watcher flag");
+
+        let args_absent = serde_json::json!({"mode": "local"});
+        let cfg_absent =
+            AiConfig::from_args(&args_absent).expect("skill_judge_gate_enabled optional");
+        assert!(!cfg_absent.skill_judge_gate_enabled, "missing key must default to false");
+    }
+
+    #[test]
+    fn from_args_skill_judge_flags_are_independent() {
+        // Watcher on, gate off.
+        let cfg = AiConfig::from_args(&serde_json::json!({
+            "mode": "local", "skill_judge_enabled": true, "skill_judge_gate_enabled": false
+        }))
+        .expect("valid args");
+        assert!(cfg.skill_judge_enabled);
+        assert!(!cfg.skill_judge_gate_enabled);
+
+        // Gate on, watcher off.
+        let cfg2 = AiConfig::from_args(&serde_json::json!({
+            "mode": "local", "skill_judge_enabled": false, "skill_judge_gate_enabled": true
+        }))
+        .expect("valid args");
+        assert!(!cfg2.skill_judge_enabled);
+        assert!(cfg2.skill_judge_gate_enabled);
+    }
+
+    #[test]
     fn from_args_rejects_unknown_cloud_provider() {
         let args = serde_json::json!({
             "mode": "cloud", "provider": "bogus", "cloud_consent": true
@@ -373,6 +587,10 @@ mod tests {
             model: "gpt-5".to_string(),
             base_url: Some("https://example.invalid".to_string()),
             cloud_consent: true,
+            explain_model: Some("gemma3:4b".to_string()),
+            skill_judge_model: Some("gemma4:27b".to_string()),
+            skill_judge_enabled: true,
+            skill_judge_gate_enabled: true,
         };
         cfg.save(&tmp.path).expect("save must succeed");
         let loaded = AiConfig::load(&tmp.path);

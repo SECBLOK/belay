@@ -1,5 +1,6 @@
-// AI Explanations settings panel: mode/provider/model + cloud-consent gate.
-// Rendered by the top-level "AI Explanations" sidebar view (views/Ai.tsx).
+// AI settings panel: Connection (mode/provider/model + cloud-consent gate) plus
+// the Explanations and Skill Judge sections that route off it. Rendered by the
+// top-level "AI" sidebar view (views/Ai.tsx).
 //
 // Feature `ai` is off by default; when the daemon wasn't built with it (or
 // this isn't the desktop app), getAiConfig() resolves to null and the panel
@@ -16,8 +17,20 @@ import {
   type AiProvider,
   type AiModel,
 } from "../../lib/aiProviders";
+import ModelPicker from "../../components/ModelPicker";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 const MODES: readonly AiMode[] = ["off", "local", "cloud"] as const;
+
+// The mode value ("off"/"local"/"cloud") is an enum compared in logic and sent
+// to the daemon - it must never be translated. Only its DISPLAYED label is.
+const MODE_LABEL: Record<AiMode, MessageDescriptor> = {
+  off: msg`Off`,
+  local: msg`Local`,
+  cloud: msg`Cloud`,
+};
 
 // The curated model list for whichever provider is currently active (Cloud:
 // the selected cloud provider; Local: the fixed Ollama entry). Falls back to
@@ -40,6 +53,7 @@ interface AiConfigPanelProps {
 }
 
 function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
+  const { t } = useLingui();
   const [mode, setMode] = useState<AiMode>(config.mode);
   const [provider, setProvider] = useState(config.provider);
   const [model, setModel] = useState(config.model);
@@ -53,6 +67,13 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
   );
   const [baseUrl, setBaseUrl] = useState(config.base_url ?? "");
   const [cloudConsent, setCloudConsent] = useState(config.cloud_consent);
+  // Per-task model routing + judge toggles (spec §4, §6.1). null model = inherit
+  // the global `model`. Both judge flags default off (security default).
+  const [explainModel, setExplainModel] = useState<string | null>(config.explain_model ?? null);
+  const [judgeModel, setJudgeModel] = useState<string | null>(config.skill_judge_model ?? null);
+  const [judgeEnabled, setJudgeEnabled] = useState<boolean>(config.skill_judge_enabled ?? false);
+  const [judgeGate, setJudgeGate] = useState<boolean>(config.skill_judge_gate_enabled ?? false);
+  const aiOff = mode === "off";
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +164,11 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
     provider !== config.provider ||
     model !== config.model ||
     baseUrl !== (config.base_url ?? "") ||
-    cloudConsent !== config.cloud_consent;
+    cloudConsent !== config.cloud_consent ||
+    explainModel !== (config.explain_model ?? null) ||
+    judgeModel !== (config.skill_judge_model ?? null) ||
+    judgeEnabled !== (config.skill_judge_enabled ?? false) ||
+    judgeGate !== (config.skill_judge_gate_enabled ?? false);
 
   // The UI enforces the same rule the daemon enforces (AiConfig::from_args):
   // cloud mode may not be saved without explicit consent, since it sends the
@@ -153,7 +178,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
 
   const handleSave = async () => {
     if (consentBlocked) {
-      setError("Cloud mode requires consent — check the box above.");
+      setError(t`Cloud mode requires consent — check the box above.`);
       return;
     }
     setSaving(true);
@@ -167,6 +192,10 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
         base_url: baseUrl.trim() === "" ? null : baseUrl,
         cloud_consent: cloudConsent,
         key_present: config.key_present,
+        explain_model: explainModel && explainModel.trim() !== "" ? explainModel : null,
+        skill_judge_model: (judgeEnabled || judgeGate) && judgeModel && judgeModel.trim() !== "" ? judgeModel : null,
+        skill_judge_enabled: judgeEnabled,
+        skill_judge_gate_enabled: judgeGate,
       };
       const result = await setAiConfig(next);
       if (!mountedRef.current) return;
@@ -179,7 +208,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
           if (mountedRef.current) setSaved(false);
         }, 3000);
       } else {
-        setError(result.error ?? "Save failed.");
+        setError(result.error ?? t`Save failed.`);
       }
     } finally {
       if (mountedRef.current) setSaving(false);
@@ -207,7 +236,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
           if (mountedRef.current) setKeySaved(false);
         }, 3000);
       } else {
-        setKeyError(result.error ?? "Failed to save key.");
+        setKeyError(result.error ?? t`Failed to save key.`);
       }
     } finally {
       if (mountedRef.current) setKeySaving(false);
@@ -218,11 +247,13 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
   const handleClearKey = () => submitKey("");
 
   return (
-    <div className="rounded-xl bg-white p-5 space-y-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+    <div className="lg-glass p-5 space-y-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
       <div>
-        <p className="text-xs text-[#8E8E93] mt-0.5">
-          Generates a plain-English second opinion on flagged actions. Local mode never leaves
-          this machine; Cloud mode requires your consent.
+        <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+          <Trans>
+            One connection powers plain-English explanations and the optional Skill Judge.
+            Local mode never leaves this machine; Cloud mode requires your consent.
+          </Trans>
         </p>
       </div>
 
@@ -230,7 +261,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
           (SegmentedNav): grey track, white active pill with accent text. */}
       <div
         role="radiogroup"
-        aria-label="AI mode"
+        aria-label={t`AI mode`}
         className="flex gap-1 p-1 rounded-xl"
         style={{ background: "rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.06)" }}
       >
@@ -242,7 +273,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
               role="radio"
               aria-checked={isActive}
               onClick={() => handleModeChange(m)}
-              className="px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors"
+              className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
               style={{
                 background: isActive ? "white" : "transparent",
                 color: isActive ? "var(--accent)" : "#636366",
@@ -250,7 +281,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
                 border: isActive ? "1px solid rgba(0,0,0,0.08)" : "1px solid transparent",
               }}
             >
-              {m}
+              {t(MODE_LABEL[m])}
             </button>
           );
         })}
@@ -258,7 +289,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
 
       {mode === "off" && (
         <p className="text-xs text-[#636366]">
-          AI explanations are disabled. Curated explanations remain available regardless.
+          <Trans>AI explanations are disabled. Curated explanations remain available regardless.</Trans>
         </p>
       )}
 
@@ -266,7 +297,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-4">
             <label className="space-y-1">
-              <span className="text-xs text-[#8E8E93]">Model</span>
+              <span className="text-xs text-[var(--text-tertiary)]"><Trans>Model</Trans></span>
               <select
                 value={modelIsCustom ? CUSTOM_MODEL_ID : model}
                 onChange={(e) => handleModelSelectChange(e.target.value)}
@@ -279,11 +310,11 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
                     {m.note ? ` — ${m.note}` : ""}
                   </option>
                 ))}
-                <option value={CUSTOM_MODEL_ID}>Custom…</option>
+                <option value={CUSTOM_MODEL_ID}>{t`Custom…`}</option>
               </select>
             </label>
             <label className="space-y-1">
-              <span className="text-xs text-[#8E8E93]">Base URL (optional)</span>
+              <span className="text-xs text-[var(--text-tertiary)]"><Trans>Base URL (optional)</Trans></span>
               <input
                 type="text"
                 value={baseUrl}
@@ -297,11 +328,11 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
           {modelIsCustom && (
             <input
               type="text"
-              aria-label="Custom model id"
+              aria-label={t`Custom model id`}
               ref={customModelInputRef}
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="Enter model id, e.g. llama3.3"
+              placeholder={t`Enter model id, e.g. llama3.3`}
               className="w-full bg-white rounded-lg text-sm text-[#1C1C1E] px-3 py-2 outline-none"
               style={{ border: "1px solid rgba(0,0,0,0.14)" }}
             />
@@ -313,7 +344,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-4">
             <label className="space-y-1">
-              <span className="text-xs text-[#8E8E93]">Provider</span>
+              <span className="text-xs text-[var(--text-tertiary)]"><Trans>Provider</Trans></span>
               <select
                 value={provider}
                 onChange={(e) => handleProviderChange(e.target.value)}
@@ -328,7 +359,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
               </select>
             </label>
             <label className="space-y-1">
-              <span className="text-xs text-[#8E8E93]">Model</span>
+              <span className="text-xs text-[var(--text-tertiary)]">Model</span>
               <select
                 value={modelIsCustom ? CUSTOM_MODEL_ID : model}
                 onChange={(e) => handleModelSelectChange(e.target.value)}
@@ -348,11 +379,11 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
           {modelIsCustom && (
             <input
               type="text"
-              aria-label="Custom model id"
+              aria-label={t`Custom model id`}
               ref={customModelInputRef}
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="Enter model id, e.g. gpt-4.1-2025-04-14"
+              placeholder={t`Enter model id, e.g. gpt-4.1-2025-04-14`}
               className="w-full bg-white rounded-lg text-sm text-[#1C1C1E] px-3 py-2 outline-none"
               style={{ border: "1px solid rgba(0,0,0,0.14)" }}
             />
@@ -366,15 +397,17 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
               className="mt-0.5"
             />
             <span>
-              I understand this sends the flagged action (redacted) to{" "}
-              {providerById(provider)?.label ?? (provider || "the provider")}.
+              <Trans>
+                I understand this sends the flagged action (redacted) to{" "}
+                {providerById(provider)?.label ?? (provider || t`the provider`)}.
+              </Trans>
             </span>
           </label>
 
           <div className="space-y-1.5 pt-1" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
             <div className="flex items-end gap-2">
               <label className="flex-1 space-y-1">
-                <span className="text-xs text-[#8E8E93]">API key</span>
+                <span className="text-xs text-[var(--text-tertiary)]"><Trans>API key</Trans></span>
                 <input
                   type="password"
                   autoComplete="off"
@@ -382,8 +415,8 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
                   onChange={(e) => setKeyInput(e.target.value)}
                   placeholder={
                     keyPresent
-                      ? "•••••••• (key saved)"
-                      : `Paste your ${providerById(provider)?.label ?? "provider"} API key`
+                      ? t`•••••••• (key saved)`
+                      : t`Paste your ${providerById(provider)?.label ?? "provider"} API key`
                   }
                   className="w-full bg-white rounded-lg text-sm text-[#1C1C1E] px-3 py-2 outline-none"
                   style={{ border: "1px solid rgba(0,0,0,0.14)" }}
@@ -395,23 +428,23 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
                 className="px-3 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40 whitespace-nowrap"
                 style={{ background: "var(--accent)", color: "#fff" }}
               >
-                {keySaving ? "Saving…" : "Save key"}
+                {keySaving ? t`Saving…` : t`Save key`}
               </button>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs text-[#8E8E93]">
+              <p className="text-xs text-[var(--text-tertiary)]">
                 {keyPresent
-                  ? "Stored on this machine, owner-only."
-                  : "(or set the BELAY_AI_KEY env var)"}
+                  ? t`Stored on this machine, owner-only.`
+                  : t`(or set the BELAY_AI_KEY env var)`}
               </p>
               {keyPresent && (
                 <button
                   onClick={handleClearKey}
                   disabled={keySaving}
                   className="text-xs hover:underline disabled:opacity-40 shrink-0"
-                  style={{ color: "#8E8E93" }}
+                  style={{ color: "var(--text-tertiary)" }}
                 >
-                  Clear
+                  <Trans>Clear</Trans>
                 </button>
               )}
             </div>
@@ -422,12 +455,90 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
             )}
             {keySaved && (
               <p className="text-xs" style={{ color: "var(--semantic-allow)" }}>
-                Key saved.
+                <Trans>Key saved.</Trans>
               </p>
             )}
           </div>
         </div>
       )}
+
+      {/* ── Explanations ─────────────────────────────────────────────
+          Implicitly active whenever AI is on (no explain_enabled flag).
+          Low-stakes → NO "Recommended" segment (cheap inherited model is
+          correct). Greyed when AI is off. (spec §3.3, §4) */}
+      <div
+        className="space-y-2 pt-3"
+        style={{ borderTop: "1px solid rgba(0,0,0,0.06)", opacity: aiOff ? 0.45 : 1 }}
+        aria-disabled={aiOff}
+      >
+        <div>
+          <p className="text-sm font-semibold text-[#1C1C1E]"><Trans>Explanations</Trans></p>
+          <p className="text-xs text-[var(--text-tertiary)]">
+            {aiOff ? t`Active whenever AI is on.` : t`Plain-English second opinion on flagged actions — active.`}
+          </p>
+        </div>
+        {!aiOff && (
+          <ModelPicker
+            label={t`Explanation model`}
+            value={explainModel}
+            inherited={model || t`(global model)`}
+            onChange={setExplainModel}
+          />
+        )}
+      </div>
+
+      {/* ── Skill Judge ──────────────────────────────────────────────
+          Two independent checkboxes → the two backend flags, both off by
+          default, both require mode != off. The ONLY place we nudge a
+          stronger model (Recommended segment + "why"). (spec §3.3, §4) */}
+      <div
+        className="space-y-2 pt-3"
+        style={{ borderTop: "1px solid rgba(0,0,0,0.06)", opacity: aiOff ? 0.45 : 1 }}
+        aria-disabled={aiOff}
+      >
+        <div>
+          <p className="text-sm font-semibold text-[#1C1C1E]"><Trans>Skill Judge</Trans></p>
+          <p className="text-xs text-[var(--text-tertiary)]">
+            <Trans>Uses the LLM to catch malicious agent skills. Off by default.</Trans>
+          </p>
+        </div>
+        <label className="flex items-start gap-2 text-sm text-[#1C1C1E]">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            disabled={aiOff}
+            checked={judgeEnabled}
+            onChange={(e) => setJudgeEnabled(e.target.checked)}
+          />
+          <span>
+            <Trans>Judge new / changed skills</Trans>
+            <span className="block text-xs text-[var(--text-tertiary)]"><Trans>Background watcher on skill files.</Trans></span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm text-[#1C1C1E]">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            disabled={aiOff}
+            checked={judgeGate}
+            onChange={(e) => setJudgeGate(e.target.checked)}
+          />
+          <span>
+            <Trans>Also gate installs</Trans>
+            <span className="block text-xs text-[var(--text-tertiary)]"><Trans>Synchronous check at install time (~1–5s).</Trans></span>
+          </span>
+        </label>
+        {!aiOff && (judgeEnabled || judgeGate) && (
+          <ModelPicker
+            label={t`Judge model`}
+            value={judgeModel}
+            inherited={model || t`(global model)`}
+            recommended={config.recommendations?.recommended_judge}
+            note={config.recommendations?.note}
+            onChange={setJudgeModel}
+          />
+        )}
+      </div>
 
       {isDirty && (
         <button
@@ -437,12 +548,12 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
           className="px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40"
           style={{ background: "var(--accent)", color: "#fff" }}
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? t`Saving…` : t`Save`}
         </button>
       )}
       {consentBlocked && isDirty && (
         <p id="ai-consent-required-hint" className="text-xs" style={{ color: "var(--semantic-ask)" }}>
-          Cloud mode requires consent — check the box above to enable Save.
+          <Trans>Cloud mode requires consent — check the box above to enable Save.</Trans>
         </p>
       )}
       {error && (
@@ -452,7 +563,7 @@ function AiConfigPanel({ config, onSaved }: AiConfigPanelProps) {
       )}
       {saved && (
         <p className="text-xs" style={{ color: "var(--semantic-allow)" }}>
-          Settings saved.
+          <Trans>Settings saved.</Trans>
         </p>
       )}
     </div>
@@ -500,10 +611,10 @@ export default function AiSettings() {
   if (state.kind === "loading") {
     return (
       <div
-        className="rounded-xl px-5 py-8 text-center text-sm text-[#8E8E93]"
+        className="rounded-xl px-5 py-8 text-center text-sm text-[var(--text-tertiary)]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        Loading AI settings…
+        <Trans>Loading AI settings…</Trans>
       </div>
     );
   }
@@ -522,27 +633,31 @@ export default function AiSettings() {
       >
         {inDesktop ? (
           <>
-            <p className="text-[#1C1C1E] font-medium">AI explanations aren’t enabled yet</p>
+            <p className="text-[#1C1C1E] font-medium"><Trans>AI explanations aren’t enabled yet</Trans></p>
             <p>
-              This is a bring-your-own-key feature and it’s <strong>off by default</strong>.
-              The running daemon was built without the AI module, so the provider,
-              model, and API-key controls can’t load. Rebuild and restart the daemon
-              with the <code>ai</code> feature enabled to use Local (on-device Ollama)
-              or Cloud (your choice of provider, your key) explanations.
+              <Trans>
+                This is a bring-your-own-key feature and it’s <strong>off by default</strong>.
+                The running daemon was built without the AI module, so the provider,
+                model, and API-key controls can’t load. Rebuild and restart the daemon
+                with the <code>ai</code> feature enabled to use Local (on-device Ollama)
+                or Cloud (your choice of provider, your key) explanations.
+              </Trans>
             </p>
-            <p className="text-[#8E8E93]">
-              Curated (non-AI) explanations for flagged actions always remain available.
+            <p className="text-[var(--text-tertiary)]">
+              <Trans>Curated (non-AI) explanations for flagged actions always remain available.</Trans>
             </p>
           </>
         ) : (
           <>
-            <p className="text-[#1C1C1E] font-medium">Open the desktop app to configure AI</p>
+            <p className="text-[#1C1C1E] font-medium"><Trans>Open the desktop app to configure AI</Trans></p>
             <p>
-              AI explanation settings (provider, model, and your API key) are managed
-              from the Belay desktop app, which talks to the local daemon.
+              <Trans>
+                AI explanation settings (provider, model, and your API key) are managed
+                from the Belay desktop app, which talks to the local daemon.
+              </Trans>
             </p>
-            <p className="text-[#8E8E93]">
-              Curated (non-AI) explanations for flagged actions always remain available here.
+            <p className="text-[var(--text-tertiary)]">
+              <Trans>Curated (non-AI) explanations for flagged actions always remain available here.</Trans>
             </p>
           </>
         )}
@@ -556,10 +671,10 @@ export default function AiSettings() {
         className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        <p className="text-[#1C1C1E] font-medium">Something went wrong</p>
-        <p className="font-mono text-xs text-[#8E8E93]">{state.message}</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Something went wrong</Trans></p>
+        <p className="font-mono text-xs text-[var(--text-tertiary)]">{state.message}</p>
         <button onClick={load} className="text-xs hover:underline mt-1" style={{ color: "#0856B3" }}>
-          Try again
+          <Trans>Try again</Trans>
         </button>
       </div>
     );

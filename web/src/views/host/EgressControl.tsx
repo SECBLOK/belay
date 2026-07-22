@@ -10,14 +10,17 @@ import {
   setNetEnrich,
 } from "../../lib/api";
 import AllowlistManager from "../../components/host/AllowlistManager";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 // ── Mode selector ─────────────────────────────────────────────────────────────
 
-type UiMode = { label: string; value: EgressMode };
+type UiMode = { label: MessageDescriptor; value: EgressMode };
 const MODES: UiMode[] = [
-  { label: "Off", value: "off" },
-  { label: "Alert (detect only)", value: "monitor" },
-  { label: "Block", value: "enforce" },
+  { label: msg`Off`, value: "off" },
+  { label: msg`Alert (detect only)`, value: "monitor" },
+  { label: msg`Block`, value: "enforce" },
 ];
 
 function ModeSelector({
@@ -27,9 +30,10 @@ function ModeSelector({
   current: EgressMode;
   onChange: (m: EgressMode) => void;
 }) {
+  const { t } = useLingui();
   return (
     <div className="space-y-2">
-      <p className="text-sm font-semibold text-[#1C1C1E]">Egress mode</p>
+      <p className="text-sm font-semibold text-[#1C1C1E]"><Trans>Egress mode</Trans></p>
       <div className="flex gap-2 flex-wrap">
         {MODES.map(({ label, value }) => (
           <button
@@ -41,7 +45,7 @@ function ModeSelector({
                 : "bg-white text-[#636366] border-black/10 hover:border-black/20"
             }`}
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
@@ -58,18 +62,19 @@ function EnrichToggle({
   enabled: boolean;
   onToggle: (v: boolean) => void;
 }) {
+  const { t } = useLingui();
   return (
     <div className="flex items-center justify-between gap-4">
       <div>
-        <p className="text-sm font-medium text-[#1C1C1E]">Enrich destinations</p>
+        <p className="text-sm font-medium text-[#1C1C1E]"><Trans>Enrich destinations</Trans></p>
         <p className="text-xs text-[#636366] mt-0.5">
-          Show owner/ASN/country next to egress hosts. Display-only — never affects allow/deny.
+          <Trans>Show owner/ASN/country next to egress hosts. Display-only — never affects allow/deny.</Trans>
         </p>
       </div>
       <button
         role="switch"
         aria-checked={enabled}
-        aria-label="Enrich destinations (show owner/ASN/country)"
+        aria-label={t`Enrich destinations (show owner/ASN/country)`}
         onClick={() => onToggle(!enabled)}
         className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
           enabled
@@ -126,21 +131,21 @@ function InlineToggle({
         aria-controls="inline-toggle-region"
       >
         <span className={`transition-transform text-xs ${open ? "rotate-90" : ""}`}>▶</span>
-        Advanced
+        <Trans>Advanced</Trans>
       </button>
 
       {open && (
         <div id="inline-toggle-region" className="pl-4 space-y-3">
           {/* Amber warning strip — always visible when section is open */}
           <div className="rounded-lg px-3 py-2 bg-amber-50 border border-amber-200 text-xs text-amber-800">
-            Can affect networking · fail-open if unattributable
+            <Trans>Can affect networking · fail-open if unattributable</Trans>
           </div>
 
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-[#1C1C1E]">Inline enforcement (NFQUEUE)</p>
+              <p className="text-sm font-medium text-[#1C1C1E]"><Trans>Inline enforcement (NFQUEUE)</Trans></p>
               <p className="text-xs text-[#636366] mt-0.5">
-                Installs a kernel hook that intercepts connections before they leave the host.
+                <Trans>Installs a kernel hook that intercepts connections before they leave the host.</Trans>
               </p>
             </div>
             <button
@@ -163,24 +168,26 @@ function InlineToggle({
 
           {/* Inline confirm dialog */}
           {confirming && (
-            <div className="rounded-xl border border-black/10 bg-white p-4 space-y-3 shadow-sm">
-              <p className="text-sm font-semibold text-[#1C1C1E]">Enable inline egress?</p>
+            <div className="lg-glass p-4 space-y-3">
+              <p className="text-sm font-semibold text-[#1C1C1E]"><Trans>Enable inline egress?</Trans></p>
               <p className="text-xs text-[#636366]">
-                This installs an NFQUEUE hook that can affect system networking. If a connection
-                cannot be attributed to a process, it is allowed through (fail-open).
+                <Trans>
+                  This installs an NFQUEUE hook that can affect system networking. If a connection
+                  cannot be attributed to a process, it is allowed through (fail-open).
+                </Trans>
               </p>
               <div className="flex gap-2">
                 <button
                   onClick={handleConfirm}
                   className="px-4 py-1.5 rounded-lg bg-[#1C1C1E] text-white text-sm font-medium hover:bg-black/80 transition-colors"
                 >
-                  Enable
+                  <Trans>Enable</Trans>
                 </button>
                 <button
                   onClick={handleCancel}
                   className="px-4 py-1.5 rounded-lg bg-[#E5E5EA] text-[#636366] text-sm font-medium hover:bg-[#D1D1D6] transition-colors"
                 >
-                  Cancel
+                  <Trans>Cancel</Trans>
                 </button>
               </div>
             </div>
@@ -194,6 +201,7 @@ function InlineToggle({
 // ── Main EgressControl view ───────────────────────────────────────────────────
 
 export default function EgressControl() {
+  const { t } = useLingui();
   const [rules, setRules] = useState<EgressRule[]>([]);
   const [mode, setMode] = useState<EgressMode>("monitor");
   const [inlineEnabled, setInlineEnabled] = useState(false);
@@ -208,11 +216,11 @@ export default function EgressControl() {
       setRules(data);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load egress rules");
+      setError(err instanceof Error ? err.message : t`Failed to load egress rules`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void fetchRules();
@@ -276,7 +284,7 @@ export default function EgressControl() {
         className="rounded-xl px-5 py-8 text-sm text-[#636366]"
         style={cardStyle}
       >
-        Loading egress configuration…
+        <Trans>Loading egress configuration…</Trans>
       </div>
     );
   }
@@ -287,13 +295,13 @@ export default function EgressControl() {
         className="rounded-xl px-5 py-8 text-sm space-y-1"
         style={cardStyle}
       >
-        <p className="text-[#1C1C1E] font-medium">Unable to load egress configuration</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Unable to load egress configuration</Trans></p>
         <p className="text-[#636366]">{error}</p>
         <button
           onClick={() => { setLoading(true); void fetchRules(); }}
           className="mt-2 text-xs text-blue-600 hover:underline"
         >
-          Retry
+          <Trans>Retry</Trans>
         </button>
       </div>
     );
@@ -313,7 +321,7 @@ export default function EgressControl() {
 
       {/* Allowlist */}
       <div className="rounded-xl px-5 py-5 space-y-3" style={cardStyle}>
-        <p className="text-sm font-semibold text-[#1C1C1E]">Egress allowlist</p>
+        <p className="text-sm font-semibold text-[#1C1C1E]"><Trans>Egress allowlist</Trans></p>
         <AllowlistManager rules={rules} onRemove={handleRemove} onAdd={handleAdd} />
       </div>
 

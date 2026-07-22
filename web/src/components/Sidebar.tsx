@@ -1,9 +1,13 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { getPosture, getPending } from "../lib/api";
 import type { PostureSummary } from "../lib/api";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
+import LanguagePicker from "./LanguagePicker";
 
 type Tab =
-  | "posture" | "findings" | "timeline" | "scan" | "agents" | "host" | "ai" | "messaging"
+  | "posture" | "findings" | "timeline" | "alerts" | "scan" | "agents" | "host" | "ai" | "messaging"
  ;
 
 interface SidebarProps {
@@ -14,7 +18,7 @@ interface SidebarProps {
 // ─── inline SVG icons (18px viewBox 0 0 24 24, stroke-based) ─────────────────
 
 function IconOverview({ active }: { active: boolean }) {
-  const col = active ? "var(--accent)" : "#8E8E93";
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -26,7 +30,7 @@ function IconOverview({ active }: { active: boolean }) {
 }
 
 function IconActivity({ active }: { active: boolean }) {
-  const col = active ? "var(--accent)" : "#8E8E93";
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
@@ -35,7 +39,7 @@ function IconActivity({ active }: { active: boolean }) {
 }
 
 function IconLiveFeed({ active }: { active: boolean }) {
-  const col = active ? "var(--accent)" : "#8E8E93";
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="2" />
@@ -47,8 +51,19 @@ function IconLiveFeed({ active }: { active: boolean }) {
   );
 }
 
+// Bell — informational alerts (observability, not blocking).
+function IconAlerts({ active }: { active: boolean }) {
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  );
+}
+
 function IconScan({ active }: { active: boolean }) {
-  const col = active ? "var(--accent)" : "#8E8E93";
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 7V5a2 2 0 0 1 2-2h2" />
@@ -61,7 +76,7 @@ function IconScan({ active }: { active: boolean }) {
 }
 
 function IconAgents({ active }: { active: boolean }) {
-  const col = active ? "var(--accent)" : "#8E8E93";
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -74,7 +89,7 @@ function IconAgents({ active }: { active: boolean }) {
 
 // Shield with a host/computer symbol — represents Host Protection.
 function IconHost({ active }: { active: boolean }) {
-  const col = active ? "var(--accent)" : "#8E8E93";
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
       {/* outer shield */}
@@ -88,7 +103,7 @@ function IconHost({ active }: { active: boolean }) {
 
 // Chat bubble — represents Messaging (approve from a chat app).
 function IconMessaging({ active }: { active: boolean }) {
-  const col = active ? "var(--accent)" : "#8E8E93";
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
@@ -98,7 +113,7 @@ function IconMessaging({ active }: { active: boolean }) {
 
 // Chat bubble with a small sparkle — represents AI Explanations.
 function IconAi({ active }: { active: boolean }) {
-  const col = active ? "var(--accent)" : "#8E8E93";
+  const col = active ? "var(--accent)" : "var(--text-tertiary)";
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={col} strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 10.5a7.5 7.5 0 0 1-11.2 6.5L3 18l1.2-3.6a7.5 7.5 0 1 1 15.8-3.9z" />
@@ -149,43 +164,51 @@ function deriveStatus(posture: PostureSummary | null): StatusState {
   return "protected";
 }
 
-const STATUS_META: Record<StatusState, { color: string; label: string }> = {
-  protected:  { color: "var(--semantic-allow)", label: "Protected"     },
-  monitoring: { color: "var(--semantic-info)",  label: "Monitoring"    },
-  action:     { color: "var(--semantic-ask)",   label: "Action needed" },
-  blocked:    { color: "var(--semantic-deny)",  label: "Blocked"       },
+// Label is a MessageDescriptor, not a string, and the COLOUR is keyed by the
+// state - never by the label - so this stays correct under any locale. (See
+// TrayPopover for the bug that motivates keying on state.)
+const STATUS_META: Record<StatusState, { color: string; label: MessageDescriptor }> = {
+  protected:  { color: "var(--semantic-allow)", label: msg`Protected`     },
+  monitoring: { color: "var(--semantic-info)",  label: msg`Monitoring`    },
+  action:     { color: "var(--semantic-ask)",   label: msg`Action needed` },
+  blocked:    { color: "var(--semantic-deny)",  label: msg`Blocked`       },
 };
 
 // ─── nav config ──────────────────────────────────────────────────────────────
 
 interface NavItem {
   tab: Tab;
-  label: string;
+  // A descriptor, resolved to a string with `t()` at render. These arrays are
+  // module-level, so a plain string would be captured in English once at load
+  // and never re-translate when the locale changes.
+  label: MessageDescriptor;
   Icon: (props: { active: boolean }) => ReactElement;
 }
 
 const PRIMARY_NAV: NavItem[] = [
-  { tab: "posture",   label: "Overview",    Icon: IconOverview  },
-  { tab: "findings",  label: "Activity",    Icon: IconActivity  },
-  { tab: "timeline",  label: "Live Feed",   Icon: IconLiveFeed  },
+  { tab: "posture",   label: msg`Overview`,    Icon: IconOverview  },
+  { tab: "findings",  label: msg`Activity`,    Icon: IconActivity  },
+  { tab: "timeline",  label: msg`Live Feed`,   Icon: IconLiveFeed  },
+  { tab: "alerts",    label: msg`Alerts`,      Icon: IconAlerts    },
 ];
 
 const TOOLS_NAV: NavItem[] = [
-  { tab: "scan",   label: "Scan",   Icon: IconScan   },
-  { tab: "agents", label: "Agents", Icon: IconAgents },
+  { tab: "scan",   label: msg`Scan`,   Icon: IconScan   },
+  { tab: "agents", label: msg`Agents`, Icon: IconAgents },
 ];
 
 
 const PROTECTION_NAV: NavItem[] = [
-  { tab: "host", label: "Host Protection", Icon: IconHost },
-  { tab: "ai", label: "AI Explanations", Icon: IconAi },
-  { tab: "messaging", label: "Messaging", Icon: IconMessaging },
+  { tab: "host", label: msg`Host Protection`, Icon: IconHost },
+  { tab: "ai", label: msg`AI Explanations`, Icon: IconAi },
+  { tab: "messaging", label: msg`Messaging`, Icon: IconMessaging },
 ];
 
 
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function Sidebar({ tab, onNavigate }: SidebarProps) {
+  const { t } = useLingui();
   const [posture, setPosture]         = useState<PostureSummary | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [collapsed, setCollapsed]     = useState(false);
@@ -221,14 +244,15 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
   }, []);
 
   const statusState = deriveStatus(posture);
-  const { color: statusColor, label: statusLabel } = STATUS_META[statusState];
+  const { color: statusColor, label: statusLabelMsg } = STATUS_META[statusState];
+  const statusLabel = t(statusLabelMsg);
   const hasDeny = (posture?.deny ?? 0) > 0;
 
   const w = collapsed ? "w-14" : "w-[220px]";
 
   return (
     <aside
-      className={`${w} shrink-0 flex flex-col h-screen bg-[var(--surface-overlay)] border-r border-[rgba(0,0,0,0.08)] transition-[width] duration-200 overflow-hidden`}
+      className={`${w} shrink-0 flex flex-col h-full lg-chrome transition-[width] duration-200 overflow-hidden`}
     >
       {/* identity */}
       <div className={`flex items-center gap-2.5 px-3 py-4 ${collapsed ? "justify-center" : ""}`}>
@@ -241,16 +265,16 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
       {/* nav */}
       <nav className="flex-1 flex flex-col gap-0.5 overflow-y-auto py-1">
         {/* primary group — no label */}
-        {PRIMARY_NAV.map(({ tab: t, label, Icon }) => {
-          const active = tab === t;
-          const showDot = t === "timeline" && !active && hasDeny;
+        {PRIMARY_NAV.map(({ tab: navTab, label, Icon }) => {
+          const active = tab === navTab;
+          const showDot = navTab === "timeline" && !active && hasDeny;
           return (
             <NavRow
-              key={t}
+              key={navTab}
               active={active}
-              label={label}
+              label={t(label)}
               collapsed={collapsed}
-              onClick={() => onNavigate(t)}
+              onClick={() => onNavigate(navTab)}
               dot={showDot}
               aria-current={active ? "page" : undefined}
             >
@@ -261,15 +285,15 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
 
         {/* tools group — separated by a subtle hairline, no label */}
         <GroupSeparator collapsed={collapsed} />
-        {TOOLS_NAV.map(({ tab: t, label, Icon }) => {
-          const active = tab === t;
+        {TOOLS_NAV.map(({ tab: navTab, label, Icon }) => {
+          const active = tab === navTab;
           return (
             <NavRow
-              key={t}
+              key={navTab}
               active={active}
-              label={label}
+              label={t(label)}
               collapsed={collapsed}
-              onClick={() => onNavigate(t)}
+              onClick={() => onNavigate(navTab)}
               aria-current={active ? "page" : undefined}
             >
               <Icon active={active} />
@@ -280,15 +304,15 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
 
         {/* protection group — host hardening, firewall, SSH guard, vuln scan */}
         <GroupSeparator collapsed={collapsed} />
-        {PROTECTION_NAV.map(({ tab: t, label, Icon }) => {
-          const active = tab === t;
+        {PROTECTION_NAV.map(({ tab: navTab, label, Icon }) => {
+          const active = tab === navTab;
           return (
             <NavRow
-              key={t}
+              key={navTab}
               active={active}
-              label={label}
+              label={t(label)}
               collapsed={collapsed}
-              onClick={() => onNavigate(t)}
+              onClick={() => onNavigate(navTab)}
               aria-current={active ? "page" : undefined}
             >
               <Icon active={active} />
@@ -302,7 +326,13 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
       <button
         onClick={() => onNavigate("posture")}
         className={`flex items-center gap-2.5 mx-2 mb-3 px-3 py-2.5 rounded-md hover:bg-[rgba(0,0,0,0.04)] transition-colors text-left ${collapsed ? "justify-center" : ""}`}
-        title={collapsed ? `${statusLabel}${pendingCount > 0 ? ` · ${pendingCount} pending` : ""}` : undefined}
+        title={
+          collapsed
+            ? pendingCount > 0
+              ? `${statusLabel} · ${t`${pendingCount} pending`}`
+              : statusLabel
+            : undefined
+        }
       >
         {/* colored dot */}
         <span
@@ -314,13 +344,22 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
             <span className="text-sm font-medium text-[#1C1C1E] leading-tight truncate">{statusLabel}</span>
             <span
               className="text-[11px] leading-tight"
-              style={{ color: pendingCount > 0 ? "var(--semantic-ask)" : "#8E8E93" }}
+              style={{ color: pendingCount > 0 ? "var(--semantic-ask)" : "var(--text-tertiary)" }}
             >
-              {pendingCount > 0 ? `${pendingCount} action${pendingCount > 1 ? "s" : ""} pending` : "0 pending"}
+              <Plural
+                value={pendingCount}
+                _0="0 pending"
+                one="# action pending"
+                other="# actions pending"
+              />
             </span>
           </span>
         )}
       </button>
+
+      {/* Language switcher — the primary place a desktop user (who never sees
+          the CLI wizard) chooses their language. Always visible. */}
+      <LanguagePicker collapsed={collapsed} />
 
       {/* AGPL §13 network-use source affordance — see README.md "License &
           source availability". Static link (does not call /api/source);
@@ -330,9 +369,9 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
           href="https://github.com/SECBLOK/belay"
           target="_blank"
           rel="noopener noreferrer"
-          className="block px-3 pb-3 text-[10px] text-[#8E8E93] hover:text-[#636366] text-center transition-colors"
+          className="block px-3 pb-3 text-[10px] text-[var(--text-tertiary)] hover:text-[#636366] text-center transition-colors"
         >
-          Source (AGPL)
+          <Trans>Source (AGPL)</Trans>
         </a>
       )}
     </aside>
@@ -352,13 +391,14 @@ interface NavRowProps {
 }
 
 function NavRow({ active, label, collapsed, onClick, children, dot, "aria-current": ariaCurrent }: NavRowProps) {
+  const { t } = useLingui();
   return (
     <div className="relative mx-2">
       <button
         onClick={onClick}
         aria-current={ariaCurrent}
         title={collapsed ? label : undefined}
-        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors
+        className={`lg-tap w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors
           ${active
             ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
             : "text-[#636366] hover:bg-[rgba(0,0,0,0.04)] hover:text-[#1C1C1E]"
@@ -373,7 +413,7 @@ function NavRow({ active, label, collapsed, onClick, children, dot, "aria-curren
         <span
           className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
           style={{ background: "var(--semantic-ask)" }}
-          aria-label="new deny events"
+          aria-label={t`new deny events`}
         />
       )}
     </div>

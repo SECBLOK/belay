@@ -97,6 +97,47 @@ mod tests {
     }
 
     #[test]
+    fn sensitive_env_read_is_high_ask() {
+        let mut st = SessionState::new("s");
+        // Native Windows path (backslashes) must fold to match the POSIX-shaped set.
+        let v = evaluate_event(&ev(EventKind::Open, r"C:\Users\dennis\project\.env"), &mut st);
+        assert_eq!(v.decision, Decision::Ask);
+        assert_eq!(v.severity, Severity::High);
+        assert!(v.rules.iter().any(|r| r == "secrets.sensitive_path"));
+    }
+
+    #[test]
+    fn sensitive_credential_files_are_asked() {
+        let mut st = SessionState::new("s");
+        for path in [
+            "/home/u/.aws/credentials",
+            "/home/u/.ssh/id_ed25519",
+            r"C:\Users\x\.ssh\id_rsa",
+            "/home/u/.git-credentials",
+            "/home/u/.env.production",
+        ] {
+            let v = evaluate_event(&ev(EventKind::Open, path), &mut st);
+            assert_eq!(v.decision, Decision::Ask, "expected Ask for {path}");
+        }
+    }
+
+    #[test]
+    fn benign_open_and_lookalikes_stay_allowed() {
+        let mut st = SessionState::new("s");
+        for path in [
+            "/home/u/project/src/main.rs",
+            "/home/u/project/.environment", // NOT .env
+            "/home/u/notes.txt",
+        ] {
+            assert_eq!(
+                evaluate_event(&ev(EventKind::Open, path), &mut st).decision,
+                Decision::Allow,
+                "expected Allow for {path}"
+            );
+        }
+    }
+
+    #[test]
     fn read_only_open_of_protected_path_is_allowed() {
         // A plain Open (read) of catalog.yaml is fine — reads are not tampering.
         let mut st = SessionState::new("s");

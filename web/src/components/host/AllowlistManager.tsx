@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { EgressRule } from "../../lib/hostTypes";
 import DestOwner from "./DestOwner";
+import { Trans, useLingui } from "@lingui/react/macro";
 
 interface Props {
   rules: EgressRule[];
@@ -65,7 +66,7 @@ function RuleRow({ rule, onRemove }: { rule: EgressRule; onRemove: (id: string) 
               : "bg-[#E5E5EA] text-[#636366] hover:bg-[#D1D1D6]"
           }`}
         >
-          {confirming ? "Confirm remove?" : "Remove"}
+          {confirming ? <Trans>Confirm remove?</Trans> : <Trans>Remove</Trans>}
         </button>
       </td>
     </tr>
@@ -73,13 +74,14 @@ function RuleRow({ rule, onRemove }: { rule: EgressRule; onRemove: (id: string) 
 }
 
 export default function AllowlistManager({ rules, onRemove, onAdd }: Props) {
+  const { t } = useLingui();
   const [form, setForm] = useState<AddForm>(EMPTY_FORM);
   const [hostError, setHostError] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.host.trim()) {
-      setHostError("Host is required");
+      setHostError(t`Host is required`);
       return;
     }
     setHostError("");
@@ -97,17 +99,17 @@ export default function AllowlistManager({ rules, onRemove, onAdd }: Props) {
     <div className="space-y-4">
       {/* Rules table */}
       {rules.length === 0 ? (
-        <p className="text-sm text-[#636366]">No allowlist rules configured.</p>
+        <p className="text-sm text-[#636366]"><Trans>No allowlist rules configured.</Trans></p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="text-xs text-[#8E8E93] uppercase tracking-wide">
-                <th className="pb-2 pr-3 font-medium">Host</th>
-                <th className="pb-2 pr-3 font-medium">Port</th>
-                <th className="pb-2 pr-3 font-medium">Proto</th>
-                <th className="pb-2 pr-3 font-medium">Action</th>
-                <th className="pb-2 pr-3 font-medium">Comment</th>
+              <tr className="text-xs text-[var(--text-tertiary)] uppercase tracking-wide">
+                <th className="pb-2 pr-3 font-medium"><Trans>Host</Trans></th>
+                <th className="pb-2 pr-3 font-medium"><Trans>Port</Trans></th>
+                <th className="pb-2 pr-3 font-medium"><Trans>Proto</Trans></th>
+                <th className="pb-2 pr-3 font-medium"><Trans>Action</Trans></th>
+                <th className="pb-2 pr-3 font-medium"><Trans>Comment</Trans></th>
                 <th className="pb-2" />
               </tr>
             </thead>
@@ -122,15 +124,15 @@ export default function AllowlistManager({ rules, onRemove, onAdd }: Props) {
 
       {/* Add-rule form */}
       <form onSubmit={handleSubmit} className="space-y-3 pt-2 border-t border-black/5">
-        <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wide">Add rule</p>
+        <p className="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-wide"><Trans>Add rule</Trans></p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {/* Host */}
           <div className="col-span-2 sm:col-span-1 space-y-1">
-            <label className="text-xs text-[#636366]" htmlFor="al-host">Host</label>
+            <label className="text-xs text-[#636366]" htmlFor="al-host"><Trans>Host</Trans></label>
             <input
               id="al-host"
               type="text"
-              placeholder="e.g. api.example.com"
+              placeholder={t`e.g. api.example.com`}
               value={form.host}
               onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
               className="w-full rounded-lg border border-black/10 px-3 py-1.5 text-sm text-[#1C1C1E] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -140,7 +142,7 @@ export default function AllowlistManager({ rules, onRemove, onAdd }: Props) {
 
           {/* Port */}
           <div className="space-y-1">
-            <label className="text-xs text-[#636366]" htmlFor="al-port">Port</label>
+            <label className="text-xs text-[#636366]" htmlFor="al-port"><Trans>Port</Trans></label>
             <input
               id="al-port"
               type="number"
@@ -155,40 +157,40 @@ export default function AllowlistManager({ rules, onRemove, onAdd }: Props) {
 
           {/* Proto */}
           <div className="space-y-1">
-            <label className="text-xs text-[#636366]" htmlFor="al-proto">Protocol</label>
+            <label className="text-xs text-[#636366]" htmlFor="al-proto"><Trans>Protocol</Trans></label>
             <select
               id="al-proto"
               value={form.proto}
               onChange={(e) => setForm((f) => ({ ...f, proto: e.target.value as AddForm["proto"] }))}
               className="w-full rounded-lg border border-black/10 px-3 py-1.5 text-sm text-[#1C1C1E] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="tcp">TCP</option>
-              <option value="udp">UDP</option>
-              <option value="any">Any</option>
+              <option value="tcp"><Trans>TCP</Trans></option>
+              <option value="udp"><Trans>UDP</Trans></option>
+              <option value="any"><Trans>Any</Trans></option>
             </select>
           </div>
 
           {/* Action */}
           <div className="space-y-1">
-            <label className="text-xs text-[#636366]" htmlFor="al-action">Action</label>
+            <label className="text-xs text-[#636366]" htmlFor="al-action"><Trans>Action</Trans></label>
             <select
               id="al-action"
               value={form.action}
               onChange={(e) => setForm((f) => ({ ...f, action: e.target.value as AddForm["action"] }))}
               className="w-full rounded-lg border border-black/10 px-3 py-1.5 text-sm text-[#1C1C1E] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="allow">Allow</option>
-              <option value="deny">Deny</option>
+              <option value="allow"><Trans>Allow</Trans></option>
+              <option value="deny"><Trans>Deny</Trans></option>
             </select>
           </div>
 
           {/* Comment */}
           <div className="col-span-2 space-y-1">
-            <label className="text-xs text-[#636366]" htmlFor="al-comment">Comment (optional)</label>
+            <label className="text-xs text-[#636366]" htmlFor="al-comment"><Trans>Comment (optional)</Trans></label>
             <input
               id="al-comment"
               type="text"
-              placeholder="e.g. OpenAI API"
+              placeholder={t`e.g. OpenAI API`}
               value={form.comment}
               onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
               className="w-full rounded-lg border border-black/10 px-3 py-1.5 text-sm text-[#1C1C1E] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -200,7 +202,7 @@ export default function AllowlistManager({ rules, onRemove, onAdd }: Props) {
           type="submit"
           className="px-4 py-1.5 rounded-lg bg-[#1C1C1E] text-white text-sm font-medium hover:bg-black/80 transition-colors"
         >
-          Add rule
+          <Trans>Add rule</Trans>
         </button>
       </form>
     </div>

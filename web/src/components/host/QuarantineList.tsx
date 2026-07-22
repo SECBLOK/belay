@@ -14,11 +14,12 @@ interface RowState {
 
 interface QuarantineRowProps {
   entry: QuarantineEntry;
+  noun: string;
   onRestore: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
-function QuarantineRow({ entry, onRestore, onDelete }: QuarantineRowProps) {
+function QuarantineRow({ entry, noun, onRestore, onDelete }: QuarantineRowProps) {
   const [state, setState] = useState<RowState>({ busy: false, confirm: null });
 
   const filename = entry.original_path.split("/").pop() ?? entry.original_path;
@@ -52,9 +53,9 @@ function QuarantineRow({ entry, onRestore, onDelete }: QuarantineRowProps) {
           {filename}
         </span>
         <SeverityDot severity={entry.severity} />
-        <span className="text-xs text-[#8E8E93]">{quarantinedDate}</span>
+        <span className="text-xs text-[var(--text-tertiary)]">{quarantinedDate}</span>
       </div>
-      <p className="text-xs text-[#8E8E93] font-mono truncate" title={entry.original_path}>
+      <p className="text-xs text-[var(--text-tertiary)] font-mono truncate" title={entry.original_path}>
         {entry.original_path}
       </p>
 
@@ -62,12 +63,12 @@ function QuarantineRow({ entry, onRestore, onDelete }: QuarantineRowProps) {
       <div className="flex items-center gap-2 flex-wrap">
         {state.confirm === "restore" ? (
           <>
-            <span className="text-xs text-[#636366]">Restore this file to its original location?</span>
+            <span className="text-xs text-[#636366]">Restore this {noun} to its original location?</span>
             <button
               onClick={doRestore}
               disabled={state.busy}
               className="px-3 py-1 rounded text-[12px] font-semibold disabled:opacity-40"
-              style={{ background: "rgba(27,140,58,0.10)", color: "#1B8C3A" }}
+              style={{ background: "rgba(24,125,52,0.06)", color: "#187D34" }}
             >
               Yes, restore
             </button>
@@ -82,12 +83,12 @@ function QuarantineRow({ entry, onRestore, onDelete }: QuarantineRowProps) {
           </>
         ) : state.confirm === "delete" ? (
           <>
-            <span className="text-xs text-[#636366]">Permanently delete this quarantined file?</span>
+            <span className="text-xs text-[#636366]">Permanently delete this quarantined {noun}?</span>
             <button
               onClick={doDelete}
               disabled={state.busy}
               className="px-3 py-1 rounded text-[12px] font-semibold disabled:opacity-40"
-              style={{ background: "rgba(200,49,42,0.10)", color: "#C8312A" }}
+              style={{ background: "rgba(200,49,42,0.06)", color: "#C8312A" }}
             >
               Yes, delete permanently
             </button>
@@ -107,7 +108,7 @@ function QuarantineRow({ entry, onRestore, onDelete }: QuarantineRowProps) {
               onClick={() => setState((s) => ({ ...s, confirm: "restore" }))}
               disabled={state.busy}
               className="px-3 py-1 rounded text-[12px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: "rgba(27,140,58,0.10)", color: "#1B8C3A" }}
+              style={{ background: "rgba(24,125,52,0.06)", color: "#187D34" }}
             >
               Restore
             </button>
@@ -116,7 +117,7 @@ function QuarantineRow({ entry, onRestore, onDelete }: QuarantineRowProps) {
               onClick={() => setState((s) => ({ ...s, confirm: "delete" }))}
               disabled={state.busy}
               className="px-3 py-1 rounded text-[12px] font-medium disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: "rgba(200,49,42,0.08)", color: "#C8312A" }}
+              style={{ background: "rgba(200,49,42,0.06)", color: "#C8312A" }}
             >
               Delete
             </button>
@@ -129,29 +130,31 @@ function QuarantineRow({ entry, onRestore, onDelete }: QuarantineRowProps) {
 
 interface QuarantineListProps {
   entries: QuarantineEntry[];
+  /** Singular noun for the quarantined items — "file" (default) or "skill". */
+  noun?: string;
   onRestore: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
-export default function QuarantineList({ entries, onRestore, onDelete }: QuarantineListProps) {
+export default function QuarantineList({ entries, noun = "file", onRestore, onDelete }: QuarantineListProps) {
   if (entries.length === 0) {
     return (
       <div
         className="rounded-xl px-5 py-6 text-sm text-[#636366]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        No files in quarantine.
+        No {noun}s in quarantine.
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl overflow-hidden bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+    <div className="lg-glass overflow-hidden">
       <div
-        className="px-4 py-2.5 border-b text-[11px] uppercase tracking-widest text-[#8E8E93]"
+        className="px-4 py-2.5 border-b text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]"
         style={{ borderColor: "rgba(0,0,0,0.08)" }}
       >
-        Quarantined files{" "}
+        Quarantined {noun}s{" "}
         <span className="font-mono tabular-nums text-[#636366] normal-case tracking-normal">
           {entries.length}
         </span>
@@ -160,6 +163,7 @@ export default function QuarantineList({ entries, onRestore, onDelete }: Quarant
         <QuarantineRow
           key={entry.id}
           entry={entry}
+          noun={noun}
           onRestore={onRestore}
           onDelete={onDelete}
         />

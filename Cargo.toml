@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["sensor", "daemon", "channels", "server", "auth", "scanner", "manage", "advisory-gen", "transport"]
+members = ["sensor", "daemon", "channels", "server", "auth", "scanner", "manage", "advisory-gen", "transport", "skillscan"]
 exclude = ["daemon-ebpf", "desktop/src-tauri"]
 
 # ──────────────────────────────────────────────────────────────
@@ -14,7 +14,7 @@ exclude = ["daemon-ebpf", "desktop/src-tauri"]
 # ──────────────────────────────────────────────────────────────
 [package]
 name = "belay"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2021"
 build = "build.rs"
 license = "AGPL-3.0-or-later"

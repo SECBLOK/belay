@@ -18,7 +18,7 @@
 //! reaches the network: there is no Ollama daemon or cloud endpoint
 //! reachable in CI. Tests here assert construction/gating only.
 
-use crate::ai::config::{AiConfig, AiMode};
+use crate::ai::config::{AiConfig, AiMode, AiTask};
 use crate::ai::explain::{AiClient, AiError};
 
 use rig_core::client::{CompletionClient, Nothing};
@@ -93,7 +93,18 @@ pub struct RigClient {
 }
 
 impl RigClient {
-    /// Build a `RigClient` from `cfg`.
+    /// Build a `RigClient` from `cfg`, baking in the model name resolved for
+    /// `task` (see [`AiConfig::model_for`]).
+    ///
+    /// SECURITY INVARIANT: `task` selects the model NAME ONLY. It never
+    /// changes `provider`, `mode`, `base_url`, or `cloud_consent` — every
+    /// gating decision below (`Off`/`Local`/`Cloud`, consent, key
+    /// resolution, provider selection) is driven exclusively by `cfg` and is
+    /// identical no matter which `task` is passed. Concretely: a per-task
+    /// model override can never escalate a local-only configuration to a
+    /// cloud provider, and can never bypass the cloud-consent or key checks
+    /// below — it can only change which model name is passed to whatever
+    /// provider/mode the operator already configured.
     ///
     /// Returns `None` when:
     /// - `cfg.mode == AiMode::Off` (the explainer is disabled);
@@ -112,7 +123,7 @@ impl RigClient {
     ///
     /// Never makes a network call itself — provider client construction in
     /// rig-core is local (URL/header/key setup only).
-    pub fn from_config(cfg: &AiConfig) -> Option<RigClient> {
+    pub fn from_config(cfg: &AiConfig, task: AiTask) -> Option<RigClient> {
         match cfg.mode {
             AiMode::Off => None,
             AiMode::Local => {
@@ -126,7 +137,7 @@ impl RigClient {
                 };
                 Some(RigClient {
                     provider: Provider::Ollama(client),
-                    model: cfg.model.clone(),
+                    model: cfg.model_for(task).to_string(),
                 })
             }
             AiMode::Cloud => {
@@ -154,10 +165,19 @@ impl RigClient {
                 };
                 Some(RigClient {
                     provider,
-                    model: cfg.model.clone(),
+                    model: cfg.model_for(task).to_string(),
                 })
             }
         }
+    }
+
+    /// Test-only accessor for the model name baked into this client at
+    /// construction time — lets tests assert which model
+    /// [`RigClient::from_config`] resolved for a given [`AiTask`] without
+    /// exposing the field outside `#[cfg(test)]`.
+    #[cfg(test)]
+    pub(crate) fn model(&self) -> &str {
+        &self.model
     }
 }
 
@@ -222,21 +242,51 @@ mod tests {
     #[test]
     fn off_mode_yields_none() {
         let cfg = cfg_with_mode(AiMode::Off);
-        assert!(RigClient::from_config(&cfg).is_none());
+        assert!(RigClient::from_config(&cfg, AiTask::SkillJudge).is_none());
     }
 
     #[test]
     fn local_mode_default_base_url_yields_some() {
         let cfg = cfg_with_mode(AiMode::Local);
         assert!(cfg.base_url.is_none());
-        assert!(RigClient::from_config(&cfg).is_some());
+        assert!(RigClient::from_config(&cfg, AiTask::SkillJudge).is_some());
     }
 
     #[test]
     fn local_mode_custom_base_url_yields_some() {
         let mut cfg = cfg_with_mode(AiMode::Local);
         cfg.base_url = Some("http://localhost:9999".to_string());
-        assert!(RigClient::from_config(&cfg).is_some());
+        assert!(RigClient::from_config(&cfg, AiTask::SkillJudge).is_some());
+    }
+
+    #[test]
+    fn from_config_bakes_the_per_task_model() {
+        // Local mode, judge override set -> the built client carries the judge model.
+        let cfg = AiConfig {
+            mode: AiMode::Local,
+            model: "qwen2.5".into(),
+            skill_judge_model: Some("gemma4:27b".into()),
+            ..AiConfig::default()
+        };
+        let judge = RigClient::from_config(&cfg, AiTask::SkillJudge).expect("local client builds");
+        assert_eq!(judge.model(), "gemma4:27b");
+        let explain = RigClient::from_config(&cfg, AiTask::Explain).expect("local client builds");
+        assert_eq!(explain.model(), "qwen2.5"); // no explain override -> global model
+    }
+
+    #[test]
+    fn override_model_name_does_not_change_provider_or_mode() {
+        // A cloud model name under mode:local must NOT escalate to cloud:
+        // still builds a LOCAL (Ollama) client, just with that (bogus-for-ollama) name.
+        let cfg = AiConfig {
+            mode: AiMode::Local,
+            model: "qwen2.5".into(),
+            skill_judge_model: Some("claude-sonnet-5".into()),
+            ..AiConfig::default()
+        };
+        let c = RigClient::from_config(&cfg, AiTask::SkillJudge).expect("still a local client");
+        assert!(matches!(c.provider, Provider::Ollama(_)));
+        assert_eq!(c.model(), "claude-sonnet-5");
     }
 
     /// All `BELAY_AI_KEY`-dependent assertions in this module live in
@@ -271,17 +321,17 @@ mod tests {
         let mut cfg = cfg_with_mode(AiMode::Cloud);
         cfg.provider = "anthropic".to_string();
         cfg.cloud_consent = false;
-        assert!(RigClient::from_config(&cfg).is_none());
+        assert!(RigClient::from_config(&cfg, AiTask::SkillJudge).is_none());
 
         // cloud_consent: true, no key in env -> None.
         std::env::remove_var(AI_KEY_ENV_VAR);
         cfg.cloud_consent = true;
-        assert!(RigClient::from_config(&cfg).is_none());
+        assert!(RigClient::from_config(&cfg, AiTask::SkillJudge).is_none());
 
         // cloud_consent: true, key present, known provider ("anthropic") ->
         // Some.
         std::env::set_var(AI_KEY_ENV_VAR, "test-key-value");
-        assert!(RigClient::from_config(&cfg).is_some());
+        assert!(RigClient::from_config(&cfg, AiTask::SkillJudge).is_some());
 
         // cloud_consent: true, key present, EVERY newly-wired cloud provider
         // -> Some (construction only — lazy, no network reached). Kept in
@@ -304,14 +354,14 @@ mod tests {
         ] {
             cfg.provider = provider.to_string();
             assert!(
-                RigClient::from_config(&cfg).is_some(),
+                RigClient::from_config(&cfg, AiTask::SkillJudge).is_some(),
                 "provider {provider} should construct a client"
             );
         }
 
         // cloud_consent: true, key present, unknown provider -> None.
         cfg.provider = "bogus".to_string();
-        assert!(RigClient::from_config(&cfg).is_none());
+        assert!(RigClient::from_config(&cfg, AiTask::SkillJudge).is_none());
 
         std::env::remove_var(AI_KEY_ENV_VAR);
 

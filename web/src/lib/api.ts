@@ -11,6 +11,7 @@ import type {
   Ban,
   HardeningPosture,
   VulnPosture,
+  SkillSummary,
 } from "./hostTypes";
 
 // Auto-detect the native Tauri desktop window. When present, every data
@@ -61,6 +62,25 @@ export interface PostureSummary {
 export const getPosture = (): Promise<PostureSummary> =>
   isTauri() ? ipc.getPosture() : j("/api/posture");
 
+// Per-session trust grades (get_trust), worst-first. Desktop-only signal; the
+// browser console has no daemon socket → empty list.
+export interface TrustSession { session: string; grade: string; demerits: number }
+export interface TrustSummary { sessions: TrustSession[] }
+export const getTrust = (): Promise<TrustSummary> =>
+  isTauri() ? ipc.getTrust() : Promise.resolve({ sessions: [] });
+
+// Language. The daemon owns this so the GUI, tray, toast and CLI all agree;
+// localStorage would not survive a reinstall and could not reach the tray.
+// Outside Tauri (the `serve` dashboard) there is no daemon socket, so this
+// reports English rather than pretending a picker would persist.
+export interface LocaleState { locale: string; supported: string[] }
+export const getLocale = (): Promise<LocaleState> =>
+  isTauri() ? ipc.getLocale() : Promise.resolve({ locale: "en", supported: ["en"] });
+export const setLocale = (locale: string): Promise<{ ok: boolean; error?: string }> =>
+  isTauri()
+    ? ipc.setLocale(locale)
+    : Promise.resolve({ ok: false, error: "not available outside the desktop app" });
+
 // Boot-start (autostart) state + toggle. Desktop-only: boot-start manages an OS
 // service, which the browser (web `serve`) UI cannot do, so it reports
 // unsupported there. `setBootStart` triggers an OS elevation prompt in the app.
@@ -106,11 +126,25 @@ export const getPending = (): Promise<any[]> =>
   isTauri()
     ? ipc.getPending()
     : j("/api/decisions/pending").then((r: any) => r?.pending ?? []);
+/// The daemon's reply to `respond_approval`.
+///
+/// `ok` means the parked request was FOUND and resolved - not that the caller
+/// got the decision it asked for. Those differ when the GateGuard self-approval
+/// guard overrides an `allow` to `deny`, so `decision` (the effective outcome)
+/// is what a caller must render, and `self_approval_blocked` says why it
+/// differs from `requested`.
+export interface ResolveResult {
+  ok: boolean;
+  decision?: "allow" | "deny";
+  requested?: "allow" | "deny";
+  self_approval_blocked?: boolean;
+  error?: string;
+}
 export const resolve = (
   id: string,
   decision: "allow" | "deny",
   scope: "once" | "always" = "once",
-) =>
+): Promise<ResolveResult> =>
   isTauri()
     ? ipc.resolve(id, decision, scope)
     : fetch(`${BASE}/api/decisions/${id}`, {
@@ -171,6 +205,12 @@ export function getRecentAudit(limit = 200): Promise<any[]> {
   if (isTauri()) return ipc.getRecentAudit(limit);
   return Promise.resolve([]);
 }
+// Approval-provenance rows (approval.resolved/respond) for the Alerts feed.
+// Desktop-only store; the browser console has no endpoint → empty snapshot.
+export function getRecentApprovals(limit = 200): Promise<any[]> {
+  if (isTauri()) return ipc.getRecentApprovals(limit);
+  return Promise.resolve([]);
+}
 // Richer audit stream exposing connection lifecycle, for the live Timeline view.
 export function openAuditStream(h: { onRow: (row: any) => void; onOpen?: () => void; onError?: () => void }): EventSource {
   // Under Tauri this is an EventSource-shaped handle (only .close() is used by callers).
@@ -188,12 +228,23 @@ export function openAuditStream(h: { onRow: (row: any) => void; onOpen?: () => v
 
 // Host scan. In the browser this POSTs to the server, which runs the malware
 // scan synchronously and returns the findings directly (piece 1 has no job
-// tracking). The Tauri path still returns a { jobId } handle; callers should use
-// the returned findings (browser) or poll getScanResults (desktop).
-export const runHostScan = (options?: { quick?: boolean }): Promise<HostFinding[]> =>
-  isTauri()
-    ? ipc.runHostScan(options).then(() => [])
-    : fetch(BASE + "/api/host/scan", { method: "POST" }).then((r) => r.json());
+// A host scan returns both the findings and HOW MANY files were scanned, so the
+// UI can show "scanned N files — no threats" (a clean scan is otherwise
+// indistinguishable from a no-op). The Tauri path returns a {jobId, scanned}
+// handle then reads the cached findings; the browser path gets both from the
+// POST response (degrading `scanned` to the finding count on an older server).
+export interface HostScanResult { findings: HostFinding[]; scanned: number }
+export const runHostScan = async (options?: { quick?: boolean }): Promise<HostScanResult> => {
+  if (isTauri()) {
+    const { scanned } = await ipc.runHostScan(options);
+    const findings = await ipc.getScanResults();
+    return { findings, scanned: scanned ?? findings.length };
+  }
+  const res = await fetch(BASE + "/api/host/scan", { method: "POST" }).then((r) => r.json());
+  const findings: HostFinding[] = Array.isArray(res) ? res : (res.findings ?? []);
+  const scanned = Array.isArray(res) ? findings.length : (res.scanned ?? findings.length);
+  return { findings, scanned };
+};
 
 export const getScanResults = (jobId?: string): Promise<HostFinding[]> =>
   isTauri() ? ipc.getScanResults(jobId) : j(`/api/host/scan/results${jobId ? `?jobId=${jobId}` : ""}`);
@@ -223,6 +274,14 @@ export const deleteQuarantine = (id: string): Promise<void> =>
   isTauri()
     ? ipc.deleteQuarantine(id)
     : jMut("DELETE", `/api/host/quarantine/${encodeURIComponent(id)}`).then(() => undefined);
+
+// Skills — a desktop-only (host) surface. The hosted web console has no skills
+// route, so the browser fallback resolves empty rather than hitting a 404.
+export const listSkills = (): Promise<SkillSummary[]> =>
+  isTauri() ? ipc.listSkills() : Promise.resolve([]);
+
+export const approveSkill = (path: string): Promise<string[]> =>
+  isTauri() ? ipc.approveSkill(path) : Promise.resolve([]);
 
 // Firewall
 export const getProposedRuleset = (): Promise<ProposedRuleset> =>
@@ -306,6 +365,14 @@ export const unban = (id: string): Promise<void> =>
 
 export type AiMode = "off" | "local" | "cloud";
 
+/** A read-only per-provider model suggestion, injected into get_ai_config by the
+ *  daemon (crate::ai::recommend). `null` for a provider we haven't researched. */
+export interface AiRecommendation {
+  fast: string;
+  recommended_judge: string;
+  note: string;
+}
+
 /** AI explainer config. Never carries a secret — the cloud key resolves from
  *  the daemon's `BELAY_AI_KEY` env var (if set) or else an owner-only
  *  (0600) key file the operator can populate in-app; `key_present` just
@@ -319,6 +386,17 @@ export interface AiConfig {
   base_url: string | null;
   cloud_consent: boolean;
   key_present?: boolean;
+  // Per-task model routing (spec: AI model routing). null/omitted = inherit the
+  // global `model`. The daemon's from_args treats a null/absent value as "no
+  // override" — see daemon/src/ai/config.rs.
+  explain_model?: string | null;
+  skill_judge_model?: string | null;
+  // LLM skill judge, both off by default. skill_judge_enabled = background
+  // watcher path; skill_judge_gate_enabled = synchronous install-gate.
+  skill_judge_enabled?: boolean;
+  skill_judge_gate_enabled?: boolean;
+  // Read-only: populated by get_ai_config, never sent back on save.
+  recommendations?: AiRecommendation | null;
 }
 
 export const getAiConfig = (): Promise<AiConfig | null> =>

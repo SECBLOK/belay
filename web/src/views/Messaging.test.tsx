@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { it, expect, vi, beforeEach, describe } from "vitest";
 import Messaging from "./Messaging";
 
@@ -69,6 +69,15 @@ const DISABLED_WITH_SAVED_FIELD = {
     fields_set: { telegram: ["bot_token"] },
   },
 };
+
+// "Configured" renders as soon as `view` COMMITS, but the one-time form seed
+// runs in a passive effect a tick later and blanks every field. A test that
+// types between those two points loses the edit to the pending seed - it failed
+// about 1 run in 6. Any test that types must synchronize on the seed, not just
+// on the text. Not reachable in the product: the form is gated behind
+// `!loading && view`, so the input does not exist until the seed's dependencies
+// are already in place.
+const awaitFormSeed = () => act(async () => {});
 
 beforeEach(() => {
   mockGet.mockReset();
@@ -147,10 +156,11 @@ describe("Messaging view", () => {
   it("saves a connector via setChannel then restartDaemon", async () => {
     mockGet.mockResolvedValue(CONFIGURED);
     render(<Messaging />);
-    // Wait for the loaded view (not just the always-present field) — the form
-    // re-seeds from `view` once it arrives, which would otherwise race with
-    // typing into the field right after mount and silently drop the edit.
+    // Wait for the loaded view, then for the seed itself. Waiting on the text
+    // alone is NOT enough - it only proves `view` committed, and the seed that
+    // blanks the form runs a tick later. See awaitFormSeed.
     await waitFor(() => expect(screen.getByText("Configured")).toBeTruthy());
+    await awaitFormSeed();
     fireEvent.change(screen.getByLabelText("Bot token"), {
       target: { value: "123:abcSECRET" },
     });
@@ -171,6 +181,7 @@ describe("Messaging view", () => {
     mockGet.mockResolvedValue(CONFIGURED); // telegram already has approver 4242
     render(<Messaging />);
     await waitFor(() => expect(screen.getByText("Configured")).toBeTruthy());
+    await awaitFormSeed();
     fireEvent.change(screen.getByLabelText("Add approver IDs"), {
       target: { value: "9999" },
     });
@@ -254,6 +265,7 @@ describe("Messaging view", () => {
     mockGet.mockResolvedValue(CONFIGURED);
     render(<Messaging />);
     await waitFor(() => expect(screen.getByText("Configured")).toBeTruthy());
+    await awaitFormSeed(); // else we race the seed, not the guard under test
     // Start typing a secret.
     fireEvent.change(screen.getByLabelText("Bot token"), { target: { value: "SECRET123" } });
     // Trigger an UNRELATED mutation that calls refresh() (the enable toggle).
@@ -279,6 +291,7 @@ describe("Messaging view", () => {
     mockSetChannel.mockResolvedValue({ ok: false, error: "bad token" });
     render(<Messaging />);
     await waitFor(() => expect(screen.getByText("Configured")).toBeTruthy());
+    await awaitFormSeed();
     fireEvent.change(screen.getByLabelText("Bot token"), { target: { value: "x" } });
     fireEvent.click(screen.getByText("Save changes"));
     await waitFor(() => expect(mockSetChannel).toHaveBeenCalled());

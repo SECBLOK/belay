@@ -38,6 +38,26 @@ belay-server = { path = "../../server" }
 # never a hand-rolled second Windows named-pipe client.
 belay-transport = { path = "../../transport" }
 
+# Windows-only: SetWindowRgn for the paw-shaped toast. Sets the region for the
+# whole HWND including child windows, so unlike X11 XShape it needs no
+# compositor cooperation and no transparency. Lives in Graphics::Gdi in this
+# crate version (verified against the crate source), not UI::WindowsAndMessaging.
+#
+# Version MUST match what tauri itself pulls in transitively (tao ->
+# tauri-runtime-wry -> tauri) - confirmed via `cargo tree -i windows` to be
+# 0.61, NOT the 0.59 this repo's daemon crate pins for its own, unrelated
+# ETW/WFP work. A mismatched major here pulls a SECOND copy of `windows` and
+# `WebviewWindow::hwnd()`'s HWND becomes a foreign type that will not convert
+# (hit this directly: `cargo check` refused to compile SetWindowRgn's HWND
+# argument against a 0.59 HWND when hwnd() returns 0.61's). This crate has its
+# own lockfile (desktop/src-tauri is excluded from the workspace), so pinning
+# it independently of daemon's 0.59 is correct, not a version drift bug.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+] }
+
 [dev-dependencies]
 tempfile = "3"
 

@@ -1,0 +1,350 @@
+/* ============================================================================
+   Belay — Liquid Glass design system (Apple-style, LIGHT)
+   ----------------------------------------------------------------------------
+   Translucent materials that lens the content beneath them, with specular edge
+   highlights and layered float shadows. Chrome (sidebar/header/sheets) is a
+   distinct functional layer floating above scrolling content. Color is reserved
+   for meaning (the honest allow/ask/deny/info/canary semantics live in tokens.css).
+
+   Web approximation of Liquid Glass: `backdrop-filter: blur() saturate()` for the
+   lensing, a bright inner top edge for the specular catch, a hairline outer ring,
+   and a two-part shadow (contact + ambient) so the glass reads as floating.
+   Real refraction isn't possible in CSS; blur+saturate+specular gets close.
+   ========================================================================== */
+
+:root {
+  /* ---- Ambient stage: a calm light field for the glass to lens ------------ */
+  /* Soft, near-white with the faintest brand wash so glass has something to
+     refract. Deliberately restrained — this is a security console, not a toy. */
+  --lg-ambient:
+    radial-gradient(90% 70% at 8% -8%, rgba(46, 139, 255, 0.28), transparent 55%),
+    radial-gradient(80% 65% at 98% 4%, rgba(139, 92, 246, 0.24), transparent 52%),
+    radial-gradient(75% 60% at 88% 96%, rgba(45, 212, 191, 0.20), transparent 55%),
+    radial-gradient(70% 60% at 20% 108%, rgba(56, 189, 120, 0.16), transparent 55%),
+    linear-gradient(165deg, #EEF2FB 0%, #E9ECF6 55%, #EDEAF7 100%);
+  /* Optional generated wallpaper layer; set --lg-wallpaper to a url() to enable. */
+  --lg-wallpaper: none;
+
+  /* ---- Glass fills — genuinely translucent so the ambient lenses through --- */
+  --lg-fill-chrome: rgba(255, 255, 255, 0.44); /* sidebar / top bar */
+  --lg-fill-raised: rgba(255, 255, 255, 0.42); /* cards / tiles */
+  --lg-fill-control: rgba(255, 255, 255, 0.4); /* buttons / chips */
+  --lg-fill-overlay: rgba(248, 249, 252, 0.6); /* modal scrim surface */
+  --lg-fill-hover: rgba(255, 255, 255, 0.62);
+
+  /* ---- Blur/saturate strength (bigger surfaces read thicker) -------------- */
+  --lg-blur-chrome: blur(30px) saturate(180%);
+  --lg-blur-raised: blur(20px) saturate(170%);
+  --lg-blur-control: blur(12px) saturate(160%);
+
+  /* ---- Specular + rim: the light catching a glass edge -------------------- */
+  --lg-rim: rgba(255, 255, 255, 0.72); /* bright outer hairline */
+  --lg-rim-soft: rgba(255, 255, 255, 0.5);
+  --lg-specular: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.14) 22%,
+    rgba(255, 255, 255, 0) 45%
+  );
+  --lg-hairline: rgba(17, 24, 39, 0.06); /* structural separation on light */
+
+  /* ---- Float shadows: contact (tight/dark) + ambient (soft/wide) ---------- */
+  --lg-shadow-card:
+    0 1px 1px rgba(17, 24, 39, 0.04),
+    0 8px 24px -6px rgba(17, 24, 39, 0.10);
+  --lg-shadow-chrome:
+    0 1px 2px rgba(17, 24, 39, 0.05),
+    0 20px 48px -16px rgba(17, 24, 39, 0.16);
+  --lg-shadow-modal:
+    0 2px 8px rgba(17, 24, 39, 0.10),
+    0 40px 80px -24px rgba(17, 24, 39, 0.32);
+  --lg-shadow-pop:
+    0 1px 2px rgba(17, 24, 39, 0.06),
+    0 12px 32px -8px rgba(17, 24, 39, 0.20);
+
+  /* ---- Concentric radii (Apple nests same-center corners) ----------------- */
+  --lg-r-control: 12px;
+  --lg-r-card: 20px;
+  --lg-r-chrome: 26px;
+  --lg-r-modal: 28px;
+  --lg-r-pill: 999px;
+
+  /* ---- Motion: springy custom easings (Emil/Apple) ------------------------ */
+  --lg-ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* strong ease-out (enter) */
+  --lg-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1); /* on-screen movement */
+  --lg-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1); /* iOS drawer curve */
+  --lg-d-press: 130ms;
+  --lg-d-standard: 220ms;
+  --lg-d-elaborate: 340ms;
+}
+
+/* ---------------------------------------------------------------------------
+   Base material. Compose with .lg-chrome / .lg-raised / .lg-control for weight.
+   The ::before paints the specular top-edge catch (pointer-transparent).
+   --------------------------------------------------------------------------- */
+.lg-glass {
+  position: relative;
+  background: var(--lg-fill-raised);
+  -webkit-backdrop-filter: var(--lg-blur-raised);
+  backdrop-filter: var(--lg-blur-raised);
+  border: 1px solid var(--lg-rim-soft);
+  border-radius: var(--lg-r-card);
+  box-shadow: var(--lg-shadow-card);
+  isolation: isolate;
+}
+.lg-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--lg-specular);
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.9;
+}
+
+.lg-chrome {
+  background: var(--lg-fill-chrome);
+  -webkit-backdrop-filter: var(--lg-blur-chrome);
+  backdrop-filter: var(--lg-blur-chrome);
+  border: 1px solid var(--lg-rim);
+  border-radius: var(--lg-r-chrome);
+  box-shadow: var(--lg-shadow-chrome);
+}
+
+/* Modal glass — for focus surfaces that carry dense, critical text (approval
+   card, batch digest, welcome). Near-opaque so NOTHING behind bleeds through
+   and clashes with the copy; the blur + rim + specular still give it the glass
+   material at the edges. Legibility wins over translucency here. */
+.lg-modal {
+  position: relative;
+  background: rgba(255, 255, 255, 0.95);
+  -webkit-backdrop-filter: var(--lg-blur-chrome);
+  backdrop-filter: var(--lg-blur-chrome);
+  border: 1px solid var(--lg-rim);
+  border-radius: var(--lg-r-modal);
+  box-shadow: var(--lg-shadow-modal);
+  isolation: isolate;
+}
+.lg-modal::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--lg-specular);
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.7;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .lg-modal { background: #ffffff; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+.lg-raised {
+  background: var(--lg-fill-raised);
+  border-radius: var(--lg-r-card);
+  box-shadow: var(--lg-shadow-card);
+}
+
+.lg-control {
+  background: var(--lg-fill-control);
+  -webkit-backdrop-filter: var(--lg-blur-control);
+  backdrop-filter: var(--lg-blur-control);
+  border: 1px solid var(--lg-rim-soft);
+  border-radius: var(--lg-r-control);
+}
+
+/* Pressable feel: instant scale-down on press, spring back on release.
+   (Emil: buttons must feel like the UI heard the press.) */
+.lg-press {
+  transition: transform var(--lg-d-press) var(--lg-ease-out),
+    background-color var(--lg-d-press) var(--lg-ease-out),
+    box-shadow var(--lg-d-standard) var(--lg-ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .lg-press:hover {
+    background-color: var(--lg-fill-hover);
+  }
+}
+.lg-press:active {
+  transform: scale(0.97);
+}
+
+/* Translucent glass fill WITHOUT backdrop-blur — for dense scrolling lists
+   (the Live Feed can hold hundreds of rows, where per-row backdrop-filter would
+   wreck scroll performance). Over the smooth ambient this still reads as glass. */
+.lg-glass-lite {
+  background: rgba(255, 255, 255, 0.6);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .lg-glass-lite { background: #ffffff; }
+}
+
+/* Scale-only press feedback (no hover-bg change) — safe on colored/segmented
+   controls and nav rows where a background swap would fight the active state. */
+.lg-tap {
+  transition: transform var(--lg-d-press) var(--lg-ease-out);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lg-tap:active:not(:disabled) { transform: scale(0.97); }
+}
+
+/* Press feedback for controls inside the approval dialog — scale only (no
+   hover-bg change) so the colored Deny/Allow buttons keep their fills. One
+   scoped rule instead of touching every button. */
+[role="alertdialog"] button {
+  transition: transform var(--lg-d-press) var(--lg-ease-out),
+    filter var(--lg-d-press) var(--lg-ease-out);
+}
+@media (prefers-reduced-motion: no-preference) {
+  [role="alertdialog"] button:active:not(:disabled) { transform: scale(0.97); }
+}
+@media (hover: hover) and (pointer: fine) {
+  [role="alertdialog"] button:hover:not(:disabled) { filter: brightness(1.04); }
+}
+
+/* Enter animations — materialize (blur+scale), never a flat fade.
+   Gated behind no-preference; reduced-motion gets a plain cross-fade. */
+@media (prefers-reduced-motion: no-preference) {
+  .lg-enter {
+    animation: lg-materialize var(--lg-d-elaborate) var(--lg-ease-out) both;
+  }
+  @keyframes lg-materialize {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(6px);
+      filter: blur(6px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+      filter: blur(0);
+    }
+  }
+  /* Stagger helper: set --lg-i on each item (0,1,2,…) for a cascade. */
+  .lg-stagger {
+    animation: lg-rise var(--lg-d-standard) var(--lg-ease-out) both;
+    animation-delay: calc(var(--lg-i, 0) * 45ms);
+  }
+  @keyframes lg-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* ── StatusRing (Overview hero) — a signature moment, seen occasionally, so it
+   earns motion. The arc sweeps in, the glyph pops with a hair of overshoot, a
+   soft halo breathes so the ring feels alive/guarding, and the label rises. All
+   gated behind no-preference; reduced-motion shows the settled state. --------- */
+@media (prefers-reduced-motion: no-preference) {
+  .sr-arc {
+    animation: sr-draw 820ms var(--lg-ease-out) both;
+  }
+  @keyframes sr-draw {
+    from { stroke-dashoffset: var(--sr-c, 478); }
+    to { stroke-dashoffset: 0; }
+  }
+  .sr-glyph {
+    animation: sr-pop 520ms var(--lg-ease-out) 460ms both;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  @keyframes sr-pop {
+    0% { opacity: 0; transform: scale(0.5); }
+    70% { opacity: 1; transform: scale(1.08); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .sr-halo {
+    animation: sr-breathe 3.6s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  @keyframes sr-breathe {
+    0%, 100% { opacity: 0.28; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.055); }
+  }
+  .sr-label {
+    animation: sr-label 440ms var(--lg-ease-out) 340ms both;
+  }
+  @keyframes sr-label {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* ── Paw-print loader — cute dog-themed "walking" loader. -------------------- */
+.paw-loader { display: inline-flex; align-items: center; gap: 7px; }
+.paw-loader svg { opacity: 0.18; }
+@media (prefers-reduced-motion: no-preference) {
+  .paw-loader svg { animation: paw-step 1.25s ease-in-out infinite; }
+  .paw-loader svg:nth-child(1) { animation-delay: 0ms; }
+  .paw-loader svg:nth-child(2) { animation-delay: 160ms; }
+  .paw-loader svg:nth-child(3) { animation-delay: 320ms; }
+  .paw-loader svg:nth-child(4) { animation-delay: 480ms; }
+  @keyframes paw-step {
+    0%, 70%, 100% { opacity: 0.18; transform: translateY(2px) scale(0.9) rotate(var(--paw-rot, 0deg)); }
+    35% { opacity: 1; transform: translateY(0) scale(1) rotate(var(--paw-rot, 0deg)); }
+  }
+}
+
+/* ── Mascot status (the guard-dog hero) — cute, alive motion. ---------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .mascot-img {
+    animation: mascot-in 520ms var(--lg-ease-out) both,
+      mascot-bob 3s ease-in-out 520ms infinite;
+  }
+  @keyframes mascot-in {
+    0% { opacity: 0; transform: translateY(10px) scale(0.82); }
+    70% { opacity: 1; transform: translateY(-2px) scale(1.04); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes mascot-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-7px); }
+  }
+  /* Threat blocked → an extra alert "boof" wiggle right after entering. */
+  .mascot-img.mascot-alert {
+    animation: mascot-in 520ms var(--lg-ease-out) both,
+      mascot-wiggle 620ms var(--lg-ease-out) 520ms 1,
+      mascot-bob 3s ease-in-out 1140ms infinite;
+  }
+  @keyframes mascot-wiggle {
+    0%, 100% { transform: rotate(0) translateY(0); }
+    20% { transform: rotate(-5deg) translateY(-4px); }
+    45% { transform: rotate(4deg) translateY(-2px); }
+    70% { transform: rotate(-2deg); }
+  }
+  .mascot-glow { animation: mascot-glow-breathe 3.4s ease-in-out infinite; }
+  @keyframes mascot-glow-breathe {
+    0%, 100% { opacity: 0.22; transform: scale(1); }
+    50% { opacity: 0.42; transform: scale(1.08); }
+  }
+  .mascot-badge { animation: mascot-badge-pop 460ms var(--lg-ease-out) 620ms both; }
+  @keyframes mascot-badge-pop {
+    0% { opacity: 0; transform: scale(0.3); }
+    72% { opacity: 1; transform: scale(1.15); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+}
+
+/* Accessibility: honor the three independent user signals. */
+@media (prefers-reduced-motion: reduce) {
+  .lg-enter,
+  .lg-stagger { animation: lg-fade var(--lg-d-standard) ease both; }
+  .lg-press:active { transform: none; }
+  @keyframes lg-fade { from { opacity: 0; } to { opacity: 1; } }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .lg-glass, .lg-chrome, .lg-control {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: #ffffff;
+  }
+  .lg-glass::before { opacity: 0; }
+}
+@media (prefers-contrast: more) {
+  .lg-glass, .lg-chrome, .lg-control {
+    background: #ffffff;
+    border-color: rgba(17, 24, 39, 0.5);
+  }
+}

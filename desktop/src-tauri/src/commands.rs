@@ -119,6 +119,19 @@ pub async fn get_pending() -> Value {
     }
 }
 
+/// Per-session trust grades — `{"sessions":[{session,grade,demerits}...]}`,
+/// worst-first. Daemon-unreachable ⇒ `{"sessions":[]}` so the Overview degrades
+/// to an empty trust panel rather than erroring.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn get_trust() -> Value {
+    let frame = serde_json::json!({"type":"command","name":"get_trust","args":{}});
+    match crate::uds::request(&frame).await {
+        Ok(v) => v,
+        Err(_) => serde_json::json!({"sessions": []}),
+    }
+}
+
 /// Resolve a parked approval. Returns the daemon's `{"ok":...}` reply, or an
 /// `{"ok":false,"error":...}` string-mapped error if the daemon is unreachable.
 #[cfg(all(feature = "tauri", feature = "tokio"))]
@@ -230,6 +243,30 @@ pub async fn get_net_enrich() -> Value {
     crate::uds::request(&frame)
         .await
         .unwrap_or_else(|_| serde_json::json!({"ok": false, "enabled": false}))
+}
+
+/// Read the operator's language. Falls back to English if the daemon is
+/// unreachable — the GUI must still render, and English is the source locale
+/// every string is guaranteed to have.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn get_locale() -> Value {
+    let frame = serde_json::json!({"type":"command","name":"get_locale","args":{}});
+    crate::uds::request(&frame)
+        .await
+        .unwrap_or_else(|_| serde_json::json!({"locale": "en", "supported": ["en"]}))
+}
+
+/// Change the operator's language. The daemon refuses an unsupported locale,
+/// and that refusal is propagated rather than swallowed: a picker that appears
+/// to accept a language it did not save is worse than one that errors.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn set_locale(locale: String) -> Result<Value, String> {
+    let frame = serde_json::json!({
+        "type":"command","name":"set_locale","args":{"locale":locale}
+    });
+    crate::uds::request(&frame).await.map_err(|e| e.to_string())
 }
 
 /// Toggle destination enrichment on/off.
@@ -590,21 +627,27 @@ fn scan_cache() -> &'static std::sync::Mutex<Vec<Value>> {
 #[cfg(all(feature = "tauri", feature = "tokio"))]
 #[tauri::command]
 pub async fn run_host_scan(options: Value) -> Result<Value, String> {
-    let _ = options; // {quick?} reserved — the scan is the bounded user-home walk
+    // Quick (default false) reads only the top level of the home dir; Full walks
+    // subdirectories with the bounded malware-pass collector. Honouring this is
+    // what makes the Full/Quick selector mean something (it was a no-op before).
+    let quick = options.get("quick").and_then(|v| v.as_bool()).unwrap_or(false);
     // User profile root: %USERPROFILE% on Windows (no $HOME there), else $HOME.
     let scope = std::path::PathBuf::from(
         std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
             .unwrap_or_else(|_| ".".into()),
     );
     // CPU-bound (file reads + YARA) — keep it off the async runtime threads.
-    let findings =
-        tokio::task::spawn_blocking(move || belay_server::run_host_scan_json(&scope, 200))
-            .await
-            .map_err(|e| format!("host scan task failed: {e}"))?;
+    let (findings, scanned) = tokio::task::spawn_blocking(move || {
+        belay_server::run_host_scan_json_ext(&scope, 200, !quick)
+    })
+    .await
+    .map_err(|e| format!("host scan task failed: {e}"))?;
     if let Ok(mut cache) = scan_cache().lock() {
         *cache = findings;
     }
-    Ok(serde_json::json!({ "jobId": "host-scan" }))
+    // `scanned` lets the UI show "scanned N files — no threats" so a clean scan
+    // is visibly a completed scan, not a no-op.
+    Ok(serde_json::json!({ "jobId": "host-scan", "scanned": scanned }))
 }
 
 /// Return the findings from the most recent `run_host_scan` (`HostFinding[]`).
@@ -626,35 +669,55 @@ fn vuln_cache() -> &'static std::sync::Mutex<Option<Value>> {
     CACHE.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-/// Refresh the vuln posture: recompute in-process from dpkg + the cached advisory
-/// DB (the same `build_vuln_posture` the daemon runs; no separate live NVD sync
-/// exists yet), stamp `scanned_at`/`job_id`, cache it for `get_vuln_posture`, and
-/// return a `{ jobId }` handle. Mirrors `POST /api/host/vuln/scan`.
+/// Stamp a daemon-provided vuln posture with `scanned_at` / `job_id` and return
+/// `(value_to_cache, {jobId} handle)`. Pure and feature-gate-free so the scan's
+/// carry-through behaviour is unit-testable without a running daemon.
+///
+/// The input MUST be the posture the daemon returned. The daemon binary is the
+/// single source of truth for advisory data (it is built for the host's real
+/// ecosystem, e.g. Debian:sid); the desktop binary carries its own, possibly
+/// mismatched, bundle. This helper only stamps — it never recomputes — so the
+/// daemon's `supported`/`findings` survive verbatim.
+fn finalize_vuln_scan(mut posture: Value, secs: u64) -> (Value, Value) {
+    let job_id = format!("vuln-{secs}");
+    if let Some(obj) = posture.as_object_mut() {
+        obj.insert(
+            "scanned_at".into(),
+            Value::String(belayd::host_config::rfc3339_utc(secs)),
+        );
+        obj.insert("job_id".into(), Value::String(job_id.clone()));
+    }
+    (posture, serde_json::json!({ "jobId": job_id }))
+}
+
+/// Refresh the vuln posture by asking the DAEMON to recompute it (over the UDS,
+/// same as `get_vuln_posture`'s initial read), stamp `scanned_at`/`job_id`, cache
+/// it for `get_vuln_posture`, and return a `{ jobId }` handle. Mirrors
+/// `POST /api/host/vuln/scan`.
+///
+/// It deliberately does NOT compute the posture in-process: the desktop binary's
+/// compiled-in advisory bundle can differ from the host's ecosystem (it defaults
+/// to Debian:12), which made a working on-load posture flip to "Not available"
+/// the moment the user pressed Scan. Delegating to the daemon keeps one source of
+/// truth and means the desktop binary never needs the ecosystem baked in.
 #[cfg(all(feature = "tauri", feature = "tokio"))]
 #[tauri::command]
 pub async fn scan_host_vuln() -> Result<Value, String> {
-    // dpkg parse + advisory match is blocking I/O — keep it off the runtime.
-    let mut posture = tokio::task::spawn_blocking(|| {
-        serde_json::to_value(belayd::host_api::build_vuln_posture())
-    })
-    .await
-    .map_err(|e| format!("vuln scan task failed: {e}"))?
-    .map_err(|e| format!("vuln posture serialize failed: {e}"))?;
+    let default = serde_json::json!({
+        "scanned_at": null, "job_id": null, "total": 0,
+        "critical": 0, "high": 0, "medium": 0, "low": 0, "findings": []
+    });
+    let posture = host_read("get_vuln_posture", default).await;
 
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let job_id = format!("vuln-{secs}");
-    if let Some(obj) = posture.as_object_mut() {
-        let ts = belayd::host_config::rfc3339_utc(secs);
-        obj.insert("scanned_at".into(), Value::String(ts));
-        obj.insert("job_id".into(), Value::String(job_id.clone()));
-    }
+    let (cached, handle) = finalize_vuln_scan(posture, secs);
     if let Ok(mut cache) = vuln_cache().lock() {
-        *cache = Some(posture);
+        *cache = Some(cached);
     }
-    Ok(serde_json::json!({ "jobId": job_id }))
+    Ok(handle)
 }
 
 // ── Scan schedule ─────────────────────────────────────────────────────────────
@@ -694,6 +757,26 @@ pub fn restore_quarantine(id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn delete_quarantine(id: String) -> Result<(), String> {
     belayd::host_config::delete_quarantine(&id)
+}
+
+// ── Skills ────────────────────────────────────────────────────────────────────
+
+/// List installed agent skills as `SkillSummary[]` — enumerated identity,
+/// current scan verdict, and baseline-drift state for each.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub fn list_skills() -> Value {
+    belayd::skills::skills_summary_json()
+}
+
+/// Re-approve an installed skill: snapshot its CURRENT manifest as the approved
+/// baseline (the "yes, this update is fine" action behind `belay skill-approve`).
+/// `path` is the skill directory as returned in `SkillSummary.path`. Returns the
+/// baseline permission list; errors if the dir has no parseable `SKILL.md`.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub fn approve_skill(path: String) -> Result<Vec<String>, String> {
+    belayd::skills::approve(std::path::Path::new(&path))
 }
 
 // ── SSH guard ─────────────────────────────────────────────────────────────────
@@ -1178,6 +1261,27 @@ pub fn get_recent_audit(limit: Option<usize>) -> Vec<Value> {
     r
 }
 
+/// Path to the approvals-provenance store the daemon writes (separate from the
+/// gate audit log). Resolved through the daemon's own helper so desktop and
+/// daemon agree: `<data_dir>/approvals.ndjson`.
+#[cfg_attr(not(feature = "tauri"), allow(dead_code))]
+fn approvals_path() -> String {
+    belayd::paths::approvals_path().to_string_lossy().into_owned()
+}
+
+/// Recent approval-provenance rows (newest-first) for the Alerts feed: the
+/// `approval.resolved`/`approval.respond` events carrying resolver channel,
+/// human-verified lineage, and self-approval-blocked state. Missing file →
+/// empty list (never an error). Capped at 500.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub fn get_recent_approvals(limit: Option<usize>) -> Vec<Value> {
+    let n = limit.unwrap_or(200).min(500);
+    let mut r = belayd::audit::recent(&approvals_path(), n); // oldest-first
+    r.reverse(); // newest-first
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1396,5 +1500,37 @@ mod tests {
         assert!(agents[0].mcp_config.is_empty());
         assert_eq!(agents[1].name, "cursor");
         assert_eq!(agents[1].interception, "mcp-proxy");
+    }
+
+    /// Regression for the "Scan now → Not available for Debian:sid" bug: the
+    /// desktop's vuln scan MUST carry the daemon's posture through (the daemon is
+    /// the single source of truth for advisory data), not replace it with a
+    /// locally recomputed one. `finalize_vuln_scan` takes the daemon's posture
+    /// and only stamps it — it must preserve `supported`/`findings` verbatim.
+    #[test]
+    fn finalize_vuln_scan_carries_daemon_posture_through_and_stamps_it() {
+        // A posture as the daemon (built for the host's real ecosystem) returns it:
+        // supported, with findings. The old code ignored this and recomputed in
+        // the desktop process against its own bundle, yielding supported:false.
+        let from_daemon = json!({
+            "supported": true,
+            "reason": "Rolling release (Kali / Debian testing): matched against Debian unstable (sid) — results are approximate.",
+            "total": 139, "critical": 0, "high": 0, "medium": 0, "low": 139,
+            "findings": [{"id": "CVE-2026-9547", "severity": "low"}],
+            "scanned_at": null, "job_id": null,
+        });
+
+        let (cached, handle) = finalize_vuln_scan(from_daemon, 1_700_000_000);
+
+        // The daemon's verdict + data survive verbatim (the fix).
+        assert_eq!(cached["supported"], json!(true));
+        assert_eq!(cached["total"], json!(139));
+        assert_eq!(cached["low"], json!(139));
+        assert_eq!(cached["findings"].as_array().unwrap().len(), 1);
+        assert_eq!(cached["findings"][0]["id"], json!("CVE-2026-9547"));
+        // ...and the scan is stamped so the UI can show "scanned <when>".
+        assert!(cached["scanned_at"].is_string());
+        assert_eq!(cached["job_id"], json!("vuln-1700000000"));
+        assert_eq!(handle["jobId"], json!("vuln-1700000000"));
     }
 }

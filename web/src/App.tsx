@@ -2,6 +2,7 @@ import { useState } from "react";
 import Posture from "./views/Posture";
 import Findings from "./views/Findings";
 import Timeline from "./views/Timeline";
+import Alerts from "./views/Alerts";
 import Scan from "./views/Scan";
 import Agents from "./views/Agents";
 import Host from "./views/Host";
@@ -15,16 +16,17 @@ import { UpdaterProvider } from "./lib/updater";
 import Sidebar from "./components/Sidebar";
 
 type Tab =
-  | "posture" | "findings" | "timeline" | "scan" | "agents" | "host" | "ai" | "messaging"
+  | "posture" | "findings" | "timeline" | "alerts" | "scan" | "agents" | "host" | "ai" | "messaging"
   ;
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("posture");
   return (
     <UpdaterProvider>
-    <div className="flex h-screen bg-[var(--surface-base)] text-[var(--text-primary)] overflow-hidden">
+    <div className="flex h-screen text-[var(--text-primary)] overflow-hidden gap-2.5 p-2.5"
+      style={{ background: "var(--lg-ambient)" }}>
       <Sidebar tab={tab} onNavigate={setTab} />
-      <main className="flex-1 overflow-y-auto min-w-0">
+      <main className="flex-1 overflow-y-auto min-w-0 rounded-[var(--lg-r-chrome)]">
         {/* In-app update prompt (desktop only; hidden when no update) */}
         <UpdateBanner />
         {tab === "posture" && (
@@ -35,6 +37,7 @@ export default function App() {
         )}
         {tab === "findings" && <Findings />}
         {tab === "timeline" && <Timeline />}
+        {tab === "alerts" && <Alerts />}
         {tab === "scan" && <Scan />}
         {tab === "agents" && <Agents />}
         {tab === "host" && <Host />}

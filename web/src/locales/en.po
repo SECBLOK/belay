@@ -1,0 +1,3624 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-07-20 23:42+1000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: en\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
+
+#. placeholder {0}: new Date(posture.scanned_at).toLocaleDateString()
+#: src/views/host/VulnPosture.tsx
+msgid "— scanned {0}"
+msgstr "— scanned {0}"
+
+#: src/views/Messaging.tsx
+msgid ". Expose it via your TLS reverse proxy; callbacks are signature-verified."
+msgstr ". Expose it via your TLS reverse proxy; callbacks are signature-verified."
+
+#: src/views/host/AiSettings.tsx
+msgid "(global model)"
+msgstr "(global model)"
+
+#: src/views/host/AiSettings.tsx
+msgid "(or set the BELAY_AI_KEY env var)"
+msgstr "(or set the BELAY_AI_KEY env var)"
+
+#. placeholder {0}: skill.finding_count
+#: src/views/host/HostSkills.tsx
+msgid "{0, plural, =0 {No findings} one {# finding} other {# findings}}"
+msgstr "{0, plural, =0 {No findings} one {# finding} other {# findings}}"
+
+#. placeholder {0}: names.length
+#: src/components/DetectionBanner.tsx
+#~ msgid "{0, plural, one {{list} is installed. Review it to turn on protection.} other {{list} are installed. Review them to turn on protection.}}"
+#~ msgstr "{0, plural, one {{list} is installed. Review it to turn on protection.} other {{list} are installed. Review them to turn on protection.}}"
+
+#. placeholder {0}: feed.ecosystems.length
+#: src/views/console/Settings.tsx
+msgid "{0, plural, one {# ecosystem} other {# ecosystems}}"
+msgstr "{0, plural, one {# ecosystem} other {# ecosystems}}"
+
+#. placeholder {0}: data.quarantineCount
+#: src/views/host/HostOverview.tsx
+msgid "{0, plural, one {# file in quarantine} other {# files in quarantine}}"
+msgstr "{0, plural, one {# file in quarantine} other {# files in quarantine}}"
+
+#. placeholder {0}: data.bannedIpCount
+#: src/views/host/HostOverview.tsx
+msgid "{0, plural, one {# IP currently banned} other {# IPs currently banned}}"
+msgstr "{0, plural, one {# IP currently banned} other {# IPs currently banned}}"
+
+#. placeholder {0}: data.kevCount
+#: src/views/host/HostOverview.tsx
+msgid "{0, plural, one {# Known Exploited Vulnerability detected} other {# Known Exploited Vulnerabilities detected}}"
+msgstr "{0, plural, one {# Known Exploited Vulnerability detected} other {# Known Exploited Vulnerabilities detected}}"
+
+#. placeholder {0}: pending.length
+#: src/views/Timeline.tsx
+msgid "{0, plural, one {# new event — jump to top} other {# new events — jump to top}}"
+msgstr "{0, plural, one {# new event — jump to top} other {# new events — jump to top}}"
+
+#. placeholder {0}: pendings.length
+#: src/components/BatchDigest.tsx
+msgid "{0, plural, one {# pending approval} other {# pending approvals}}"
+msgstr "{0, plural, one {# pending approval} other {# pending approvals}}"
+
+#. placeholder {0}: ruleset.rules.length
+#: src/components/host/ProposedRuleTable.tsx
+msgid "{0, plural, one {# rule proposed} other {# rules proposed}}"
+msgstr "{0, plural, one {# rule proposed} other {# rules proposed}}"
+
+#. placeholder {0}: status.rule_count
+#: src/views/host/FirewallSetup.tsx
+msgid "{0, plural, one {# rule} other {# rules}}"
+msgstr "{0, plural, one {# rule} other {# rules}}"
+
+#. placeholder {0}: data.skillQuarantineCount
+#: src/views/host/HostOverview.tsx
+msgid "{0, plural, one {# skill in quarantine} other {# skills in quarantine}}"
+msgstr "{0, plural, one {# skill in quarantine} other {# skills in quarantine}}"
+
+#. placeholder {0}: names.length
+#: src/components/DetectionBanner.tsx
+msgid "{0, plural, one {We found # AI tool on this computer} other {We found # AI tools on this computer}}"
+msgstr "{0, plural, one {We found # AI tool on this computer} other {We found # AI tools on this computer}}"
+
+#. placeholder {0}: devices.length
+#. placeholder {1}: summary.online_devices
+#: src/views/Fleet.tsx
+msgid "{0} agents · {1} online"
+msgstr "{0} agents · {1} online"
+
+#. placeholder {0}: labels[0]
+#. placeholder {1}: labels[1]
+#: src/components/DetectionBanner.tsx
+msgid "{0} and {1}"
+msgstr "{0} and {1}"
+
+#. placeholder {0}: view.allow.length
+#. placeholder {1}: view.max_replies_per_min
+#: src/views/Messaging.tsx
+msgid "{0} enrolled · max {1}/min each"
+msgstr "{0} enrolled · max {1}/min each"
+
+#. placeholder {0}: devices.length
+#. placeholder {0}: members.length
+#. placeholder {1}: org || "—"
+#: src/views/console/Devices.tsx
+#: src/views/console/OrgAdmin.tsx
+msgid "{0} in {1}"
+msgstr "{0} in {1}"
+
+#. placeholder {0}: meta.arg
+#: src/views/console/FleetCommands.tsx
+msgid "{0} json"
+msgstr "{0} json"
+
+#. placeholder {0}: Math.max(1, Math.round(s / 60))
+#: src/views/Timeline.tsx
+msgid "{0} min ago"
+msgstr "{0} min ago"
+
+#. placeholder {0}: rejected.length
+#: src/views/console/FleetCommands.tsx
+msgid "{0} out-of-scope"
+msgstr "{0} out-of-scope"
+
+#. placeholder {0}: targets.length
+#: src/views/console/FleetCommands.tsx
+msgid "{0} selected"
+msgstr "{0} selected"
+
+#. placeholder {0}: labels.slice(0, -1).join(", ")
+#. placeholder {1}: labels[labels.length - 1]
+#: src/components/DetectionBanner.tsx
+msgid "{0}, and {1}"
+msgstr "{0}, and {1}"
+
+#. placeholder {0}: Math.floor(s / 86400)
+#: src/components/dash.tsx
+#: src/views/Alerts.tsx
+#: src/views/Timeline.tsx
+msgid "{0}d ago"
+msgstr "{0}d ago"
+
+#. placeholder {0}: Math.floor(s / 3600)
+#: src/components/dash.tsx
+#: src/views/Alerts.tsx
+#: src/views/Timeline.tsx
+msgid "{0}h ago"
+msgstr "{0}h ago"
+
+#. placeholder {0}: Math.floor(s / 60)
+#: src/components/dash.tsx
+#: src/views/Alerts.tsx
+#: src/views/Timeline.tsx
+msgid "{0}m ago"
+msgstr "{0}m ago"
+
+#. placeholder {0}: Math.floor(s)
+#: src/components/dash.tsx
+#: src/views/Alerts.tsx
+#: src/views/Timeline.tsx
+msgid "{0}s ago"
+msgstr "{0}s ago"
+
+#: src/components/TrustPanel.tsx
+msgid "{blocked} blocked by GateGuard."
+msgstr "{blocked} blocked by GateGuard."
+
+#: src/components/ApprovalSurface.tsx
+msgid "{blockedCount, plural, one {Approval blocked} other {# approvals blocked}}"
+msgstr "{blockedCount, plural, one {Approval blocked} other {# approvals blocked}}"
+
+#: src/lib/alerts.ts
+msgid "{decided} via messaging channel"
+msgstr "{decided} via messaging channel"
+
+#: src/views/console/shared.tsx
+msgid "{label} — shown once"
+msgstr "{label} — shown once"
+
+#: src/components/ModelPicker.tsx
+msgid "{label} custom id"
+msgstr "{label} custom id"
+
+#: src/components/DetectionBanner.tsx
+msgid "{list} are installed. Review them to turn on protection."
+msgstr "{list} are installed. Review them to turn on protection."
+
+#: src/components/DetectionBanner.tsx
+msgid "{list} is installed. Review it to turn on protection."
+msgstr "{list} is installed. Review it to turn on protection."
+
+#. placeholder {0}: posture.checks.length
+#: src/views/host/SshHardening.tsx
+msgid "{passCount} of {0} checks pass"
+msgstr "{passCount} of {0} checks pass"
+
+#: src/components/Sidebar.tsx
+msgid "{pendingCount, plural, =0 {0 pending} one {# action pending} other {# actions pending}}"
+msgstr "{pendingCount, plural, =0 {0 pending} one {# action pending} other {# actions pending}}"
+
+#: src/components/Sidebar.tsx
+msgid "{pendingCount} pending"
+msgstr "{pendingCount} pending"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "{timeStr} remaining"
+msgstr "{timeStr} remaining"
+
+#: src/views/console/shared.tsx
+msgid "{what} is not available on this server yet."
+msgstr "{what} is not available on this server yet."
+
+#: src/views/Messaging.tsx
+msgid "@BotFather → /newbot for the token; numeric id from @userinfobot."
+msgstr "@BotFather → /newbot for the token; numeric id from @userinfobot."
+
+#: src/views/host/AiSettings.tsx
+msgid "•••••••• (key saved)"
+msgstr "•••••••• (key saved)"
+
+#: src/views/Agents.tsx
+msgid "+{extra} more"
+msgstr "+{extra} more"
+
+#. placeholder {0}: filtered.length
+#. placeholder {1}: rows.length
+#: src/views/Findings.tsx
+msgid "<0>{0}</0> of <1>{1}</1>"
+msgstr "<0>{0}</0> of <1>{1}</1>"
+
+#: src/views/Agents.tsx
+msgid "<0>Action needed to activate.</0> Codex leaves a new hook dormant until you trust it: open the Codex CLI, run <1>/hooks</1>, and trust the Belay hook. Until then this agent is <2>not actively protected</2>. Even once trusted, Codex hooks fire on <3>shell commands, edits, and MCP calls - not plain file reads</3>, and apply only to <4>local tasks, not Codex Cloud</4>runs. Treat this as a strong guardrail, not a guarantee."
+msgstr "<0>Action needed to activate.</0> Codex leaves a new hook dormant until you trust it: open the Codex CLI, run <1>/hooks</1>, and trust the Belay hook. Until then this agent is <2>not actively protected</2>. Even once trusted, Codex hooks fire on <3>shell commands, edits, and MCP calls - not plain file reads</3>, and apply only to <4>local tasks, not Codex Cloud</4>runs. Treat this as a strong guardrail, not a guarantee."
+
+#: src/views/Agents.tsx
+msgid "<0>What Belay can and can't enforce.</0> Belay blocks agents that run through a cooperative hook — the <1>Claude Code CLI</1>, <2>Cursor</2>, and the <3>Codex CLI</3> (once trusted). The <4>Claude Desktop</4> and<5>ChatGPT desktop</5> apps are detected here, but they run their tools in a separate sandbox that bypasses these hooks, so Belay can't block them yet. Deeper coverage for desktop apps needs OS-level interception (an optional, admin-enabled tier)."
+msgstr "<0>What Belay can and can't enforce.</0> Belay blocks agents that run through a cooperative hook — the <1>Claude Code CLI</1>, <2>Cursor</2>, and the <3>Codex CLI</3> (once trusted). The <4>Claude Desktop</4> and<5>ChatGPT desktop</5> apps are detected here, but they run their tools in a separate sandbox that bypasses these hooks, so Belay can't block them yet. Deeper coverage for desktop apps needs OS-level interception (an optional, admin-enabled tier)."
+
+#: src/components/Welcome.tsx
+msgid "= blocked"
+msgstr "= blocked"
+
+#: src/components/Welcome.tsx
+msgid "= needs your review"
+msgstr "= needs your review"
+
+#: src/components/Welcome.tsx
+msgid "= safe / allowed"
+msgstr "= safe / allowed"
+
+#: src/views/Scan.tsx
+msgid "~/Downloads/some-repo  or  https://github.com/org/repo"
+msgstr "~/Downloads/some-repo  or  https://github.com/org/repo"
+
+#: src/views/Timeline.tsx
+msgid "⏸ Pause"
+msgstr "⏸ Pause"
+
+#: src/views/Timeline.tsx
+msgid "▶ Resume"
+msgstr "▶ Resume"
+
+#: src/views/Agents.tsx
+msgid "⚠ Finish in Codex"
+msgstr "⚠ Finish in Codex"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "⚡ Auto setup"
+msgstr "⚡ Auto setup"
+
+#: src/views/Agents.tsx
+msgid "✓ Protected"
+msgstr "✓ Protected"
+
+#: src/views/Posture.tsx
+msgid "5-min buckets"
+msgstr "5-min buckets"
+
+#: src/views/Fleet.tsx
+msgid "5-min buckets · all devices"
+msgstr "5-min buckets · all devices"
+
+#: src/views/Messaging.tsx
+msgid "a 1:1 direct room"
+msgstr "a 1:1 direct room"
+
+#: src/views/Messaging.tsx
+msgid "a 1:1 DM channel id"
+msgstr "a 1:1 DM channel id"
+
+#: src/views/Messaging.tsx
+msgid "A daemon without messaging is answering — usually a second Belay install, or a BELAY_BIN env var pointing at an older/open build. Quit all Belay apps, `unset BELAY_BIN` if set, then relaunch so this build's daemon takes over."
+msgstr "A daemon without messaging is answering — usually a second Belay install, or a BELAY_BIN env var pointing at an older/open build. Quit all Belay apps, `unset BELAY_BIN` if set, then relaunch so this build's daemon takes over."
+
+#: src/views/Messaging.tsx
+msgid "a DM channel (type D)"
+msgstr "a DM channel (type D)"
+
+#: src/views/Messaging.tsx
+msgid "a DM/user id"
+msgstr "a DM/user id"
+
+#: src/lib/explain.ts
+msgid "A program could keep running and watching your computer after you close the agent."
+msgstr "A program could keep running and watching your computer after you close the agent."
+
+#: src/views/host/FirewallSetup.tsx
+msgid "A rollback window opens immediately. SSH is always preserved."
+msgstr "A rollback window opens immediately. SSH is always preserved."
+
+#: src/lib/humanize.ts
+msgid "A security weakness on your computer"
+msgstr "A security weakness on your computer"
+
+#: src/views/Messaging.tsx
+msgid "Access token"
+msgstr "Access token"
+
+#: src/views/Messaging.tsx
+msgid "Account SID"
+msgstr "Account SID"
+
+#: src/components/host/AllowlistManager.tsx
+#: src/components/host/ProposedRuleTable.tsx
+#: src/lib/humanize.ts
+#: src/views/console/FleetCommands.tsx
+msgid "Action"
+msgstr "Action"
+
+#: src/components/Sidebar.tsx
+#: src/components/StatusRing.tsx
+#: src/components/TrayPopover.tsx
+msgid "Action needed"
+msgstr "Action needed"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Action required"
+msgstr "Action required"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "Action: {action}"
+msgstr "Action: {action}"
+
+#: src/views/Posture.tsx
+msgid "Actions monitored"
+msgstr "Actions monitored"
+
+#: src/components/TrayPopover.tsx
+msgid "Actions waiting for you"
+msgstr "Actions waiting for you"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "active"
+msgstr "active"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Active"
+msgstr "Active"
+
+#: src/components/host/BanList.tsx
+#: src/views/host/SshHardening.tsx
+msgid "Active bans"
+msgstr "Active bans"
+
+#: src/views/host/AiSettings.tsx
+msgid "Active whenever AI is on."
+msgstr "Active whenever AI is on."
+
+#: src/components/Sidebar.tsx
+msgid "Activity"
+msgstr "Activity"
+
+#: src/views/Posture.tsx
+msgid "Activity Over Time"
+msgstr "Activity Over Time"
+
+#: src/views/Messaging.tsx
+msgid "Add approver IDs"
+msgstr "Add approver IDs"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Add member"
+msgstr "Add member"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Add rule"
+msgstr "Add rule"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Admins"
+msgstr "Admins"
+
+#: src/views/host/EgressControl.tsx
+msgid "Advanced"
+msgstr "Advanced"
+
+#. placeholder {0}: connector.advanced.length
+#: src/views/Messaging.tsx
+msgid "Advanced ({0})"
+msgstr "Advanced ({0})"
+
+#: src/views/Fleet.tsx
+msgid "Advanced: connect another computer"
+msgstr "Advanced: connect another computer"
+
+#: src/views/console/Settings.tsx
+msgid "Advisory feed"
+msgstr "Advisory feed"
+
+#: src/lib/alerts.ts
+msgid "agent lineage detected"
+msgstr "agent lineage detected"
+
+#: src/views/Agents.tsx
+msgid "Agent management runs in the Belay desktop app, where it can inspect tools installed on your computer. This feature is not available in the browser."
+msgstr "Agent management runs in the Belay desktop app, where it can inspect tools installed on your computer. This feature is not available in the browser."
+
+#: src/components/Sidebar.tsx
+msgid "Agents"
+msgstr "Agents"
+
+#: src/components/host/SegmentedNav.tsx
+msgid "AI"
+msgstr "AI"
+
+#: src/components/ApprovalCard.tsx
+msgid "AI · may be imperfect"
+msgstr "AI · may be imperfect"
+
+#: src/views/Agents.tsx
+msgid "AI agents found on this computer — their settings and Belay protection status."
+msgstr "AI agents found on this computer — their settings and Belay protection status."
+
+#: src/views/host/AiSettings.tsx
+msgid "AI explanation settings (provider, model, and your API key) are managed from the Belay desktop app, which talks to the local daemon."
+msgstr "AI explanation settings (provider, model, and your API key) are managed from the Belay desktop app, which talks to the local daemon."
+
+#: src/components/ApprovalCard.tsx
+msgid "AI explanation unavailable"
+msgstr "AI explanation unavailable"
+
+#: src/components/Sidebar.tsx
+msgid "AI Explanations"
+msgstr "AI Explanations"
+
+#: src/views/host/AiSettings.tsx
+msgid "AI explanations are disabled. Curated explanations remain available regardless."
+msgstr "AI explanations are disabled. Curated explanations remain available regardless."
+
+#: src/views/host/AiSettings.tsx
+msgid "AI explanations aren’t enabled yet"
+msgstr "AI explanations aren’t enabled yet"
+
+#: src/views/host/AiSettings.tsx
+msgid "AI mode"
+msgstr "AI mode"
+
+#: src/components/ApprovalCard.tsx
+msgid "AI-generated — may be imperfect"
+msgstr "AI-generated — may be imperfect"
+
+#: src/components/ApprovalCard.tsx
+msgid "AI-generated explanation"
+msgstr "AI-generated explanation"
+
+#: src/views/host/EgressControl.tsx
+msgid "Alert (detect only)"
+msgstr "Alert (detect only)"
+
+#: src/components/Sidebar.tsx
+#: src/views/Alerts.tsx
+msgid "Alerts"
+msgstr "Alerts"
+
+#: src/views/Alerts.tsx
+msgid "All"
+msgstr "All"
+
+#: src/views/Posture.tsx
+msgid "All AI agent activity looks normal. Nothing needs your attention."
+msgstr "All AI agent activity looks normal. Nothing needs your attention."
+
+#: src/views/host/SshHardening.tsx
+msgid "All hardening checks pass."
+msgstr "All hardening checks pass."
+
+#: src/views/Agents.tsx
+msgid "All MCP servers auto-enabled"
+msgstr "All MCP servers auto-enabled"
+
+#: src/views/Posture.tsx
+msgid "All quiet"
+msgstr "All quiet"
+
+#: src/views/host/HostOverview.tsx
+msgid "All surfaces look healthy. No immediate action needed."
+msgstr "All surfaces look healthy. No immediate action needed."
+
+#: src/views/Findings.tsx
+msgid "All tools"
+msgstr "All tools"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Allow"
+msgstr "Allow"
+
+#: src/components/BatchDigest.tsx
+msgid "Allow all"
+msgstr "Allow all"
+
+#: src/lib/explain.ts
+msgid "Allow if you asked it to inspect your setup; otherwise deny."
+msgstr "Allow if you asked it to inspect your setup; otherwise deny."
+
+#: src/lib/explain.ts
+msgid "Allow if you recognise the source; otherwise deny."
+msgstr "Allow if you recognise the source; otherwise deny."
+
+#: src/components/ApprovalCard.tsx
+msgid "Allow once"
+msgstr "Allow once"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Allow TCP Forwarding"
+msgstr "Allow TCP Forwarding"
+
+#: src/lib/alerts.ts
+#: src/lib/humanize.ts
+#: src/views/Findings.tsx
+msgid "Allowed"
+msgstr "Allowed"
+
+#: src/lib/explain.ts
+msgid "Almost never. You rarely need an agent to change your security settings."
+msgstr "Almost never. You rarely need an agent to change your security settings."
+
+#: src/views/host/AiSettings.tsx
+msgid "Also gate installs"
+msgstr "Also gate installs"
+
+#: src/components/ApprovalCard.tsx
+msgid "Always"
+msgstr "Always"
+
+#: src/components/ApprovalCard.tsx
+msgid "Always allow"
+msgstr "Always allow"
+
+#: src/components/Welcome.tsx
+msgid "Amber"
+msgstr "Amber"
+
+#: src/lib/humanize.ts
+#: src/lib/ruleCopy.ts
+msgid "An action that needs your review"
+msgstr "An action that needs your review"
+
+#: src/lib/explain.ts
+msgid "An action that needs your review."
+msgstr "An action that needs your review."
+
+#: src/lib/alerts.ts
+msgid "an agent tried to approve its own request — the guard denied it"
+msgstr "an agent tried to approve its own request — the guard denied it"
+
+#: src/views/Posture.tsx
+msgid "An AI agent is waiting for your decision. See below."
+msgstr "An AI agent is waiting for your decision. See below."
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Any"
+msgstr "Any"
+
+#: src/views/Messaging.tsx
+msgid "API base URL"
+msgstr "API base URL"
+
+#: src/views/host/AiSettings.tsx
+msgid "API key"
+msgstr "API key"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Apply proposed firewall ruleset — starts rollback countdown"
+msgstr "Apply proposed firewall ruleset — starts rollback countdown"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Apply ruleset"
+msgstr "Apply ruleset"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Applying rules…"
+msgstr "Applying rules…"
+
+#: src/components/ApprovalCard.tsx
+msgid "Approval required"
+msgstr "Approval required"
+
+#: src/views/Messaging.tsx
+msgid "Approvals are default-deny: only the enrolled principals below can allow or deny alerts."
+msgstr "Approvals are default-deny: only the enrolled principals below can allow or deny alerts."
+
+#: src/components/BatchDigest.tsx
+msgid "Approvals required"
+msgstr "Approvals required"
+
+#: src/views/host/HostSkills.tsx
+msgid "Approve"
+msgstr "Approve"
+
+#: src/views/Messaging.tsx
+msgid "Approve or deny parked actions from a chat app. Two-way channels can approve; notify-only channels alert you to approve elsewhere."
+msgstr "Approve or deny parked actions from a chat app. Two-way channels can approve; notify-only channels alert you to approve elsewhere."
+
+#: src/views/Posture.tsx
+msgid "Approved"
+msgstr "Approved"
+
+#: src/views/Messaging.tsx
+msgid "Approvers"
+msgstr "Approvers"
+
+#: src/views/Fleet.tsx
+msgid "At-Risk"
+msgstr "At-Risk"
+
+#: src/views/Fleet.tsx
+msgid "Audit log ready"
+msgstr "Audit log ready"
+
+#: src/views/Messaging.tsx
+msgid "Auth token"
+msgstr "Auth token"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Auto setup — detect this system and pre-fill a least-privilege ruleset"
+msgstr "Auto setup — detect this system and pre-fill a least-privilege ruleset"
+
+#: src/components/ApprovalCard.tsx
+msgid "Auto-blocks in {left}s"
+msgstr "Auto-blocks in {left}s"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Auto-detected proposal — review the rules, then Apply"
+msgstr "Auto-detected proposal — review the rules, then Apply"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Auto-reverts in"
+msgstr "Auto-reverts in"
+
+#: src/views/host/AiSettings.tsx
+msgid "Background watcher on skill files."
+msgstr "Background watcher on skill files."
+
+#: src/views/host/SshHardening.tsx
+msgid "Ban after N failures"
+msgstr "Ban after N failures"
+
+#: src/views/host/SshHardening.tsx
+msgid "Ban duration (seconds)"
+msgstr "Ban duration (seconds)"
+
+#: src/components/host/BanList.tsx
+msgid "Ban type: {kindLabel}"
+msgstr "Ban type: {kindLabel}"
+
+#: src/views/host/HostOverview.tsx
+msgid "Banned IPs"
+msgstr "Banned IPs"
+
+#: src/views/host/AiSettings.tsx
+msgid "Base URL (optional)"
+msgstr "Base URL (optional)"
+
+#: src/views/host/HostSkills.tsx
+msgid "Baseline: {label}"
+msgstr "Baseline: {label}"
+
+#: src/views/console/FleetCommands.tsx
+msgid "batch {batch}"
+msgstr "batch {batch}"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Batch status"
+msgstr "Batch status"
+
+#: src/views/Scan.tsx
+msgid "Be careful"
+msgstr "Be careful"
+
+#: src/views/Messaging.tsx
+msgid "Before you start:"
+msgstr "Before you start:"
+
+#. placeholder {0}: u.version
+#: src/components/UpdateControl.tsx
+msgid "Belay {0} is available."
+msgstr "Belay {0} is available."
+
+#: src/lib/explain.ts
+#: src/lib/ruleCopy.ts
+msgid "Belay flagged this as potentially unsafe."
+msgstr "Belay flagged this as potentially unsafe."
+
+#: src/components/Welcome.tsx
+msgid "Belay is active and watching the AI agents on your computer."
+msgstr "Belay is active and watching the AI agents on your computer."
+
+#. placeholder {0}: agentNames.join(", ")
+#: src/components/Welcome.tsx
+msgid "Belay is active and watching the AI agents on your computer. <0>Watching: {0}.</0>"
+msgstr "Belay is active and watching the AI agents on your computer. <0>Watching: {0}.</0>"
+
+#: src/views/Posture.tsx
+msgid "Belay is watching. Some activity needs review — no action required."
+msgstr "Belay is watching. Some activity needs review — no action required."
+
+#: src/views/Posture.tsx
+msgid "Belay stopped a risky action. Your data was not affected — review it in Activity."
+msgstr "Belay stopped a risky action. Your data was not affected — review it in Activity."
+
+#: src/views/host/EgressControl.tsx
+msgid "Block"
+msgstr "Block"
+
+#: src/components/Sidebar.tsx
+#: src/lib/humanize.ts
+#: src/views/Findings.tsx
+#: src/views/Posture.tsx
+msgid "Blocked"
+msgstr "Blocked"
+
+#: src/views/Messaging.tsx
+msgid "Bot token"
+msgstr "Bot token"
+
+#: src/lib/explain.ts
+msgid "Build scripts clear specific build folders — but rarely your home or the whole disk."
+msgstr "Build scripts clear specific build folders — but rarely your home or the whole disk."
+
+#: src/lib/humanize.ts
+msgid "Built a container image"
+msgstr "Built a container image"
+
+#: src/views/Fleet.tsx
+msgid "by tier"
+msgstr "by tier"
+
+#: src/views/host/EgressControl.tsx
+msgid "Can affect networking · fail-open if unattributable"
+msgstr "Can affect networking · fail-open if unattributable"
+
+#: src/components/host/BanList.tsx
+#: src/views/Agents.tsx
+#: src/views/console/shared.tsx
+#: src/views/host/EgressControl.tsx
+msgid "Cancel"
+msgstr "Cancel"
+
+#: src/views/Findings.tsx
+msgid "Category"
+msgstr "Category"
+
+#: src/views/host/HostSkills.tsx
+msgid "Caution"
+msgstr "Caution"
+
+#: src/views/Messaging.tsx
+msgid "Channel"
+msgstr "Channel"
+
+#: src/views/Messaging.tsx
+msgid "Channel ID"
+msgstr "Channel ID"
+
+#: src/views/Messaging.tsx
+msgid "Chat ID"
+msgstr "Chat ID"
+
+#: src/views/Scan.tsx
+msgid "Check a folder, file, or repository for risky code before you run it. Belay looks for things like credential theft, destructive commands, and hidden network calls."
+msgstr "Check a folder, file, or repository for risky code before you run it. Belay looks for things like credential theft, destructive commands, and hidden network calls."
+
+#: src/components/UpdateControl.tsx
+msgid "Check dl.belay.secblok.io for a newer signed release"
+msgstr "Check dl.belay.secblok.io for a newer signed release"
+
+#: src/components/UpdateControl.tsx
+msgid "Check for updates"
+msgstr "Check for updates"
+
+#: src/lib/humanize.ts
+msgid "Checked the project's version history"
+msgstr "Checked the project's version history"
+
+#: src/lib/humanize.ts
+msgid "Checked the workspace"
+msgstr "Checked the workspace"
+
+#: src/components/UpdateControl.tsx
+msgid "Checking for updates…"
+msgstr "Checking for updates…"
+
+#: src/components/UpdateControl.tsx
+msgid "Checking…"
+msgstr "Checking…"
+
+#: src/views/Fleet.tsx
+#: src/views/host/FilesScan.tsx
+#: src/views/host/HostSkills.tsx
+msgid "Clean"
+msgstr "Clean"
+
+#: src/views/Findings.tsx
+#: src/views/Timeline.tsx
+msgid "clear"
+msgstr "clear"
+
+#: src/views/host/AiSettings.tsx
+msgid "Clear"
+msgstr "Clear"
+
+#: src/views/Findings.tsx
+msgid "Clear filters"
+msgstr "Clear filters"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Client Alive Count Max"
+msgstr "Client Alive Count Max"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Client Alive Interval"
+msgstr "Client Alive Interval"
+
+#: src/views/console/Settings.tsx
+msgid "client secret (write-only, shown never)"
+msgstr "client secret (write-only, shown never)"
+
+#: src/views/console/Settings.tsx
+msgid "Client secret:"
+msgstr "Client secret:"
+
+#: src/views/host/AiSettings.tsx
+msgid "Cloud"
+msgstr "Cloud"
+
+#: src/views/host/AiSettings.tsx
+msgid "Cloud mode requires consent — check the box above to enable Save."
+msgstr "Cloud mode requires consent — check the box above to enable Save."
+
+#: src/views/host/AiSettings.tsx
+msgid "Cloud mode requires consent — check the box above."
+msgstr "Cloud mode requires consent — check the box above."
+
+#: src/components/Welcome.tsx
+msgid "Colors mean the same thing everywhere:"
+msgstr "Colors mean the same thing everywhere:"
+
+#: src/lib/humanize.ts
+msgid "Combined risky steps in one session"
+msgstr "Combined risky steps in one session"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Command"
+msgstr "Command"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Command action"
+msgstr "Command action"
+
+#: src/components/ApprovalCard.tsx
+msgid "Command it wants to run:"
+msgstr "Command it wants to run:"
+
+#: src/components/host/AllowlistManager.tsx
+#: src/components/host/ProposedRuleTable.tsx
+msgid "Comment"
+msgstr "Comment"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Comment (optional)"
+msgstr "Comment (optional)"
+
+#: src/views/Messaging.tsx
+msgid "Configure a two-way connector first."
+msgstr "Configure a two-way connector first."
+
+#: src/views/console/Settings.tsx
+msgid "configured"
+msgstr "configured"
+
+#: src/views/Messaging.tsx
+msgid "Configured"
+msgstr "Configured"
+
+#: src/components/ApprovalCard.tsx
+msgid "Confirm — always allow (even when risk is high)"
+msgstr "Confirm — always allow (even when risk is high)"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Confirm or revert firewall rules"
+msgstr "Confirm or revert firewall rules"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Confirm push"
+msgstr "Confirm push"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Confirm remove?"
+msgstr "Confirm remove?"
+
+#: src/views/Messaging.tsx
+msgid "Connectors"
+msgstr "Connectors"
+
+#: src/views/console/shared.tsx
+msgid "Copied"
+msgstr "Copied"
+
+#: src/views/console/shared.tsx
+msgid "Copy"
+msgstr "Copy"
+
+#: src/views/console/shared.tsx
+msgid "Copy it now. It is never displayed again."
+msgstr "Copy it now. It is never displayed again."
+
+#: src/views/console/Correlation.tsx
+msgid "correlation"
+msgstr "correlation"
+
+#: src/components/Sidebar.tsx
+#: src/views/Alerts.tsx
+#: src/views/console/Correlation.tsx
+msgid "Correlation"
+msgstr "Correlation"
+
+#: src/views/console/Correlation.tsx
+msgid "correlation alert"
+msgstr "correlation alert"
+
+#: src/views/console/Correlation.tsx
+msgid "Correlation Alerts"
+msgstr "Correlation Alerts"
+
+#: src/views/console/Correlation.tsx
+msgid "Correlation window"
+msgstr "Correlation window"
+
+#: src/views/console/shared.tsx
+msgid "Could not load {what}."
+msgstr "Could not load {what}."
+
+#: src/views/Messaging.tsx
+msgid "Could not reach the daemon."
+msgstr "Could not reach the daemon."
+
+#: src/views/Messaging.tsx
+msgid "Could not start pairing"
+msgstr "Could not start pairing"
+
+#: src/views/Messaging.tsx
+msgid "Could not update"
+msgstr "Could not update"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Create"
+msgstr "Create"
+
+#: src/views/console/Devices.tsx
+msgid "Create enroll token"
+msgstr "Create enroll token"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Create organization"
+msgstr "Create organization"
+
+#: src/lib/humanize.ts
+msgid "Created {file}"
+msgstr "Created {file}"
+
+#: src/lib/humanize.ts
+msgid "Created a file"
+msgstr "Created a file"
+
+#: src/components/dash.tsx
+#: src/components/SeverityBadge.tsx
+#: src/views/Fleet.tsx
+#: src/views/host/VulnPosture.tsx
+#: src/views/Posture.tsx
+msgid "Critical"
+msgstr "Critical"
+
+#: src/components/host/SeverityDot.tsx
+msgid "CRITICAL"
+msgstr "CRITICAL"
+
+#: src/views/console/Correlation.tsx
+msgid "Cross-device Correlation"
+msgstr "Cross-device Correlation"
+
+#: src/views/console/Correlation.tsx
+msgid "Cross-device Indicators"
+msgstr "Cross-device Indicators"
+
+#: src/views/host/AiSettings.tsx
+msgid "Curated (non-AI) explanations for flagged actions always remain available here."
+msgstr "Curated (non-AI) explanations for flagged actions always remain available here."
+
+#: src/views/host/AiSettings.tsx
+msgid "Curated (non-AI) explanations for flagged actions always remain available."
+msgstr "Curated (non-AI) explanations for flagged actions always remain available."
+
+#: src/views/host/AiSettings.tsx
+msgid "Custom model id"
+msgstr "Custom model id"
+
+#: src/components/ModelPicker.tsx
+#: src/views/host/AiSettings.tsx
+msgid "Custom…"
+msgstr "Custom…"
+
+#: src/components/host/CveTable.tsx
+msgid "CVE"
+msgstr "CVE"
+
+#: src/components/host/CveTable.tsx
+msgid "CVE findings"
+msgstr "CVE findings"
+
+#: src/views/host/FilesScan.tsx
+msgid "Daily"
+msgstr "Daily"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Default on timeout: <0>Revert</0> (safe). SSH exemption is always preserved."
+msgstr "Default on timeout: <0>Revert</0> (safe). SSH exemption is always preserved."
+
+#: src/views/console/Settings.tsx
+msgid "Delete"
+msgstr "Delete"
+
+#: src/views/console/Settings.tsx
+msgid "Delete SSO configuration"
+msgstr "Delete SSO configuration"
+
+#: src/views/console/Settings.tsx
+msgid "Delete the SSO/OIDC configuration for <0>{org}</0>? Users will no longer be able to sign in via SSO."
+msgstr "Delete the SSO/OIDC configuration for <0>{org}</0>? Users will no longer be able to sign in via SSO."
+
+#: src/components/TrustPanel.tsx
+msgid "demerits"
+msgstr "demerits"
+
+#: src/lib/alerts.ts
+msgid "Denied"
+msgstr "Denied"
+
+#: src/views/Timeline.tsx
+msgid "Denies"
+msgstr "Denies"
+
+#: src/components/ApprovalCard.tsx
+#: src/components/host/AllowlistManager.tsx
+msgid "Deny"
+msgstr "Deny"
+
+#: src/components/ApprovalCard.tsx
+msgid "Deny & stop agent"
+msgstr "Deny & stop agent"
+
+#: src/views/Posture.tsx
+msgid "deny + ask"
+msgstr "deny + ask"
+
+#: src/components/BatchDigest.tsx
+msgid "Deny all"
+msgstr "Deny all"
+
+#: src/views/Posture.tsx
+msgid "deny rate"
+msgstr "deny rate"
+
+#: src/lib/explain.ts
+msgid "Deny unless you are installing a tool that runs in the background by design."
+msgstr "Deny unless you are installing a tool that runs in the background by design."
+
+#: src/lib/explain.ts
+msgid "Deny unless you asked it to configure something with these keys."
+msgstr "Deny unless you asked it to configure something with these keys."
+
+#: src/lib/explain.ts
+msgid "Deny unless you deliberately asked it to change a security setting."
+msgstr "Deny unless you deliberately asked it to change a security setting."
+
+#: src/lib/explain.ts
+msgid "Deny unless you know exactly which folder this was meant to clear."
+msgstr "Deny unless you know exactly which folder this was meant to clear."
+
+#: src/lib/explain.ts
+msgid "Deny unless you recognise and expect this action."
+msgstr "Deny unless you recognise and expect this action."
+
+#: src/lib/explain.ts
+msgid "Deny unless you recognise where it is connecting."
+msgstr "Deny unless you recognise where it is connecting."
+
+#: src/lib/explain.ts
+msgid "Deny unless you started an install or build you recognise."
+msgstr "Deny unless you started an install or build you recognise."
+
+#: src/lib/explain.ts
+msgid "Deny unless you trust the source of this tool."
+msgstr "Deny unless you trust the source of this tool."
+
+#: src/views/Agents.tsx
+#: src/views/host/FilesScan.tsx
+#: src/views/Scan.tsx
+msgid "Desktop app required"
+msgstr "Desktop app required"
+
+#: src/components/ApprovalCard.tsx
+msgid "Destination:"
+msgstr "Destination:"
+
+#: src/components/ApprovalCard.tsx
+msgid "Details:"
+msgstr "Details:"
+
+#: src/lib/humanize.ts
+msgid "Detected · not blocked"
+msgstr "Detected · not blocked"
+
+#: src/views/Agents.tsx
+msgid "Detected Agents"
+msgstr "Detected Agents"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Detecting…"
+msgstr "Detecting…"
+
+#: src/views/console/Devices.tsx
+#: src/views/console/FleetCommands.tsx
+#: src/views/Fleet.tsx
+msgid "Device"
+msgstr "Device"
+
+#: src/views/console/Devices.tsx
+msgid "Device id"
+msgstr "Device id"
+
+#: src/views/Fleet.tsx
+msgid "Device Inventory"
+msgstr "Device Inventory"
+
+#. placeholder {0}: r.device_id ?? id
+#: src/views/console/Devices.tsx
+msgid "Device token for {0}"
+msgstr "Device token for {0}"
+
+#: src/views/console/Devices.tsx
+#: src/views/console/FleetCommands.tsx
+#: src/views/Fleet.tsx
+msgid "devices"
+msgstr "devices"
+
+#: src/components/Sidebar.tsx
+#: src/views/console/Correlation.tsx
+#: src/views/console/Devices.tsx
+#: src/views/console/FleetCommands.tsx
+msgid "Devices"
+msgstr "Devices"
+
+#. placeholder {0}: connector.label
+#: src/views/Messaging.tsx
+msgid "Disable {0}"
+msgstr "Disable {0}"
+
+#: src/views/Messaging.tsx
+msgid "Disabled"
+msgstr "Disabled"
+
+#. placeholder {0}: connector.label
+#: src/views/Messaging.tsx
+msgid "Disabled {0} — daemon restarting…"
+msgstr "Disabled {0} — daemon restarting…"
+
+#: src/views/Messaging.tsx
+msgid "Discord Developer Portal → app → Bot → token."
+msgstr "Discord Developer Portal → app → Bot → token."
+
+#: src/components/ApprovalSurface.tsx
+#: src/components/Toast.tsx
+#: src/views/console/shared.tsx
+#: src/views/host/FilesScan.tsx
+msgid "Dismiss"
+msgstr "Dismiss"
+
+#: src/views/host/HostSkills.tsx
+msgid "Do not install"
+msgstr "Do not install"
+
+#: src/views/Scan.tsx
+msgid "Do not install / run"
+msgstr "Do not install / run"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Doing nothing reverts to safe defaults."
+msgstr "Doing nothing reverts to safe defaults."
+
+#: src/views/Messaging.tsx
+msgid "Done"
+msgstr "Done"
+
+#: src/lib/humanize.ts
+msgid "Downloaded the latest code changes"
+msgstr "Downloaded the latest code changes"
+
+#: src/lib/explain.ts
+msgid "Downloading packages is normal; uploading your files to unknown hosts is not."
+msgstr "Downloading packages is normal; uploading your files to unknown hosts is not."
+
+#: src/views/host/HostSkills.tsx
+msgid "Drifted"
+msgstr "Drifted"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "e.g. api.example.com"
+msgstr "e.g. api.example.com"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "e.g. OpenAI API"
+msgstr "e.g. OpenAI API"
+
+#: src/views/console/Settings.tsx
+msgid "Each section requires the corresponding server capability (TB-6 for identity, TB-7 for the feed)."
+msgstr "Each section requires the corresponding server capability (TB-6 for identity, TB-7 for the feed)."
+
+#: src/views/Timeline.tsx
+msgid "earlier"
+msgstr "earlier"
+
+#: src/lib/humanize.ts
+msgid "Edited {file}"
+msgstr "Edited {file}"
+
+#: src/lib/humanize.ts
+msgid "Edited a file"
+msgstr "Edited a file"
+
+#: src/lib/humanize.ts
+msgid "Edited a notebook"
+msgstr "Edited a notebook"
+
+#. placeholder {0}: truncate(basename(raw))
+#: src/lib/humanize.ts
+msgid "Edited a notebook ({0})"
+msgstr "Edited a notebook ({0})"
+
+#: src/views/console/FleetCommands.tsx
+#: src/views/host/EgressControl.tsx
+msgid "Egress allowlist"
+msgstr "Egress allowlist"
+
+#: src/views/host/EgressControl.tsx
+msgid "Egress mode"
+msgstr "Egress mode"
+
+#: src/views/host/EgressControl.tsx
+msgid "Enable"
+msgstr "Enable"
+
+#: src/views/Messaging.tsx
+msgid "Enable \"Message Content Intent\" (Bot → Privileged Gateway Intents) before saving. Without it the bot connects but can't read your Allow/Deny replies, so approvals silently do nothing."
+msgstr "Enable \"Message Content Intent\" (Bot → Privileged Gateway Intents) before saving. Without it the bot connects but can't read your Allow/Deny replies, so approvals silently do nothing."
+
+#. placeholder {0}: connector.label
+#: src/views/Messaging.tsx
+msgid "Enable {0}"
+msgstr "Enable {0}"
+
+#: src/views/host/EgressControl.tsx
+msgid "Enable inline egress?"
+msgstr "Enable inline egress?"
+
+#: src/views/Messaging.tsx
+msgid "Enable it by running a daemon built with <0>--features channels</0> and adding a <1>~/.belay/channels.json</1> (0600) with your bot credentials."
+msgstr "Enable it by running a daemon built with <0>--features channels</0> and adding a <1>~/.belay/channels.json</1> (0600) with your bot credentials."
+
+#: src/views/console/Settings.tsx
+#: src/views/Messaging.tsx
+msgid "Enabled"
+msgstr "Enabled"
+
+#. placeholder {0}: connector.label
+#: src/views/Messaging.tsx
+msgid "Enabled {0} — daemon restarting…"
+msgstr "Enabled {0} — daemon restarting…"
+
+#: src/views/Agents.tsx
+msgid "Enforces the Claude Code CLI. The Claude Desktop app is a separate surface that runs its own tools in a sandbox Belay can't hook - it is not covered, even though it shares no config with this entry."
+msgstr "Enforces the Claude Code CLI. The Claude Desktop app is a separate surface that runs its own tools in a sandbox Belay can't hook - it is not covered, even though it shares no config with this entry."
+
+#: src/views/Agents.tsx
+msgid "Enforces the Codex CLI (once trusted, see below). The ChatGPT desktop app shares this hooks.json file but its agentic mode never invokes it - it is not covered."
+msgstr "Enforces the Codex CLI (once trusted, see below). The ChatGPT desktop app shares this hooks.json file but its agentic mode never invokes it - it is not covered."
+
+#: src/views/host/HostOverview.tsx
+msgid "Enforcing surfaces"
+msgstr "Enforcing surfaces"
+
+#: src/views/host/EgressControl.tsx
+msgid "Enrich destinations"
+msgstr "Enrich destinations"
+
+#: src/views/host/EgressControl.tsx
+msgid "Enrich destinations (show owner/ASN/country)"
+msgstr "Enrich destinations (show owner/ASN/country)"
+
+#: src/views/console/Devices.tsx
+msgid "Enroll device"
+msgstr "Enroll device"
+
+#: src/views/Messaging.tsx
+msgid "Enroll principals allowed to approve from this connector. This only adds; existing approvers are listed and removable under Approvers below."
+msgstr "Enroll principals allowed to approve from this connector. This only adds; existing approvers are listed and removable under Approvers below."
+
+#. placeholder {0}: r.id ?? ""
+#: src/views/console/Devices.tsx
+msgid "Enroll token {0}"
+msgstr "Enroll token {0}"
+
+#: src/views/console/Devices.tsx
+msgid "Enroll tokens"
+msgstr "Enroll tokens"
+
+#: src/views/console/Devices.tsx
+msgid "Enroll Tokens"
+msgstr "Enroll Tokens"
+
+#: src/views/console/Devices.tsx
+msgid "Enrolled"
+msgstr "Enrolled"
+
+#: src/views/console/Devices.tsx
+msgid "Enrolled devices"
+msgstr "Enrolled devices"
+
+#: src/views/console/Devices.tsx
+msgid "Enrolled Devices"
+msgstr "Enrolled Devices"
+
+#: src/views/Scan.tsx
+msgid "Enter a local path or GitHub URL above to get started."
+msgstr "Enter a local path or GitHub URL above to get started."
+
+#: src/components/ModelPicker.tsx
+msgid "Enter model id"
+msgstr "Enter model id"
+
+#: src/views/host/AiSettings.tsx
+msgid "Enter model id, e.g. gpt-4.1-2025-04-14"
+msgstr "Enter model id, e.g. gpt-4.1-2025-04-14"
+
+#: src/views/host/AiSettings.tsx
+msgid "Enter model id, e.g. llama3.3"
+msgstr "Enter model id, e.g. llama3.3"
+
+#: src/views/console/Settings.tsx
+msgid "enter secret"
+msgstr "enter secret"
+
+#: src/components/host/CveTable.tsx
+msgid "EPSS"
+msgstr "EPSS"
+
+#: src/components/host/CveTable.tsx
+msgid "EPSS — probability of exploitation within 30 days"
+msgstr "EPSS — probability of exploitation within 30 days"
+
+#: src/views/console/Correlation.tsx
+#: src/views/Fleet.tsx
+#: src/views/Timeline.tsx
+msgid "Events"
+msgstr "Events"
+
+#: src/views/Scan.tsx
+msgid "Every scan also runs an on-demand byte-level malware pass over the target (a bundled YARA rule set). This check runs only when you start a scan — it is not a continuously-running antivirus service watching your files in the background."
+msgstr "Every scan also runs an on-demand byte-level malware pass over the target (a bundled YARA rule set). This check runs only when you start a scan — it is not a continuously-running antivirus service watching your files in the background."
+
+#: src/components/host/BanList.tsx
+msgid "Expired"
+msgstr "Expired"
+
+#. placeholder {0}: expiresIn(t, ban.expires_at)
+#: src/components/host/BanList.tsx
+msgid "expires in <0>{0}</0>"
+msgstr "expires in <0>{0}</0>"
+
+#: src/components/ApprovalCard.tsx
+msgid "Explain with AI"
+msgstr "Explain with AI"
+
+#: src/views/host/AiSettings.tsx
+msgid "Explanation model"
+msgstr "Explanation model"
+
+#: src/views/host/AiSettings.tsx
+msgid "Explanations"
+msgstr "Explanations"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Fail"
+msgstr "Fail"
+
+#: src/views/host/EgressControl.tsx
+msgid "Failed to load egress rules"
+msgstr "Failed to load egress rules"
+
+#: src/views/host/AiSettings.tsx
+msgid "Failed to save key."
+msgstr "Failed to save key."
+
+#: src/views/console/Settings.tsx
+msgid "Feed token"
+msgstr "Feed token"
+
+#: src/views/console/Settings.tsx
+msgid "Feed token id"
+msgstr "Feed token id"
+
+#: src/views/Posture.tsx
+msgid "Fetching your protection status…"
+msgstr "Fetching your protection status…"
+
+#: src/views/host/FilesScan.tsx
+msgid "File"
+msgstr "File"
+
+#: src/components/ApprovalCard.tsx
+msgid "File it wants to read:"
+msgstr "File it wants to read:"
+
+#: src/components/host/SegmentedNav.tsx
+msgid "Files"
+msgstr "Files"
+
+#: src/views/host/VulnPosture.tsx
+#: src/views/Scan.tsx
+msgid "Findings"
+msgstr "Findings"
+
+#: src/components/host/SegmentedNav.tsx
+msgid "Firewall"
+msgstr "Firewall"
+
+#. placeholder {0}: status.mode
+#. placeholder {1}: status.rule_count
+#: src/views/host/FirewallSetup.tsx
+msgid "Firewall {stateWord}, mode: {0}, {1} rules"
+msgstr "Firewall {stateWord}, mode: {0}, {1} rules"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Firewall apply"
+msgstr "Firewall apply"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Firewall changes can lock machines out of the network. Each device auto-reverts after<0> 120s</0> unless you send <1>Firewall confirm</1> — confirm only once you have verified connectivity."
+msgstr "Firewall changes can lock machines out of the network. Each device auto-reverts after<0> 120s</0> unless you send <1>Firewall confirm</1> — confirm only once you have verified connectivity."
+
+#: src/views/console/FleetCommands.tsx
+msgid "Firewall confirm"
+msgstr "Firewall confirm"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Firewall control runs in the Belay desktop app, where it can apply rules directly to your host."
+msgstr "Firewall control runs in the Belay desktop app, where it can apply rules directly to your host."
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Firewall rules have been applied. If you cannot reach your host or SSH is blocked, do nothing — rules will revert automatically when the timer expires. Click <0>Keep these rules</0> only if you have verified the rules are correct."
+msgstr "Firewall rules have been applied. If you cannot reach your host or SSH is blocked, do nothing — rules will revert automatically when the timer expires. Click <0>Keep these rules</0> only if you have verified the rules are correct."
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Firewall setup"
+msgstr "Firewall setup"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Firewall setup — error"
+msgstr "Firewall setup — error"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Firewall setup — rules confirmed"
+msgstr "Firewall setup — rules confirmed"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Firewall setup — rules reverted"
+msgstr "Firewall setup — rules reverted"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Firewall status"
+msgstr "Firewall status"
+
+#: src/components/host/CveTable.tsx
+msgid "Fixed in"
+msgstr "Fixed in"
+
+#: src/views/Fleet.tsx
+msgid "Fleet Activity"
+msgstr "Fleet Activity"
+
+#: src/components/Sidebar.tsx
+#: src/views/console/FleetCommands.tsx
+msgid "Fleet Commands"
+msgstr "Fleet Commands"
+
+#: src/views/Fleet.tsx
+msgid "Fleet Denials"
+msgstr "Fleet Denials"
+
+#: src/views/Messaging.tsx
+msgid "From"
+msgstr "From"
+
+#: src/views/host/FilesScan.tsx
+msgid "Full"
+msgstr "Full"
+
+#: src/views/Agents.tsx
+msgid "Full host access enabled"
+msgstr "Full host access enabled"
+
+#: src/views/host/FilesScan.tsx
+msgid "Full scan"
+msgstr "Full scan"
+
+#: src/views/Agents.tsx
+msgid "Full system access enabled"
+msgstr "Full system access enabled"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Gateway Ports"
+msgstr "Gateway Ports"
+
+#: src/views/console/Settings.tsx
+msgid "Generate a per-org SCIM bearer token for your IdP. It is shown once."
+msgstr "Generate a per-org SCIM bearer token for your IdP. It is shown once."
+
+#: src/views/console/Settings.tsx
+msgid "Generate feed token"
+msgstr "Generate feed token"
+
+#: src/views/console/Settings.tsx
+msgid "Generate SCIM token"
+msgstr "Generate SCIM token"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "Generated {generated}"
+msgstr "Generated {generated}"
+
+#: src/views/Messaging.tsx
+msgid "Generates a one-time code. The approver DMs <0>pair <code></0> from the account to enroll — the daemon captures their id automatically."
+msgstr "Generates a one-time code. The approver DMs <0>pair <code></0> from the account to enroll — the daemon captures their id automatically."
+
+#: src/views/Messaging.tsx
+msgid "Get your credentials"
+msgstr "Get your credentials"
+
+#: src/components/Welcome.tsx
+msgid "Got it"
+msgstr "Got it"
+
+#: src/components/Welcome.tsx
+msgid "Green"
+msgstr "Green"
+
+#: src/views/Messaging.tsx
+msgid "group-robot URL with key"
+msgstr "group-robot URL with key"
+
+#: src/views/host/SshHardening.tsx
+msgid "Guard disabled"
+msgstr "Guard disabled"
+
+#: src/views/host/SshHardening.tsx
+msgid "Guard enabled"
+msgstr "Guard enabled"
+
+#: src/views/Agents.tsx
+msgid "Guarded via config policy"
+msgstr "Guarded via config policy"
+
+#: src/views/Agents.tsx
+msgid "Guarded via hook"
+msgstr "Guarded via hook"
+
+#: src/views/Agents.tsx
+msgid "Guarded via MCP proxy"
+msgstr "Guarded via MCP proxy"
+
+#: src/views/host/SshHardening.tsx
+msgid "Hardening score"
+msgstr "Hardening score"
+
+#: src/views/Posture.tsx
+msgid "Healthy"
+msgstr "Healthy"
+
+#: src/lib/explain.ts
+msgid "Hidden instructions in that content could redirect what the agent does next."
+msgstr "Hidden instructions in that content could redirect what the agent does next."
+
+#: src/components/ApprovalCard.tsx
+msgid "Hide AI opinion"
+msgstr "Hide AI opinion"
+
+#: src/components/ApprovalCard.tsx
+msgid "Hide command"
+msgstr "Hide command"
+
+#: src/components/ApprovalCard.tsx
+msgid "Hide config"
+msgstr "Hide config"
+
+#: src/views/Posture.tsx
+msgid "Hide details"
+msgstr "Hide details"
+
+#: src/components/dash.tsx
+#: src/components/SeverityBadge.tsx
+#: src/views/host/VulnPosture.tsx
+msgid "High"
+msgstr "High"
+
+#: src/components/host/SeverityDot.tsx
+msgid "HIGH"
+msgstr "HIGH"
+
+#: src/views/Messaging.tsx
+msgid "Home chat/DM id"
+msgstr "Home chat/DM id"
+
+#: src/views/Messaging.tsx
+msgid "Homeserver base URL"
+msgstr "Homeserver base URL"
+
+#: src/views/Agents.tsx
+msgid "Hook installed, but Codex won't enforce it until you trust it"
+msgstr "Hook installed, but Codex won't enforce it until you trust it"
+
+#: src/components/host/AllowlistManager.tsx
+#: src/components/host/ProposedRuleTable.tsx
+msgid "Host"
+msgstr "Host"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Host is required"
+msgstr "Host is required"
+
+#: src/components/Sidebar.tsx
+msgid "Host Protection"
+msgstr "Host Protection"
+
+#: src/views/host/FilesScan.tsx
+msgid "Host scanning runs in the Belay desktop app, where it can inspect files directly on your computer."
+msgstr "Host scanning runs in the Belay desktop app, where it can inspect files directly on your computer."
+
+#: src/components/host/SegmentedNav.tsx
+msgid "Host sections"
+msgstr "Host sections"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Host-based Authentication"
+msgstr "Host-based Authentication"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "How to fix"
+msgstr "How to fix"
+
+#: src/lib/alerts.ts
+msgid "human-verified"
+msgstr "human-verified"
+
+#. placeholder {0}: providerById(provider)?.label ?? (provider || t`the provider`)
+#: src/views/host/AiSettings.tsx
+msgid "I understand this sends the flagged action (redacted) to {0}."
+msgstr "I understand this sends the flagged action (redacted) to {0}."
+
+#: src/components/Sidebar.tsx
+#: src/views/console/Settings.tsx
+msgid "Identity & Feed"
+msgstr "Identity & Feed"
+
+#: src/views/Messaging.tsx
+msgid "ids to enroll, comma-separated"
+msgstr "ids to enroll, comma-separated"
+
+#: src/components/Welcome.tsx
+msgid "If an agent tries something risky, we'll ask you before it happens."
+msgstr "If an agent tries something risky, we'll ask you before it happens."
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Ignore Rhosts"
+msgstr "Ignore Rhosts"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "inactive"
+msgstr "inactive"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Inactive"
+msgstr "Inactive"
+
+#: src/views/Messaging.tsx
+msgid "Inbound receiver"
+msgstr "Inbound receiver"
+
+#: src/views/Messaging.tsx
+msgid "Inbound save failed"
+msgstr "Inbound save failed"
+
+#: src/views/console/Correlation.tsx
+msgid "Indicator"
+msgstr "Indicator"
+
+#: src/views/console/Correlation.tsx
+msgid "Indicators"
+msgstr "Indicators"
+
+#: src/components/dash.tsx
+#: src/components/SeverityBadge.tsx
+msgid "Info"
+msgstr "Info"
+
+#: src/components/host/SeverityDot.tsx
+msgid "INFO"
+msgstr "INFO"
+
+#: src/components/ModelPicker.tsx
+msgid "Inherit ({inherited})"
+msgstr "Inherit ({inherited})"
+
+#: src/views/Alerts.tsx
+msgid "Injection"
+msgstr "Injection"
+
+#: src/lib/alerts.ts
+msgid "Injection marker in MCP response"
+msgstr "Injection marker in MCP response"
+
+#: src/views/host/EgressControl.tsx
+msgid "Inline enforcement (NFQUEUE)"
+msgstr "Inline enforcement (NFQUEUE)"
+
+#: src/components/UpdateControl.tsx
+msgid "Install & restart"
+msgstr "Install & restart"
+
+#: src/views/host/HostSkills.tsx
+msgid "Installed skills"
+msgstr "Installed skills"
+
+#: src/lib/explain.ts
+msgid "Installers and build steps do this, usually from sources you already trust."
+msgstr "Installers and build steps do this, usually from sources you already trust."
+
+#: src/components/UpdateControl.tsx
+msgid "Installing…"
+msgstr "Installing…"
+
+#: src/views/host/EgressControl.tsx
+msgid "Installs a kernel hook that intercepts connections before they leave the host."
+msgstr "Installs a kernel hook that intercepts connections before they leave the host."
+
+#: src/views/Posture.tsx
+msgid "Investigate"
+msgstr "Investigate"
+
+#: src/components/host/BanList.tsx
+msgid "IP"
+msgstr "IP"
+
+#: src/views/host/SshHardening.tsx
+msgid "Issues to fix"
+msgstr "Issues to fix"
+
+#: src/views/host/AiSettings.tsx
+msgid "Judge model"
+msgstr "Judge model"
+
+#: src/views/host/AiSettings.tsx
+msgid "Judge new / changed skills"
+msgstr "Judge new / changed skills"
+
+#: src/views/Alerts.tsx
+#: src/views/Timeline.tsx
+msgid "just now"
+msgstr "just now"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Keep these rules"
+msgstr "Keep these rules"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Keep these rules — confirm firewall ruleset"
+msgstr "Keep these rules — confirm firewall ruleset"
+
+#: src/views/host/VulnPosture.tsx
+msgid "KEV"
+msgstr "KEV"
+
+#: src/views/host/HostOverview.tsx
+msgid "KEV findings"
+msgstr "KEV findings"
+
+#: src/views/host/AiSettings.tsx
+msgid "Key saved."
+msgstr "Key saved."
+
+#: src/views/console/Correlation.tsx
+msgid "Kind"
+msgstr "Kind"
+
+#: src/components/LanguagePicker.tsx
+msgid "Language"
+msgstr "Language"
+
+#. placeholder {0}: LOCALE_NAMES[current]
+#: src/components/LanguagePicker.tsx
+msgid "Language: {0}"
+msgstr "Language: {0}"
+
+#: src/views/console/Correlation.tsx
+msgid "Last 24 hours"
+msgstr "Last 24 hours"
+
+#: src/views/console/Correlation.tsx
+msgid "Last 7 days"
+msgstr "Last 7 days"
+
+#: src/views/console/Correlation.tsx
+msgid "Last hour"
+msgstr "Last hour"
+
+#: src/views/console/Correlation.tsx
+msgid "Last seen"
+msgstr "Last seen"
+
+#: src/views/Fleet.tsx
+msgid "Last Seen"
+msgstr "Last Seen"
+
+#: src/views/Messaging.tsx
+msgid "leave blank to keep current"
+msgstr "leave blank to keep current"
+
+#: src/lib/humanize.ts
+msgid "Listed files"
+msgstr "Listed files"
+
+#: src/lib/humanize.ts
+msgid "Listed matching files"
+msgstr "Listed matching files"
+
+#. placeholder {0}: view.inbound.bind
+#: src/views/Messaging.tsx
+msgid "Listening on <0>{0}</0> — verifiers:"
+msgstr "Listening on <0>{0}</0> — verifiers:"
+
+#: src/views/Timeline.tsx
+msgid "LIVE"
+msgstr "LIVE"
+
+#: src/views/Posture.tsx
+msgid "Live Activity"
+msgstr "Live Activity"
+
+#: src/components/Sidebar.tsx
+msgid "Live Feed"
+msgstr "Live Feed"
+
+#: src/views/console/shared.tsx
+msgid "Loading {what}…"
+msgstr "Loading {what}…"
+
+#: src/views/Agents.tsx
+msgid "Loading agents…"
+msgstr "Loading agents…"
+
+#: src/views/host/AiSettings.tsx
+msgid "Loading AI settings…"
+msgstr "Loading AI settings…"
+
+#: src/views/host/EgressControl.tsx
+msgid "Loading egress configuration…"
+msgstr "Loading egress configuration…"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Loading firewall setup…"
+msgstr "Loading firewall setup…"
+
+#: src/views/Fleet.tsx
+msgid "Loading fleet…"
+msgstr "Loading fleet…"
+
+#: src/views/host/HostOverview.tsx
+msgid "Loading overview…"
+msgstr "Loading overview…"
+
+#: src/views/host/HostSkills.tsx
+msgid "Loading skills…"
+msgstr "Loading skills…"
+
+#: src/views/host/SshHardening.tsx
+msgid "Loading SSH guard…"
+msgstr "Loading SSH guard…"
+
+#: src/views/host/VulnPosture.tsx
+msgid "Loading vulnerability posture…"
+msgstr "Loading vulnerability posture…"
+
+#: src/components/TrayPopover.tsx
+#: src/components/TrustPanel.tsx
+#: src/views/host/FilesScan.tsx
+#: src/views/Messaging.tsx
+msgid "Loading…"
+msgstr "Loading…"
+
+#: src/views/host/AiSettings.tsx
+msgid "Local"
+msgstr "Local"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Login Grace Time"
+msgstr "Login Grace Time"
+
+#: src/views/Scan.tsx
+msgid "Looks safe"
+msgstr "Looks safe"
+
+#: src/components/SeverityBadge.tsx
+#: src/views/host/VulnPosture.tsx
+msgid "Low"
+msgstr "Low"
+
+#: src/components/host/SeverityDot.tsx
+msgid "LOW"
+msgstr "LOW"
+
+#: src/components/TrustPanel.tsx
+msgid "lowest <0/>"
+msgstr "lowest <0/>"
+
+#: src/views/host/FilesScan.tsx
+msgid "Malicious"
+msgstr "Malicious"
+
+#: src/views/Scan.tsx
+msgid "Malware scan (on-demand)"
+msgstr "Malware scan (on-demand)"
+
+#: src/views/console/Devices.tsx
+#: src/views/console/OrgAdmin.tsx
+#: src/views/console/Settings.tsx
+msgid "Manage"
+msgstr "Manage"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Max Auth Tries"
+msgstr "Max Auth Tries"
+
+#: src/components/ApprovalCard.tsx
+msgid "MCP server change"
+msgstr "MCP server change"
+
+#: src/components/ApprovalCard.tsx
+msgid "MCP server configuration:"
+msgstr "MCP server configuration:"
+
+#: src/views/Agents.tsx
+msgid "MCP servers"
+msgstr "MCP servers"
+
+#: src/components/dash.tsx
+#: src/components/SeverityBadge.tsx
+#: src/views/host/VulnPosture.tsx
+msgid "Medium"
+msgstr "Medium"
+
+#: src/components/host/SeverityDot.tsx
+msgid "MEDIUM"
+msgstr "MEDIUM"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "members"
+msgstr "members"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Members"
+msgstr "Members"
+
+#: src/components/Sidebar.tsx
+#: src/views/Messaging.tsx
+msgid "Messaging"
+msgstr "Messaging"
+
+#: src/views/Messaging.tsx
+msgid "Messaging is not enabled in this build."
+msgstr "Messaging is not enabled in this build."
+
+#: src/views/Messaging.tsx
+msgid "Messaging is off"
+msgstr "Messaging is off"
+
+#: src/views/host/AiSettings.tsx
+msgid "Model"
+msgstr "Model"
+
+#: src/views/Posture.tsx
+msgid "Monitor"
+msgstr "Monitor"
+
+#: src/components/Sidebar.tsx
+#: src/components/StatusRing.tsx
+#: src/components/TrayPopover.tsx
+msgid "Monitoring"
+msgstr "Monitoring"
+
+#: src/lib/humanize.ts
+msgid "Moved sensitive data toward the network/execution"
+msgstr "Moved sensitive data toward the network/execution"
+
+#: src/components/Sidebar.tsx
+msgid "My Machines"
+msgstr "My Machines"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Name"
+msgstr "Name"
+
+#: src/views/host/HostOverview.tsx
+msgid "Needs attention"
+msgstr "Needs attention"
+
+#: src/views/Findings.tsx
+msgid "Needs review"
+msgstr "Needs review"
+
+#: src/views/Messaging.tsx
+msgid "Needs setup"
+msgstr "Needs setup"
+
+#: src/components/host/SegmentedNav.tsx
+msgid "Network"
+msgstr "Network"
+
+#: src/views/Agents.tsx
+msgid "Never asks for approval"
+msgstr "Never asks for approval"
+
+#: src/components/Sidebar.tsx
+msgid "new deny events"
+msgstr "new deny events"
+
+#: src/views/console/Devices.tsx
+msgid "New device id"
+msgstr "New device id"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "New member role"
+msgstr "New member role"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "New member username"
+msgstr "New member username"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "New org name"
+msgstr "New org name"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "New org slug"
+msgstr "New org slug"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "No action needed to revert — doing nothing is safe."
+msgstr "No action needed to revert — doing nothing is safe."
+
+#: src/components/host/BanList.tsx
+msgid "No active bans."
+msgstr "No active bans."
+
+#: src/components/TrustPanel.tsx
+msgid "No agent sessions yet."
+msgstr "No agent sessions yet."
+
+#: src/views/host/HostSkills.tsx
+msgid "No agent skills installed."
+msgstr "No agent skills installed."
+
+#: src/components/TrustPanel.tsx
+msgid "No agent tried to approve its own request."
+msgstr "No agent tried to approve its own request."
+
+#: src/views/Agents.tsx
+msgid "No AI agents detected yet. Belay watches for tools like Claude Code, Cursor, and others — none are installed yet."
+msgstr "No AI agents detected yet. Belay watches for tools like Claude Code, Cursor, and others — none are installed yet."
+
+#: src/views/Alerts.tsx
+msgid "No alerts match this filter."
+msgstr "No alerts match this filter."
+
+#: src/views/Alerts.tsx
+msgid "No alerts recorded yet — the pup's keeping an eye out."
+msgstr "No alerts recorded yet — the pup's keeping an eye out."
+
+#: src/components/host/AllowlistManager.tsx
+msgid "No allowlist rules configured."
+msgstr "No allowlist rules configured."
+
+#: src/views/Posture.tsx
+msgid "No category activity"
+msgstr "No category activity"
+
+#: src/views/Messaging.tsx
+msgid "No connectors match."
+msgstr "No connectors match."
+
+#: src/views/console/Correlation.tsx
+msgid "No cross-device indicators in this window"
+msgstr "No cross-device indicators in this window"
+
+#: src/components/host/CveTable.tsx
+msgid "No CVE findings."
+msgstr "No CVE findings."
+
+#: src/views/Fleet.tsx
+msgid "No devices"
+msgstr "No devices"
+
+#: src/views/console/Devices.tsx
+#: src/views/console/FleetCommands.tsx
+msgid "No devices enrolled"
+msgstr "No devices enrolled"
+
+#: src/views/console/Devices.tsx
+msgid "No enroll tokens"
+msgstr "No enroll tokens"
+
+#: src/views/console/Settings.tsx
+msgid "No feed tokens"
+msgstr "No feed tokens"
+
+#: src/views/Findings.tsx
+msgid "No findings match the current filters."
+msgstr "No findings match the current filters."
+
+#: src/views/Findings.tsx
+msgid "No findings recorded yet — the engine will populate this feed as agents run."
+msgstr "No findings recorded yet — the engine will populate this feed as agents run."
+
+#: src/components/host/CveTable.tsx
+msgid "No fix"
+msgstr "No fix"
+
+#: src/views/Fleet.tsx
+msgid "No fleet activity yet"
+msgstr "No fleet activity yet"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "No members"
+msgstr "No members"
+
+#: src/views/Messaging.tsx
+msgid "No one is enrolled yet. Start a pairing below, then reply <0>pair <code></0> from the account you want to approve with."
+msgstr "No one is enrolled yet. Start a pairing below, then reply <0>pair <code></0> from the account you want to approve with."
+
+#: src/views/Fleet.tsx
+msgid "No other computers connected yet"
+msgstr "No other computers connected yet"
+
+#: src/components/ApprovalCard.tsx
+msgid "No response → blocked automatically."
+msgstr "No response → blocked automatically."
+
+#: src/views/Scan.tsx
+msgid "No risky patterns found."
+msgstr "No risky patterns found."
+
+#: src/views/Agents.tsx
+msgid "No risky settings"
+msgstr "No risky settings"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "No rules proposed."
+msgstr "No rules proposed."
+
+#: src/views/Posture.tsx
+msgid "No rules triggered"
+msgstr "No rules triggered"
+
+#: src/views/host/FilesScan.tsx
+msgid "No scan findings."
+msgstr "No scan findings."
+
+#: src/views/console/Settings.tsx
+msgid "No SSO configuration found. Fill in the fields below to configure."
+msgstr "No SSO configuration found. Fill in the fields below to configure."
+
+#: src/views/Posture.tsx
+msgid "No timeline activity yet"
+msgstr "No timeline activity yet"
+
+#: src/views/host/VulnPosture.tsx
+msgid "Not available on this operating system"
+msgstr "Not available on this operating system"
+
+#: src/views/Messaging.tsx
+msgid "Not configured. Two-way webhook platforms (Slack/Line) need the inbound receiver."
+msgstr "Not configured. Two-way webhook platforms (Slack/Line) need the inbound receiver."
+
+#: src/components/DetectionBanner.tsx
+msgid "Not now"
+msgstr "Not now"
+
+#: src/views/Agents.tsx
+msgid "Not protected"
+msgstr "Not protected"
+
+#: src/views/console/Settings.tsx
+msgid "not set"
+msgstr "not set"
+
+#: src/views/Messaging.tsx
+msgid "Not set up"
+msgstr "Not set up"
+
+#: src/views/Posture.tsx
+msgid "Nothing to guard right now — Belay will show what your AI agents do here."
+msgstr "Nothing to guard right now — Belay will show what your AI agents do here."
+
+#: src/views/Alerts.tsx
+msgid "Nothing to report"
+msgstr "Nothing to report"
+
+#: src/views/Messaging.tsx
+msgid "Notify-only"
+msgstr "Notify-only"
+
+#: src/views/host/AiSettings.tsx
+#: src/views/host/EgressControl.tsx
+#: src/views/host/FilesScan.tsx
+msgid "Off"
+msgstr "Off"
+
+#: src/views/Fleet.tsx
+msgid "Offline"
+msgstr "Offline"
+
+#: src/views/Timeline.tsx
+msgid "On watch…"
+msgstr "On watch…"
+
+#: src/views/host/AiSettings.tsx
+msgid "One connection powers plain-English explanations and the optional Skill Judge. Local mode never leaves this machine; Cloud mode requires your consent."
+msgstr "One connection powers plain-English explanations and the optional Skill Judge. Local mode never leaves this machine; Cloud mode requires your consent."
+
+#: src/lib/explain.ts
+msgid "One of the agent's tools hides what it actually does behind a vague description."
+msgstr "One of the agent's tools hides what it actually does behind a vague description."
+
+#: src/lib/explain.ts
+msgid "One of the agent's tools is hiding what it actually does behind a vague description."
+msgstr "One of the agent's tools is hiding what it actually does behind a vague description."
+
+#: src/views/Fleet.tsx
+msgid "Online"
+msgstr "Online"
+
+#: src/views/Fleet.tsx
+msgid "Online Now"
+msgstr "Online Now"
+
+#: src/views/Fleet.tsx
+msgid "Only this computer is connected"
+msgstr "Only this computer is connected"
+
+#: src/components/TrayPopover.tsx
+msgid "Open dashboard"
+msgstr "Open dashboard"
+
+#: src/views/Messaging.tsx
+msgid "Open setup guide"
+msgstr "Open setup guide"
+
+#: src/views/host/AiSettings.tsx
+msgid "Open the desktop app to configure AI"
+msgstr "Open the desktop app to configure AI"
+
+#: src/components/Welcome.tsx
+msgid "Optional: turn on AI explanations & the <0>Skill Judge</0> (off by default, bring your own key) any time in <1>Settings → AI</1>."
+msgstr "Optional: turn on AI explanations & the <0>Skill Judge</0> (off by default, bring your own key) any time in <1>Settings → AI</1>."
+
+#: src/components/Sidebar.tsx
+#: src/views/console/OrgAdmin.tsx
+#: src/views/console/shared.tsx
+msgid "Organization"
+msgstr "Organization"
+
+#: src/views/console/Devices.tsx
+#: src/views/console/FleetCommands.tsx
+#: src/views/console/OrgAdmin.tsx
+#: src/views/console/Settings.tsx
+msgid "organizations"
+msgstr "organizations"
+
+#: src/views/console/Devices.tsx
+#: src/views/console/FleetCommands.tsx
+#: src/views/console/OrgAdmin.tsx
+#: src/views/console/Settings.tsx
+msgid "Organizations"
+msgstr "Organizations"
+
+#: src/lib/humanize.ts
+msgid "Organized project files"
+msgstr "Organized project files"
+
+#: src/components/ApprovalCard.tsx
+msgid "Outbound connection blocked"
+msgstr "Outbound connection blocked"
+
+#: src/views/Findings.tsx
+msgid "Outcome"
+msgstr "Outcome"
+
+#: src/components/host/SegmentedNav.tsx
+#: src/components/Sidebar.tsx
+msgid "Overview"
+msgstr "Overview"
+
+#: src/components/host/CveTable.tsx
+msgid "Package"
+msgstr "Package"
+
+#: src/views/Messaging.tsx
+msgid "Pair an approver"
+msgstr "Pair an approver"
+
+#. placeholder {0}: labelFor(pair.platform ?? "")
+#. placeholder {0}: p.label
+#: src/views/Messaging.tsx
+msgid "Pair via {0}"
+msgstr "Pair via {0}"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "PAM Authentication"
+msgstr "PAM Authentication"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Pass"
+msgstr "Pass"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Password Authentication"
+msgstr "Password Authentication"
+
+#. placeholder {0}: providerById(provider)?.label ?? "provider"
+#: src/views/host/AiSettings.tsx
+msgid "Paste your {0} API key"
+msgstr "Paste your {0} API key"
+
+#: src/components/TrayPopover.tsx
+msgid "Pause protection"
+msgstr "Pause protection"
+
+#: src/components/TrayPopover.tsx
+msgid "Paused"
+msgstr "Paused"
+
+#: src/views/Timeline.tsx
+msgid "PAUSED"
+msgstr "PAUSED"
+
+#: src/components/host/BanList.tsx
+msgid "Permanent"
+msgstr "Permanent"
+
+#: src/views/Agents.tsx
+msgid "Permission prompts are off"
+msgstr "Permission prompts are off"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Permit Empty Passwords"
+msgstr "Permit Empty Passwords"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Permit Root Login"
+msgstr "Permit Root Login"
+
+#: src/views/host/AiSettings.tsx
+msgid "Plain-English second opinion on flagged actions — active."
+msgstr "Plain-English second opinion on flagged actions — active."
+
+#: src/views/console/OrgAdmin.tsx
+msgid "platform admin"
+msgstr "platform admin"
+
+#: src/components/host/AllowlistManager.tsx
+#: src/components/host/ProposedRuleTable.tsx
+msgid "Port"
+msgstr "Port"
+
+#: src/views/Posture.tsx
+msgid "Posture Score"
+msgstr "Posture Score"
+
+#: src/lib/explain.ts
+msgid "Private files or secrets could be uploaded somewhere you don't control."
+msgstr "Private files or secrets could be uploaded somewhere you don't control."
+
+#: src/components/ApprovalCard.tsx
+msgid "Process:"
+msgstr "Process:"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "Proposed firewall rules"
+msgstr "Proposed firewall rules"
+
+#: src/views/Agents.tsx
+msgid "Protect"
+msgstr "Protect"
+
+#: src/components/Sidebar.tsx
+#: src/components/StatusRing.tsx
+#: src/components/TrayPopover.tsx
+msgid "Protected"
+msgstr "Protected"
+
+#. placeholder {0}: agent.name
+#: src/views/Agents.tsx
+msgid "Protection updated for {0}"
+msgstr "Protection updated for {0}"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Proto"
+msgstr "Proto"
+
+#: src/components/host/AllowlistManager.tsx
+#: src/components/host/ProposedRuleTable.tsx
+msgid "Protocol"
+msgstr "Protocol"
+
+#: src/views/host/AiSettings.tsx
+msgid "Provider"
+msgstr "Provider"
+
+#: src/lib/explain.ts
+msgid "Pulls in outside content that the agent will then act on."
+msgstr "Pulls in outside content that the agent will then act on."
+
+#. placeholder {0}: t(meta.label)
+#: src/views/console/FleetCommands.tsx
+msgid "Push {0}"
+msgstr "Push {0}"
+
+#: src/views/console/FleetCommands.tsx
+msgid "pushed per selected device"
+msgstr "pushed per selected device"
+
+#: src/views/host/FilesScan.tsx
+#: src/views/host/HostSkills.tsx
+msgid "Quarantine"
+msgstr "Quarantine"
+
+#: src/views/host/HostOverview.tsx
+msgid "Quarantined files"
+msgstr "Quarantined files"
+
+#: src/views/host/HostOverview.tsx
+msgid "Quarantined skills"
+msgstr "Quarantined skills"
+
+#: src/views/host/FilesScan.tsx
+msgid "Quick"
+msgstr "Quick"
+
+#: src/views/Fleet.tsx
+msgid "Quick enroll"
+msgstr "Quick enroll"
+
+#: src/views/host/FilesScan.tsx
+msgid "Quick scan"
+msgstr "Quick scan"
+
+#. placeholder {0}: cap(tool)
+#: src/lib/humanize.ts
+msgid "Ran {0}"
+msgstr "Ran {0}"
+
+#: src/lib/humanize.ts
+msgid "Ran a build command"
+msgstr "Ran a build command"
+
+#: src/lib/humanize.ts
+msgid "Ran a command"
+msgstr "Ran a command"
+
+#: src/lib/humanize.ts
+msgid "Ran a script"
+msgstr "Ran a script"
+
+#: src/lib/humanize.ts
+msgid "Ran the tests"
+msgstr "Ran the tests"
+
+#: src/views/console/Correlation.tsx
+msgid "ranked by spread + severity"
+msgstr "ranked by spread + severity"
+
+#: src/lib/explain.ts
+msgid "Rarely. Most tasks never need to read your raw credential files."
+msgstr "Rarely. Most tasks never need to read your raw credential files."
+
+#: src/views/host/HostSkills.tsx
+msgid "Re-approve"
+msgstr "Re-approve"
+
+#: src/lib/humanize.ts
+msgid "Read {file}"
+msgstr "Read {file}"
+
+#: src/lib/humanize.ts
+msgid "Read a decoy secret (canary tripped)"
+msgstr "Read a decoy secret (canary tripped)"
+
+#: src/lib/humanize.ts
+msgid "Read a file"
+msgstr "Read a file"
+
+#: src/lib/humanize.ts
+msgid "Read a web page"
+msgstr "Read a web page"
+
+#. placeholder {0}: host(raw)
+#: src/lib/humanize.ts
+msgid "Read a web page ({0})"
+msgstr "Read a web page ({0})"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Read-only: pushing fleet commands requires an operator role."
+msgstr "Read-only: pushing fleet commands requires an operator role."
+
+#: src/lib/explain.ts
+msgid "Reading docs or data you pointed it at is normal; unexpected sources are not."
+msgstr "Reading docs or data you pointed it at is normal; unexpected sources are not."
+
+#: src/views/host/FilesScan.tsx
+msgid "Reason"
+msgstr "Reason"
+
+#: src/views/Posture.tsx
+msgid "recent events"
+msgstr "recent events"
+
+#: src/views/host/HostSkills.tsx
+msgid "Recommendation: {label}"
+msgstr "Recommendation: {label}"
+
+#: src/components/ModelPicker.tsx
+#: src/views/Messaging.tsx
+msgid "Recommended"
+msgstr "Recommended"
+
+#: src/views/Timeline.tsx
+msgid "RECONNECTING…"
+msgstr "RECONNECTING…"
+
+#: src/components/Welcome.tsx
+msgid "Red"
+msgstr "Red"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Rejected devices"
+msgstr "Rejected devices"
+
+#: src/components/host/AllowlistManager.tsx
+#: src/views/console/OrgAdmin.tsx
+#: src/views/Messaging.tsx
+msgid "Remove"
+msgstr "Remove"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Remove <0>{confirmTarget}</0> from <1>{org}</1>?"
+msgstr "Remove <0>{confirmTarget}</0> from <1>{org}</1>?"
+
+#: src/views/Agents.tsx
+msgid "Remove Belay protection from this agent?"
+msgstr "Remove Belay protection from this agent?"
+
+#: src/views/Messaging.tsx
+msgid "Remove connector"
+msgstr "Remove connector"
+
+#: src/views/Messaging.tsx
+msgid "Remove failed"
+msgstr "Remove failed"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Remove member"
+msgstr "Remove member"
+
+#. placeholder {0}: connector.label
+#: src/views/Messaging.tsx
+msgid "Removed {0} — daemon restarting…"
+msgstr "Removed {0} — daemon restarting…"
+
+#. placeholder {0}: labelFor(platform)
+#: src/views/Messaging.tsx
+msgid "Removed {principal} from {0}"
+msgstr "Removed {principal} from {0}"
+
+#: src/views/Messaging.tsx
+msgid "Required"
+msgstr "Required"
+
+#: src/views/Alerts.tsx
+msgid "Resolution"
+msgstr "Resolution"
+
+#: src/components/TrayPopover.tsx
+msgid "Resume protection"
+msgstr "Resume protection"
+
+#: src/views/host/EgressControl.tsx
+#: src/views/host/FirewallSetup.tsx
+msgid "Retry"
+msgstr "Retry"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Revert now"
+msgstr "Revert now"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Revert now — restore previous firewall rules immediately"
+msgstr "Revert now — restore previous firewall rules immediately"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Reverting in"
+msgstr "Reverting in"
+
+#: src/components/DetectionBanner.tsx
+msgid "Review & protect"
+msgstr "Review & protect"
+
+#: src/components/BatchDigest.tsx
+msgid "Review individually"
+msgstr "Review individually"
+
+#: src/views/console/Devices.tsx
+#: src/views/console/Settings.tsx
+msgid "Revoke"
+msgstr "Revoke"
+
+#: src/views/console/Devices.tsx
+msgid "Revoke <0>{confirmDevice}</0>? This device will lose access."
+msgstr "Revoke <0>{confirmDevice}</0>? This device will lose access."
+
+#: src/views/console/Devices.tsx
+msgid "Revoke device"
+msgstr "Revoke device"
+
+#: src/views/console/Devices.tsx
+msgid "Revoke enroll token"
+msgstr "Revoke enroll token"
+
+#: src/views/console/Settings.tsx
+msgid "Revoke feed token"
+msgstr "Revoke feed token"
+
+#. placeholder {0}: confirm.id
+#: src/views/console/Settings.tsx
+msgid "Revoke feed token <0>{0}</0>? Any clients using it will lose advisory feed access."
+msgstr "Revoke feed token <0>{0}</0>? Any clients using it will lose advisory feed access."
+
+#: src/views/console/Settings.tsx
+msgid "Revoke SCIM token"
+msgstr "Revoke SCIM token"
+
+#: src/views/console/Settings.tsx
+msgid "Revoke the SCIM bearer token for <0>{org}</0>? Your IdP will lose provisioning access."
+msgstr "Revoke the SCIM bearer token for <0>{org}</0>? Your IdP will lose provisioning access."
+
+#: src/views/console/Devices.tsx
+msgid "Revoke token <0>{confirmToken}</0>? This token will no longer work."
+msgstr "Revoke token <0>{confirmToken}</0>? This token will no longer work."
+
+#: src/views/Fleet.tsx
+msgid "Risk"
+msgstr "Risk"
+
+#: src/views/Fleet.tsx
+msgid "Risk Distribution"
+msgstr "Risk Distribution"
+
+#: src/views/Scan.tsx
+msgid "Risk score:"
+msgstr "Risk score:"
+
+#: src/lib/alerts.ts
+msgid "Risky action after untrusted ingest"
+msgstr "Risky action after untrusted ingest"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Role"
+msgstr "Role"
+
+#: src/views/Messaging.tsx
+msgid "Room ID"
+msgstr "Room ID"
+
+#: src/views/Findings.tsx
+msgid "Rule"
+msgstr "Rule"
+
+#. placeholder {0}: pending.rule
+#: src/components/ApprovalCard.tsx
+msgid "rule · {0}"
+msgstr "rule · {0}"
+
+#: src/views/Posture.tsx
+msgid "rule hits"
+msgstr "rule hits"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Rules applied — confirm or revert using the panel above."
+msgstr "Rules applied — confirm or revert using the panel above."
+
+#: src/components/TrayPopover.tsx
+msgid "Run Belay automatically when this computer starts (needs Administrator once)"
+msgstr "Run Belay automatically when this computer starts (needs Administrator once)"
+
+#: src/views/host/HostSkills.tsx
+msgid "Safe"
+msgstr "Safe"
+
+#: src/views/host/AiSettings.tsx
+#: src/views/host/SshHardening.tsx
+msgid "Save"
+msgstr "Save"
+
+#: src/views/Messaging.tsx
+msgid "Save changes"
+msgstr "Save changes"
+
+#: src/views/Messaging.tsx
+msgid "Save failed"
+msgstr "Save failed"
+
+#: src/views/host/AiSettings.tsx
+msgid "Save failed."
+msgstr "Save failed."
+
+#: src/views/host/AiSettings.tsx
+msgid "Save key"
+msgstr "Save key"
+
+#: src/views/host/FilesScan.tsx
+msgid "Save schedule"
+msgstr "Save schedule"
+
+#: src/views/console/Settings.tsx
+msgid "Save SSO"
+msgstr "Save SSO"
+
+#: src/views/Messaging.tsx
+msgid "Saved"
+msgstr "Saved"
+
+#: src/views/Messaging.tsx
+msgid "Saved — daemon restarting…"
+msgstr "Saved — daemon restarting…"
+
+#: src/lib/humanize.ts
+msgid "Saved a code change to version history"
+msgstr "Saved a code change to version history"
+
+#: src/views/host/AiSettings.tsx
+#: src/views/host/FilesScan.tsx
+#: src/views/host/SshHardening.tsx
+#: src/views/Messaging.tsx
+msgid "Saving…"
+msgstr "Saving…"
+
+#: src/components/Sidebar.tsx
+#: src/views/Scan.tsx
+msgid "Scan"
+msgstr "Scan"
+
+#: src/views/host/FilesScan.tsx
+#: src/views/host/VulnPosture.tsx
+msgid "Scan failed"
+msgstr "Scan failed"
+
+#: src/views/host/FilesScan.tsx
+msgid "Scan findings"
+msgstr "Scan findings"
+
+#: src/views/host/FilesScan.tsx
+#: src/views/host/VulnPosture.tsx
+msgid "Scan now"
+msgstr "Scan now"
+
+#: src/views/host/FilesScan.tsx
+msgid "Scan scope"
+msgstr "Scan scope"
+
+#: src/lib/humanize.ts
+msgid "Scanned your system"
+msgstr "Scanned your system"
+
+#: src/views/Scan.tsx
+msgid "Scanning runs in the Belay desktop app, where it can inspect files directly on your computer. This feature is not available in the browser."
+msgstr "Scanning runs in the Belay desktop app, where it can inspect files directly on your computer. This feature is not available in the browser."
+
+#: src/views/host/FilesScan.tsx
+#: src/views/host/VulnPosture.tsx
+#: src/views/Scan.tsx
+msgid "Scanning…"
+msgstr "Scanning…"
+
+#: src/views/Scan.tsx
+msgid "Scanning… this can take a few seconds"
+msgstr "Scanning… this can take a few seconds"
+
+#: src/lib/explain.ts
+msgid "Scans your computer to learn what's installed and where things are."
+msgstr "Scans your computer to learn what's installed and where things are."
+
+#: src/views/host/FilesScan.tsx
+msgid "Schedule saved."
+msgstr "Schedule saved."
+
+#: src/views/host/FilesScan.tsx
+msgid "Scheduled scan"
+msgstr "Scheduled scan"
+
+#: src/views/console/Settings.tsx
+msgid "SCIM is not available on this server yet."
+msgstr "SCIM is not available on this server yet."
+
+#: src/views/console/Settings.tsx
+msgid "SCIM provisioning"
+msgstr "SCIM provisioning"
+
+#: src/views/console/Settings.tsx
+msgid "SCIM token"
+msgstr "SCIM token"
+
+#: src/views/host/FilesScan.tsx
+msgid "Scope:"
+msgstr "Scope:"
+
+#: src/views/Fleet.tsx
+msgid "score"
+msgstr "score"
+
+#: src/views/Messaging.tsx
+msgid "Search connectors"
+msgstr "Search connectors"
+
+#: src/views/Findings.tsx
+msgid "Search tool, rule, reason…"
+msgstr "Search tool, rule, reason…"
+
+#: src/lib/humanize.ts
+msgid "Searched files"
+msgstr "Searched files"
+
+#. placeholder {0}: truncate(raw)
+#: src/lib/humanize.ts
+msgid "Searched files for \"{0}\""
+msgstr "Searched files for \"{0}\""
+
+#: src/lib/humanize.ts
+msgid "Searched the project text"
+msgstr "Searched the project text"
+
+#: src/lib/humanize.ts
+msgid "Searched the web"
+msgstr "Searched the web"
+
+#. placeholder {0}: truncate(raw)
+#: src/lib/humanize.ts
+msgid "Searched the web for \"{0}\""
+msgstr "Searched the web for \"{0}\""
+
+#: src/views/Alerts.tsx
+msgid "Secret"
+msgstr "Secret"
+
+#: src/lib/alerts.ts
+msgid "Secret redacted from MCP response"
+msgstr "Secret redacted from MCP response"
+
+#: src/views/Alerts.tsx
+msgid "Security events recorded for awareness — injection markers, secret redactions, risky-action correlations, and how approvals resolved."
+msgstr "Security events recorded for awareness — injection markers, secret redactions, risky-action correlations, and how approvals resolved."
+
+#. placeholder {0}: d.device_id
+#: src/views/console/FleetCommands.tsx
+msgid "select {0}"
+msgstr "select {0}"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Selected"
+msgstr "Selected"
+
+#: src/views/Alerts.tsx
+msgid "Self-approval"
+msgstr "Self-approval"
+
+#: src/components/TrustPanel.tsx
+msgid "Self-approval attempts"
+msgstr "Self-approval attempts"
+
+#: src/lib/alerts.ts
+msgid "Self-approval blocked"
+msgstr "Self-approval blocked"
+
+#: src/views/console/Devices.tsx
+msgid "self-service enrollment"
+msgstr "self-service enrollment"
+
+#: src/views/Messaging.tsx
+msgid "Server URL"
+msgstr "Server URL"
+
+#: src/views/Findings.tsx
+msgid "Session"
+msgstr "Session"
+
+#: src/components/TrustPanel.tsx
+msgid "Session trust"
+msgstr "Session trust"
+
+#: src/views/console/Settings.tsx
+msgid "settings"
+msgstr "settings"
+
+#: src/views/console/Settings.tsx
+msgid "Settings"
+msgstr "Settings"
+
+#: src/views/Agents.tsx
+msgid "Settings check"
+msgstr "Settings check"
+
+#: src/views/host/AiSettings.tsx
+#: src/views/host/SshHardening.tsx
+msgid "Settings saved."
+msgstr "Settings saved."
+
+#: src/components/host/CveTable.tsx
+#: src/views/console/Correlation.tsx
+#: src/views/Findings.tsx
+#: src/views/host/FilesScan.tsx
+msgid "Severity"
+msgstr "Severity"
+
+#: src/components/host/SeverityDot.tsx
+#: src/components/SeverityBadge.tsx
+msgid "Severity: {label}"
+msgstr "Severity: {label}"
+
+#: src/views/Findings.tsx
+msgid "Show advanced columns"
+msgstr "Show advanced columns"
+
+#: src/components/ApprovalCard.tsx
+msgid "Show AI opinion"
+msgstr "Show AI opinion"
+
+#: src/components/ApprovalCard.tsx
+msgid "Show command"
+msgstr "Show command"
+
+#: src/components/ApprovalCard.tsx
+msgid "Show config"
+msgstr "Show config"
+
+#: src/views/Posture.tsx
+msgid "Show details"
+msgstr "Show details"
+
+#: src/views/host/EgressControl.tsx
+msgid "Show owner/ASN/country next to egress hosts. Display-only — never affects allow/deny."
+msgstr "Show owner/ASN/country next to egress hosts. Display-only — never affects allow/deny."
+
+#. placeholder {0}: filtered.length
+#: src/views/Findings.tsx
+msgid "Showing newest {RENDER_CAP} of {0} matches — narrow the filter to see more"
+msgstr "Showing newest {RENDER_CAP} of {0} matches — narrow the filter to see more"
+
+#: src/views/console/shared.tsx
+msgid "Sign in with an operator account to view this."
+msgstr "Sign in with an operator account to view this."
+
+#: src/views/Messaging.tsx
+msgid "Signing secret"
+msgstr "Signing secret"
+
+#: src/views/console/Settings.tsx
+msgid "Single sign-on (OIDC)"
+msgstr "Single sign-on (OIDC)"
+
+#: src/views/host/AiSettings.tsx
+msgid "Skill Judge"
+msgstr "Skill Judge"
+
+#: src/components/host/SegmentedNav.tsx
+#: src/views/Agents.tsx
+msgid "Skills"
+msgstr "Skills"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Skip"
+msgstr "Skip"
+
+#: src/views/Messaging.tsx
+msgid "Slack app → Bot token + Signing Secret; add /hook/slack as the interactivity Request URL behind your TLS proxy."
+msgstr "Slack app → Bot token + Signing Secret; add /hook/slack as the interactivity Request URL behind your TLS proxy."
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Slug"
+msgstr "Slug"
+
+#: src/lib/explain.ts
+msgid "Some setup steps inspect your system; broad scans are less common."
+msgstr "Some setup steps inspect your system; broad scans are less common."
+
+#: src/lib/explain.ts
+msgid "Some tools register background services on purpose during setup."
+msgstr "Some tools register background services on purpose during setup."
+
+#: src/lib/explain.ts
+msgid "Someone could steal these and sign in to your accounts or cloud services as you."
+msgstr "Someone could steal these and sign in to your accounts or cloud services as you."
+
+#: src/views/Agents.tsx
+#: src/views/host/AiSettings.tsx
+#: src/views/host/FilesScan.tsx
+#: src/views/host/HostOverview.tsx
+#: src/views/host/HostSkills.tsx
+#: src/views/host/SshHardening.tsx
+#: src/views/host/VulnPosture.tsx
+#: src/views/Scan.tsx
+msgid "Something went wrong"
+msgstr "Something went wrong"
+
+#: src/components/Sidebar.tsx
+msgid "Source (AGPL)"
+msgstr "Source (AGPL)"
+
+#: src/views/console/Correlation.tsx
+msgid "Spread"
+msgstr "Spread"
+
+#: src/components/host/SegmentedNav.tsx
+msgid "SSH"
+msgstr "SSH"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "SSH access preserved"
+msgstr "SSH access preserved"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "SSH exemption — always preserved"
+msgstr "SSH exemption — always preserved"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "SSH exemption pinned row"
+msgstr "SSH exemption pinned row"
+
+#: src/views/console/FleetCommands.tsx
+#: src/views/host/SshHardening.tsx
+msgid "SSH guard"
+msgstr "SSH guard"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "SSH port 22 is preserved in this ruleset"
+msgstr "SSH port 22 is preserved in this ruleset"
+
+#: src/components/host/ProposedRuleTable.tsx
+msgid "SSH preserved"
+msgstr "SSH preserved"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "SSH Protocol Version"
+msgstr "SSH Protocol Version"
+
+#: src/views/console/Settings.tsx
+msgid "SSO is not available on this server yet."
+msgstr "SSO is not available on this server yet."
+
+#: src/components/TrayPopover.tsx
+msgid "Start on boot"
+msgstr "Start on boot"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Start over"
+msgstr "Start over"
+
+#: src/views/Messaging.tsx
+msgid "Starting…"
+msgstr "Starting…"
+
+#: src/views/console/FleetCommands.tsx
+msgid "State"
+msgstr "State"
+
+#: src/components/host/CveTable.tsx
+#: src/components/TrayPopover.tsx
+#: src/views/Fleet.tsx
+#: src/views/host/FirewallSetup.tsx
+msgid "Status"
+msgstr "Status"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Status: {statusLabel}"
+msgstr "Status: {statusLabel}"
+
+#: src/views/host/AiSettings.tsx
+msgid "Stored on this machine, owner-only."
+msgstr "Stored on this machine, owner-only."
+
+#: src/views/Fleet.tsx
+msgid "Stream audit rows from a remote host or VPS to <0>/api/ingest</0> with a <1>device_id</1>:"
+msgstr "Stream audit rows from a remote host or VPS to <0>/api/ingest</0> with a <1>device_id</1>:"
+
+#: src/views/host/FilesScan.tsx
+msgid "Suspicious"
+msgstr "Suspicious"
+
+#: src/lib/humanize.ts
+msgid "Suspicious AI-tool description"
+msgstr "Suspicious AI-tool description"
+
+#: src/views/host/AiSettings.tsx
+msgid "Synchronous check at install time (~1–5s)."
+msgstr "Synchronous check at install time (~1–5s)."
+
+#: src/views/console/FleetCommands.tsx
+msgid "Target devices"
+msgstr "Target devices"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "TCP"
+msgstr "TCP"
+
+#: src/views/Messaging.tsx
+msgid "Teams channel → Connectors → Incoming Webhook."
+msgstr "Teams channel → Connectors → Incoming Webhook."
+
+#: src/components/ApprovalSurface.tsx
+msgid "That request was answered from the agent's own process, so Belay denied it instead of allowing it. An agent cannot approve its own action."
+msgstr "That request was answered from the agent's own process, so Belay denied it instead of allowing it. An agent cannot approve its own action."
+
+#: src/views/console/Settings.tsx
+msgid "The advisory feed is not available on this server yet."
+msgstr "The advisory feed is not available on this server yet."
+
+#: src/lib/explain.ts
+msgid "The agent is loading external data or instructions to work with."
+msgstr "The agent is loading external data or instructions to work with."
+
+#: src/lib/explain.ts
+msgid "The agent is searching your computer to learn what's installed and where things are."
+msgstr "The agent is searching your computer to learn what's installed and where things are."
+
+#: src/lib/explain.ts
+msgid "The agent is trying to change Belay's or another tool's safety settings."
+msgstr "The agent is trying to change Belay's or another tool's safety settings."
+
+#: src/lib/explain.ts
+msgid "The agent is trying to open files that hold your passwords, keys, or logins."
+msgstr "The agent is trying to open files that hold your passwords, keys, or logins."
+
+#: src/lib/explain.ts
+msgid "The agent wants to delete or overwrite files or data permanently."
+msgstr "The agent wants to delete or overwrite files or data permanently."
+
+#: src/lib/explain.ts
+msgid "The agent wants to run code it downloaded or built on the fly."
+msgstr "The agent wants to run code it downloaded or built on the fly."
+
+#: src/lib/explain.ts
+msgid "The agent wants to send data from your computer out to the internet."
+msgstr "The agent wants to send data from your computer out to the internet."
+
+#: src/lib/explain.ts
+msgid "The agent wants to set something up so it keeps running on its own."
+msgstr "The agent wants to set something up so it keeps running on its own."
+
+#: src/views/host/FirewallSetup.tsx
+msgid "The daemon returned an unexpected firewall response — it may be an outdated build. Restart the Belay daemon and try again."
+msgstr "The daemon returned an unexpected firewall response — it may be an outdated build. Restart the Belay daemon and try again."
+
+#: src/views/host/FirewallSetup.tsx
+msgid "The previous firewall rules have been restored. Your host is back to its pre-change state."
+msgstr "The previous firewall rules have been restored. Your host is back to its pre-change state."
+
+#: src/views/host/FirewallSetup.tsx
+msgid "The proposed ruleset is now active. SSH access is preserved."
+msgstr "The proposed ruleset is now active. SSH access is preserved."
+
+#: src/views/host/AiSettings.tsx
+msgid "the provider"
+msgstr "the provider"
+
+#: src/lib/explain.ts
+msgid "The tool could quietly do something different from what it claims."
+msgstr "The tool could quietly do something different from what it claims."
+
+#: src/views/console/FleetCommands.tsx
+msgid "These devices were not queued (out of scope or unknown to this org):"
+msgstr "These devices were not queued (out of scope or unknown to this org):"
+
+#: src/components/ApprovalCard.tsx
+msgid "Thinking…"
+msgstr "Thinking…"
+
+#: src/views/Fleet.tsx
+msgid "This computer is being monitored"
+msgstr "This computer is being monitored"
+
+#: src/views/host/EgressControl.tsx
+msgid "This installs an NFQUEUE hook that can affect system networking. If a connection cannot be attributed to a process, it is allowed through (fail-open)."
+msgstr "This installs an NFQUEUE hook that can affect system networking. If a connection cannot be attributed to a process, it is allowed through (fail-open)."
+
+#: src/views/host/AiSettings.tsx
+msgid "This is a bring-your-own-key feature and it’s <0>off by default</0>. The running daemon was built without the AI module, so the provider, model, and API-key controls can’t load. Rebuild and restart the daemon with the <1>ai</1> feature enabled to use Local (on-device Ollama) or Cloud (your choice of provider, your key) explanations."
+msgstr "This is a bring-your-own-key feature and it’s <0>off by default</0>. The running daemon was built without the AI module, so the provider, model, and API-key controls can’t load. Rebuild and restart the daemon with the <1>ai</1> feature enabled to use Local (on-device Ollama) or Cloud (your choice of provider, your key) explanations."
+
+#: src/lib/explain.ts
+msgid "This mapping is often the first step before something sensitive gets taken."
+msgstr "This mapping is often the first step before something sensitive gets taken."
+
+#. placeholder {0}: t(meta.label)
+#. placeholder {1}: targets.length
+#: src/views/console/FleetCommands.tsx
+msgid "This will queue <0>{0}</0> on <1>{1, plural, one {# device} other {# devices}}</1>."
+msgstr "This will queue <0>{0}</0> on <1>{1, plural, one {# device} other {# devices}}</1>."
+
+#: src/components/StatusRing.tsx
+msgid "Threat blocked"
+msgstr "Threat blocked"
+
+#: src/views/Posture.tsx
+msgid "Threat Categories"
+msgstr "Threat Categories"
+
+#: src/views/Findings.tsx
+msgid "Time"
+msgstr "Time"
+
+#: src/views/Messaging.tsx
+msgid "To"
+msgstr "To"
+
+#: src/views/Messaging.tsx
+msgid "Token"
+msgstr "Token"
+
+#: src/views/console/Devices.tsx
+msgid "Token id"
+msgstr "Token id"
+
+#: src/views/Findings.tsx
+msgid "Tool"
+msgstr "Tool"
+
+#: src/views/Fleet.tsx
+msgid "Top At-Risk"
+msgstr "Top At-Risk"
+
+#: src/views/Fleet.tsx
+msgid "Top Threat"
+msgstr "Top Threat"
+
+#: src/views/Posture.tsx
+msgid "Top Triggered Rules"
+msgstr "Top Triggered Rules"
+
+#: src/views/Messaging.tsx
+msgid "Topic"
+msgstr "Topic"
+
+#: src/views/Fleet.tsx
+msgid "Total Devices"
+msgstr "Total Devices"
+
+#: src/views/Fleet.tsx
+msgid "Trend"
+msgstr "Trend"
+
+#: src/lib/humanize.ts
+msgid "Tried a destructive action (delete/wipe)"
+msgstr "Tried a destructive action (delete/wipe)"
+
+#: src/lib/humanize.ts
+msgid "Tried to bypass protection"
+msgstr "Tried to bypass protection"
+
+#: src/lib/humanize.ts
+msgid "Tried to change security settings"
+msgstr "Tried to change security settings"
+
+#: src/lib/humanize.ts
+msgid "Tried to install itself permanently"
+msgstr "Tried to install itself permanently"
+
+#: src/lib/humanize.ts
+msgid "Tried to read your credentials or passwords"
+msgstr "Tried to read your credentials or passwords"
+
+#: src/lib/humanize.ts
+msgid "Tried to run system code"
+msgstr "Tried to run system code"
+
+#: src/lib/humanize.ts
+msgid "Tried to send data off your computer"
+msgstr "Tried to send data off your computer"
+
+#: src/lib/explain.ts
+msgid "Tries to change Belay's or another tool's safety settings."
+msgstr "Tries to change Belay's or another tool's safety settings."
+
+#: src/lib/explain.ts
+msgid "Tries to delete or overwrite files or data permanently."
+msgstr "Tries to delete or overwrite files or data permanently."
+
+#: src/lib/explain.ts
+msgid "Tries to read your saved credentials, keys, or passwords."
+msgstr "Tries to read your saved credentials, keys, or passwords."
+
+#: src/lib/explain.ts
+msgid "Tries to run code it downloaded or built on the fly."
+msgstr "Tries to run code it downloaded or built on the fly."
+
+#: src/lib/explain.ts
+msgid "Tries to send data from your computer out to the internet."
+msgstr "Tries to send data from your computer out to the internet."
+
+#: src/lib/explain.ts
+msgid "Tries to set something up so it keeps running on its own."
+msgstr "Tries to set something up so it keeps running on its own."
+
+#: src/components/TrustPanel.tsx
+msgid "Trust grade {grade}"
+msgstr "Trust grade {grade}"
+
+#: src/views/Messaging.tsx
+msgid "Try \"discord\""
+msgstr "Try \"discord\""
+
+#: src/views/Agents.tsx
+#: src/views/host/AiSettings.tsx
+#: src/views/host/SshHardening.tsx
+#: src/views/host/VulnPosture.tsx
+#: src/views/Scan.tsx
+msgid "Try again"
+msgstr "Try again"
+
+#: src/lib/explain.ts
+msgid "Turning off these protections could let later harmful actions slip through unnoticed."
+msgstr "Turning off these protections could let later harmful actions slip through unnoticed."
+
+#: src/views/Messaging.tsx
+msgid "Twilio console → Account SID + Auth Token; from/to are whatsapp: numbers."
+msgstr "Twilio console → Account SID + Auth Token; from/to are whatsapp: numbers."
+
+#: src/views/Messaging.tsx
+msgid "Two-way"
+msgstr "Two-way"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "UDP"
+msgstr "UDP"
+
+#: src/views/host/EgressControl.tsx
+msgid "Unable to load egress configuration"
+msgstr "Unable to load egress configuration"
+
+#: src/views/console/shared.tsx
+msgid "Unavailable"
+msgstr "Unavailable"
+
+#: src/components/host/BanList.tsx
+msgid "Unban"
+msgstr "Unban"
+
+#: src/components/host/BanList.tsx
+msgid "Unban this IP/user?"
+msgstr "Unban this IP/user?"
+
+#: src/views/host/HostSkills.tsx
+msgid "Unbaselined"
+msgstr "Unbaselined"
+
+#: src/views/console/Settings.tsx
+msgid "unchanged"
+msgstr "unchanged"
+
+#: src/lib/explain.ts
+msgid "Unknown code could run on your computer and do anything you can do."
+msgstr "Unknown code could run on your computer and do anything you can do."
+
+#: src/views/Agents.tsx
+msgid "Unprotect"
+msgstr "Unprotect"
+
+#. placeholder {0}: error ?? u.error
+#: src/components/UpdateControl.tsx
+msgid "Update failed: {0}"
+msgstr "Update failed: {0}"
+
+#: src/components/UpdateControl.tsx
+msgid "Updates"
+msgstr "Updates"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "Urgent"
+msgstr "Urgent"
+
+#: src/components/host/DeadMansSwitchPanel.tsx
+msgid "URGENT — {timeStr} remaining"
+msgstr "URGENT — {timeStr} remaining"
+
+#: src/views/Messaging.tsx
+msgid "URL"
+msgstr "URL"
+
+#: src/components/ApprovalCard.tsx
+msgid "URL it wants to reach:"
+msgstr "URL it wants to reach:"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "Use <0>Auto setup</0> to auto-detect this system and pre-fill a least-privilege ruleset, or review the proposal below. Applying starts a <1>dead-man's-switch countdown</1>: rules revert automatically unless you confirm within the window."
+msgstr "Use <0>Auto setup</0> to auto-detect this system and pre-fill a least-privilege ruleset, or review the proposal below. Applying starts a <1>dead-man's-switch countdown</1>: rules revert automatically unless you confirm within the window."
+
+#: src/lib/humanize.ts
+msgid "Used a skill"
+msgstr "Used a skill"
+
+#: src/lib/humanize.ts
+msgid "Used the {name} skill"
+msgstr "Used the {name} skill"
+
+#: src/components/host/BanList.tsx
+#: src/views/console/OrgAdmin.tsx
+msgid "User"
+msgstr "User"
+
+#: src/views/console/OrgAdmin.tsx
+msgid "Username"
+msgstr "Username"
+
+#: src/views/console/Devices.tsx
+msgid "Uses"
+msgstr "Uses"
+
+#: src/views/host/AiSettings.tsx
+msgid "Uses the LLM to catch malicious agent skills. Off by default."
+msgstr "Uses the LLM to catch malicious agent skills. Off by default."
+
+#: src/views/host/FilesScan.tsx
+msgid "Verdict"
+msgstr "Verdict"
+
+#: src/views/Posture.tsx
+msgid "Verdict Distribution"
+msgstr "Verdict Distribution"
+
+#: src/views/Fleet.tsx
+msgid "Verdict Split"
+msgstr "Verdict Split"
+
+#: src/views/host/FilesScan.tsx
+msgid "Verdict: {label}"
+msgstr "Verdict: {label}"
+
+#: src/views/Messaging.tsx
+msgid "Verifies inbound interactivity callbacks (set on the inbound receiver)."
+msgstr "Verifies inbound interactivity callbacks (set on the inbound receiver)."
+
+#. placeholder {0}: u.current
+#: src/components/UpdateControl.tsx
+msgid "Version {0}."
+msgstr "Version {0}."
+
+#: src/views/host/HostOverview.tsx
+msgid "View files"
+msgstr "View files"
+
+#: src/views/host/HostOverview.tsx
+msgid "View skills"
+msgstr "View skills"
+
+#: src/views/host/HostOverview.tsx
+msgid "View SSH"
+msgstr "View SSH"
+
+#: src/views/host/FirewallSetup.tsx
+msgid "View updated status"
+msgstr "View updated status"
+
+#: src/views/host/HostOverview.tsx
+msgid "View vulnerabilities"
+msgstr "View vulnerabilities"
+
+#: src/components/host/SegmentedNav.tsx
+msgid "Vulnerabilities"
+msgstr "Vulnerabilities"
+
+#: src/views/host/VulnPosture.tsx
+msgid "Vulnerability posture is not available for this operating system."
+msgstr "Vulnerability posture is not available for this operating system."
+
+#: src/lib/humanize.ts
+#: src/views/Findings.tsx
+msgid "Waiting"
+msgstr "Waiting"
+
+#: src/views/console/FleetCommands.tsx
+msgid "Waiting for devices…"
+msgstr "Waiting for devices…"
+
+#: src/views/Posture.tsx
+msgid "Waiting for you"
+msgstr "Waiting for you"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "Warning"
+msgstr "Warning"
+
+#: src/views/Fleet.tsx
+msgid "Watched"
+msgstr "Watched"
+
+#: src/views/Messaging.tsx
+msgid "Webhook URL"
+msgstr "Webhook URL"
+
+#: src/views/host/FilesScan.tsx
+msgid "Weekly"
+msgstr "Weekly"
+
+#: src/components/Welcome.tsx
+msgid "Welcome to Belay"
+msgstr "Welcome to Belay"
+
+#: src/lib/explain.ts
+msgid "Well-behaved tools describe themselves clearly; vague ones deserve a second look."
+msgstr "Well-behaved tools describe themselves clearly; vague ones deserve a second look."
+
+#: src/views/Scan.tsx
+msgid "What does scanning do?"
+msgstr "What does scanning do?"
+
+#: src/views/Findings.tsx
+msgid "What happened"
+msgstr "What happened"
+
+#: src/views/Agents.tsx
+msgid "Where it lives"
+msgstr "Where it lives"
+
+#: src/components/host/FindingFixRow.tsx
+msgid "X11 Forwarding"
+msgstr "X11 Forwarding"
+
+#: src/components/host/BanList.tsx
+msgid "Yes, unban"
+msgstr "Yes, unban"
+
+#: src/views/Agents.tsx
+msgid "Yes, unprotect"
+msgstr "Yes, unprotect"
+
+#: src/views/Fleet.tsx
+msgid "You can connect more computers later to watch them all in one place."
+msgstr "You can connect more computers later to watch them all in one place."
+
+#: src/lib/explain.ts
+msgid "You could lose files, history, or a database with no way to get them back."
+msgstr "You could lose files, history, or a database with no way to get them back."
+
+#. placeholder {0}: u.current
+#: src/components/UpdateControl.tsx
+msgid "You're on the latest version (v{0})."
+msgstr "You're on the latest version (v{0})."
+
+#: src/components/UpdateControl.tsx
+msgid "You're on the latest version."
+msgstr "You're on the latest version."
+
+#: src/components/Welcome.tsx
+msgid "You're protected. Here's what to know:"
+msgstr "You're protected. Here's what to know:"
+
+#: src/views/Timeline.tsx
+msgid "Your AI agents' actions will appear here in real time."
+msgstr "Your AI agents' actions will appear here in real time."
+
+#: src/views/console/shared.tsx
+msgid "Your role does not permit this."
+msgstr "Your role does not permit this."

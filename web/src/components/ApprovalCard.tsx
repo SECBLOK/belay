@@ -4,6 +4,9 @@ import SeverityBadge, { severityMeta } from "./SeverityBadge";
 import ExplanationPanel from "./ExplanationPanel";
 import type { Explain, Severity } from "../lib/api";
 import { aiStatus, explainAction } from "../lib/ipc";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 type Decision = "allow" | "deny";
 type Scope = "once" | "always";
@@ -41,11 +44,18 @@ export const isEgress = (p: AnyPending): p is EgressPending =>
 const targetOf = (p: Pending) =>
   p.input.command ?? p.input.path ?? p.input.url ?? JSON.stringify(p.input);
 
-const targetLabel = (p: Pending): string => {
-  if (p.input.command != null) return "Command it wants to run:";
-  if (p.input.path != null) return "File it wants to read:";
-  if (p.input.url != null) return "URL it wants to reach:";
-  return "Details:";
+// A gate on an MCP-server config change routes through the same approval path
+// as any tool call, tagged with an `mcp.install.*` rule. The card specializes
+// its copy so the user reads it as "a new MCP server is being added," not "a
+// command wants to run."
+const isMcpInstall = (p: Pending): boolean => (p.rule ?? "").startsWith("mcp.install");
+
+const targetLabel = (p: Pending): MessageDescriptor => {
+  if (isMcpInstall(p)) return msg`MCP server configuration:`;
+  if (p.input.command != null) return msg`Command it wants to run:`;
+  if (p.input.path != null) return msg`File it wants to read:`;
+  if (p.input.url != null) return msg`URL it wants to reach:`;
+  return msg`Details:`;
 };
 
 // ── Shared countdown ring ─────────────────────────────────────────────────────
@@ -77,8 +87,8 @@ function Countdown({ left, total }: { left: number; total: number }) {
         </text>
       </svg>
       <div className="space-y-0.5">
-        <p className="text-text-primary text-sm">Auto-blocks in {left}s</p>
-        <p className="text-text-secondary text-xs">No response &rarr; blocked automatically.</p>
+        <p className="text-text-primary text-sm"><Trans>Auto-blocks in {left}s</Trans></p>
+        <p className="text-text-secondary text-xs"><Trans>No response &rarr; blocked automatically.</Trans></p>
       </div>
     </div>
   );
@@ -104,13 +114,13 @@ function EgressBody({
       <div className="space-y-1">
         <span className="text-text-secondary text-sm">{pending.agent}</span>
         <h2 className="text-text-primary font-semibold text-lg leading-snug">
-          Outbound connection blocked
+          <Trans>Outbound connection blocked</Trans>
         </h2>
       </div>
 
       {/* Binary */}
       <div className="space-y-1">
-        <span className="text-text-secondary text-xs uppercase tracking-wide">Process:</span>
+        <span className="text-text-secondary text-xs uppercase tracking-wide"><Trans>Process:</Trans></span>
         <div data-testid="egress-binary" className="bg-window rounded-card px-3 py-2 font-mono text-mono text-text-secondary break-all">
           {pending.binary}
         </div>
@@ -118,7 +128,7 @@ function EgressBody({
 
       {/* Destination */}
       <div className="space-y-1">
-        <span className="text-text-secondary text-xs uppercase tracking-wide">Destination:</span>
+        <span className="text-text-secondary text-xs uppercase tracking-wide"><Trans>Destination:</Trans></span>
         <div data-testid="egress-dest" className="bg-window rounded-card px-3 py-2 font-mono text-mono text-text-secondary break-all">
           {pending.dest}
         </div>
@@ -137,14 +147,14 @@ function EgressBody({
           style={denyLeads ? undefined : { background: "var(--semantic-allow)" }}
           onClick={() => act("allow", "once")}
         >
-          Allow once
+          <Trans>Allow once</Trans>
         </button>
         <button
           disabled={!armed}
           className="w-full py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
           onClick={() => act("allow", "always")}
         >
-          Always
+          <Trans>Always</Trans>
         </button>
         <button
           disabled={!armed}
@@ -152,7 +162,7 @@ function EgressBody({
           style={{ background: "var(--semantic-deny)" }}
           onClick={() => act("deny", "once")}
         >
-          Deny
+          <Trans>Deny</Trans>
         </button>
       </div>
     </>
@@ -173,8 +183,11 @@ function ToolBody({
   // KB → category fallback → generic). Passed in so it isn't recomputed here.
   ex: Explanation;
 }) {
+  const { t } = useLingui();
   const [alwaysConfirm, setAlwaysConfirm] = useState(false);
   const [showCommand, setShowCommand] = useState(false);
+  const mcpInstall = isMcpInstall(pending);
+  // The collapsed detail is an MCP config change, not a shell command.
 
   // On-demand "Explain with AI": hidden entirely unless the daemon reports the
   // (optional, off-by-default) `ai` feature is enabled. `aiState` tracks the
@@ -259,6 +272,14 @@ function ToolBody({
               <SeverityBadge severity={ex.severity} />
             </span>
           </div>
+          {mcpInstall && (
+            <span
+              className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-xs font-medium"
+              style={{ color: "var(--semantic-ask)", border: "1px solid var(--semantic-ask)" }}
+            >
+              <span aria-hidden>🔌</span> <Trans>MCP server change</Trans>
+            </span>
+          )}
           <h2 className="text-text-primary font-semibold text-lg leading-snug">
             {ex.summary}
           </h2>
@@ -282,7 +303,7 @@ function ToolBody({
                 onClick={handleExplainWithAi}
                 className="text-text-secondary text-xs hover:text-text-primary underline"
               >
-                Explain with AI
+                <Trans>Explain with AI</Trans>
               </button>
             )}
             {aiState === "loading" && (
@@ -292,7 +313,7 @@ function ToolBody({
                 aria-live="polite"
                 className="text-text-secondary text-xs"
               >
-                Thinking…
+                <Trans>Thinking…</Trans>
               </button>
             )}
             {aiState === "shown" && aiExplanation && (
@@ -303,7 +324,7 @@ function ToolBody({
                   aria-expanded={false}
                   className="text-text-secondary text-xs hover:text-text-primary"
                 >
-                  <span aria-hidden="true">▸</span> Show AI opinion
+                  <span aria-hidden="true">▸</span> <Trans>Show AI opinion</Trans>
                 </button>
               ) : (
                 // Recessed secondary panel — visually distinct from the curated
@@ -311,12 +332,12 @@ function ToolBody({
                 // not a redundant clone. Tighter internal rhythm (space-y-1.5).
                 <div
                   role="group"
-                  aria-label="AI-generated explanation"
+                  aria-label={t`AI-generated explanation`}
                   className="rounded-card bg-window px-3 py-3 space-y-1.5"
                 >
                   <span
                     role="img"
-                    aria-label="AI-generated — may be imperfect"
+                    aria-label={t`AI-generated — may be imperfect`}
                     className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-xs font-medium"
                     style={{ color: "var(--semantic-ask)", border: "1px solid var(--semantic-ask)" }}
                   >
@@ -326,7 +347,7 @@ function ToolBody({
                     >
                       <path d="M6 1v2.2M6 8.8V11M1 6h2.2M8.8 6H11M2.76 2.76l1.56 1.56M7.68 7.68l1.56 1.56M2.76 9.24l1.56-1.56M7.68 4.32l1.56-1.56" />
                     </svg>
-                    <span>AI · may be imperfect</span>
+                    <span><Trans>AI · may be imperfect</Trans></span>
                   </span>
                   <ExplanationPanel ex={aiExplanation} />
                   <button
@@ -335,13 +356,13 @@ function ToolBody({
                     aria-expanded={true}
                     className="text-text-secondary text-xs hover:text-text-primary"
                   >
-                    <span aria-hidden="true">▾</span> Hide AI opinion
+                    <span aria-hidden="true">▾</span> <Trans>Hide AI opinion</Trans>
                   </button>
                 </div>
               )
             )}
             {aiState === "unavailable" && (
-              <p className="text-text-secondary text-xs italic">AI explanation unavailable</p>
+              <p className="text-text-secondary text-xs italic"><Trans>AI explanation unavailable</Trans></p>
             )}
           </div>
         )}
@@ -360,10 +381,13 @@ function ToolBody({
           aria-controls="approval-command"
           className="text-text-secondary text-xs hover:text-text-primary"
         >
-          <span aria-hidden="true">{showCommand ? "▾" : "▸"}</span> {showCommand ? "Hide command" : "Show command"}
+          <span aria-hidden="true">{showCommand ? "▾" : "▸"}</span>{" "}
+          {showCommand
+            ? (mcpInstall ? t`Hide config` : t`Hide command`)
+            : (mcpInstall ? t`Show config` : t`Show command`)}
         </button>
         <div id="approval-command" className={showCommand ? "space-y-1" : "hidden"}>
-          <span className="text-text-secondary text-xs uppercase tracking-wide">{targetLabel(pending)}</span>
+          <span className="text-text-secondary text-xs uppercase tracking-wide">{t(targetLabel(pending))}</span>
           <div data-testid="target" className="bg-window rounded-card px-3 py-2 font-mono text-mono text-text-secondary overflow-x-auto whitespace-pre">
             {String(targetOf(pending))}
           </div>
@@ -385,7 +409,7 @@ function ToolBody({
           style={denyLeads ? undefined : { background: "var(--semantic-allow)" }}
           onClick={() => act("allow", "once")}
         >
-          Allow once
+          <Trans>Allow once</Trans>
         </button>
 
         {/* Always allow (outline/ghost, de-emphasized; high-risk needs confirm) */}
@@ -395,7 +419,7 @@ function ToolBody({
             className="w-full py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
             onClick={handleAlwaysAllow}
           >
-            Confirm — always allow (even when risk is high)
+            <Trans>Confirm — always allow (even when risk is high)</Trans>
           </button>
         ) : (
           <button
@@ -403,7 +427,7 @@ function ToolBody({
             className="w-full py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
             onClick={handleAlwaysAllow}
           >
-            Always allow
+            <Trans>Always allow</Trans>
           </button>
         )}
 
@@ -415,20 +439,20 @@ function ToolBody({
             style={{ background: "var(--semantic-deny)" }}
             onClick={() => act("deny", "once")}
           >
-            Deny
+            <Trans>Deny</Trans>
           </button>
           <button
             disabled={!armed}
             className="py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
             onClick={() => act("deny", "always")}
           >
-            Deny &amp; stop agent
+            <Trans>Deny &amp; stop agent</Trans>
           </button>
         </div>
       </div>
 
       {/* Rule-id footnote (demoted, for the curious / support) */}
-      <p className="text-[10px] text-text-secondary font-mono">rule · {pending.rule}</p>
+      <p className="text-[10px] text-text-secondary font-mono"><Trans>rule · {pending.rule}</Trans></p>
     </>
   );
 }
@@ -438,6 +462,7 @@ function ToolBody({
 export default function ApprovalCard({
   pending, onResolve, timeoutMs = 45000,
 }: { pending: AnyPending; onResolve: (id: string, d: Decision, s: Scope) => void; timeoutMs?: number }) {
+  const { t } = useLingui();
   const [armed, setArmed] = useState(false);          // ~1s keystroke guard
   const [left, setLeft] = useState(Math.ceil(timeoutMs / 1000));
   const done = useRef(false);
@@ -485,22 +510,23 @@ export default function ApprovalCard({
     : toolEx!.severity;
   const meta = severityMeta(severity);
   const cardClass =
-    "bg-white rounded-modal p-6 max-w-md w-full space-y-4 alert-enter max-h-[calc(100vh-2rem)] overflow-y-auto" +
+    "lg-modal p-6 max-w-md w-full space-y-4 alert-enter max-h-[calc(100vh-2rem)] overflow-y-auto" +
     (meta.cardPulse ? " alert-critical-pulse" : "");
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/40 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4"
+      style={{ background: "rgba(18,20,31,0.46)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}>
       <div
         ref={dialogRef}
         tabIndex={-1}
         className={cardClass}
         style={{
-          boxShadow: "var(--shadow-modal)",
+          boxShadow: "var(--lg-shadow-modal)",
           borderTop: meta.topAccent ? `${meta.topAccent} solid ${meta.color}` : undefined,
         }}
         role="alertdialog"
         aria-modal="true"
-        aria-label="Approval required"
+        aria-label={t`Approval required`}
       >
         {isEgress(pending) ? (
           <EgressBody pending={pending} armed={armed} left={left} total={total} act={act} />

@@ -3,30 +3,33 @@
 
 import { useState } from "react";
 import type { HardeningCheck } from "../../lib/hostTypes";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 
 // Map raw check IDs to human-readable labels. Falls back to the check's own label.
-const HUMANIZED: Record<string, string> = {
-  PermitRootLogin:           "Permit Root Login",
-  PasswordAuthentication:    "Password Authentication",
-  PermitEmptyPasswords:      "Permit Empty Passwords",
-  X11Forwarding:             "X11 Forwarding",
-  MaxAuthTries:              "Max Auth Tries",
-  Protocol:                  "SSH Protocol Version",
-  AllowTcpForwarding:        "Allow TCP Forwarding",
-  GatewayPorts:              "Gateway Ports",
-  IgnoreRhosts:              "Ignore Rhosts",
-  HostbasedAuthentication:   "Host-based Authentication",
-  UsePAM:                    "PAM Authentication",
-  LoginGraceTime:            "Login Grace Time",
-  ClientAliveInterval:       "Client Alive Interval",
-  ClientAliveCountMax:       "Client Alive Count Max",
+const HUMANIZED: Record<string, MessageDescriptor> = {
+  PermitRootLogin:           msg`Permit Root Login`,
+  PasswordAuthentication:    msg`Password Authentication`,
+  PermitEmptyPasswords:      msg`Permit Empty Passwords`,
+  X11Forwarding:             msg`X11 Forwarding`,
+  MaxAuthTries:              msg`Max Auth Tries`,
+  Protocol:                  msg`SSH Protocol Version`,
+  AllowTcpForwarding:        msg`Allow TCP Forwarding`,
+  GatewayPorts:              msg`Gateway Ports`,
+  IgnoreRhosts:              msg`Ignore Rhosts`,
+  HostbasedAuthentication:   msg`Host-based Authentication`,
+  UsePAM:                    msg`PAM Authentication`,
+  LoginGraceTime:            msg`Login Grace Time`,
+  ClientAliveInterval:       msg`Client Alive Interval`,
+  ClientAliveCountMax:       msg`Client Alive Count Max`,
 };
 
-const STATUS_STYLE: Record<string, { color: string; label: string; bg: string }> = {
-  pass: { color: "#1B8C3A", label: "Pass",    bg: "rgba(27,140,58,0.10)" },
-  fail: { color: "#C8312A", label: "Fail",    bg: "rgba(200,49,42,0.10)" },
-  warn: { color: "#B27B00", label: "Warning", bg: "rgba(178,123,0,0.10)" },
-  skip: { color: "#8E8E93", label: "Skip",    bg: "rgba(0,0,0,0.06)" },
+const STATUS_STYLE: Record<string, { color: string; label: MessageDescriptor; bg: string }> = {
+  pass: { color: "#187D34", label: msg`Pass`,    bg: "rgba(24,125,52,0.06)" },
+  fail: { color: "#C8312A", label: msg`Fail`,    bg: "rgba(200,49,42,0.06)" },
+  warn: { color: "#916400", label: msg`Warning`, bg: "rgba(145,100,0,0.06)" },
+  skip: { color: "#6C6C71", label: msg`Skip`,    bg: "rgba(0,0,0,0.06)" },
 };
 
 interface FindingFixRowProps {
@@ -34,10 +37,13 @@ interface FindingFixRowProps {
 }
 
 export default function FindingFixRow({ check }: FindingFixRowProps) {
+  const { t } = useLingui();
   const [expanded, setExpanded] = useState(false);
 
-  const humanLabel = HUMANIZED[check.id] ?? check.label;
+  const humanDesc = HUMANIZED[check.id];
+  const humanLabel = humanDesc ? t(humanDesc) : check.label;
   const status = STATUS_STYLE[check.status] ?? STATUS_STYLE.skip;
+  const statusLabel = t(status.label);
   const hasFix = !!check.detail;
 
   return (
@@ -50,10 +56,10 @@ export default function FindingFixRow({ check }: FindingFixRowProps) {
         <span
           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide"
           style={{ background: status.bg, color: status.color }}
-          aria-label={`Status: ${status.label}`}
+          aria-label={t`Status: ${statusLabel}`}
         >
           <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: status.color }} aria-hidden />
-          {status.label}
+          {statusLabel}
         </span>
 
         <span className="text-sm text-[#1C1C1E] font-medium">{humanLabel}</span>
@@ -64,9 +70,9 @@ export default function FindingFixRow({ check }: FindingFixRowProps) {
             className="text-[11px] underline-offset-2 hover:underline"
             style={{ color: "#0856B3" }}
             aria-expanded={expanded}
-            aria-label="How to fix"
+            aria-label={t`How to fix`}
           >
-            How to fix
+            <Trans>How to fix</Trans>
           </button>
         )}
       </div>

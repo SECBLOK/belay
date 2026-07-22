@@ -49,6 +49,7 @@ pub fn default_analyzers() -> Vec<pipeline::Analyzer> {
         Arc::new(|c: &pipeline::FileCache| analyzers::taint::scan_taint(c)),
         Arc::new(|c: &pipeline::FileCache| analyzers::yara::scan_yara(c, None)),
         Arc::new(|c: &pipeline::FileCache| analyzers::meta_mcp::scan_mcp_metadata(c)),
+        Arc::new(|c: &pipeline::FileCache| analyzers::skill::scan_skills(c)),
     ]
 }
 
@@ -145,6 +146,13 @@ pub(crate) fn run_scan_with_extra(
     // --- MCP tool-poisoning analyzer (hidden instructions in tool/parameter
     //     descriptions — an attack pure pattern/AST scanning misses) ---
     findings.extend(analyzers::meta_mcp::scan_mcp_metadata(&ctx.file_cache));
+
+    // --- skillscan adapter: skill-security detections (least-privilege drift,
+    //     prompt injection, tool poisoning, rug-pull, snooping, SSRF, …) over a
+    //     `SKILL.md`-based agent skill. No-op when the tree has no manifest. The
+    //     sync `run_scan` inlines its analyzers (it does not use
+    //     `default_analyzers`), so the adapter must be listed here too. ---
+    findings.extend(analyzers::skill::scan_skills(&ctx.file_cache));
 
     // Central false-positive control across ALL analyzers: drop "devops-normal"
     // matches (pip/npm install, env reads, .env paths, DROP TABLE, …) that

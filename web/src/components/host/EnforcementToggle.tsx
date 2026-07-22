@@ -48,7 +48,7 @@ export default function EnforcementToggle({
       </button>
       <span
         className="text-sm font-medium select-none"
-        style={{ color: disabled ? "#8E8E93" : "#1C1C1E" }}
+        style={{ color: disabled ? "var(--text-tertiary)" : "#1C1C1E" }}
       >
         {label}
       </span>

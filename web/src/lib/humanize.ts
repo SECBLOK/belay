@@ -1,23 +1,28 @@
+import { i18n } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 // Maps rule-id prefixes (before the first ".") to plain-English labels
 // for non-technical users. Never expose raw rule IDs in user-facing copy.
-const PREFIX_MAP: Record<string, string> = {
-  rce:         "Tried to run system code",
-  destructive: "Tried a destructive action (delete/wipe)",
-  secrets:     "Tried to read your credentials or passwords",
-  egress:      "Tried to send data off your computer",
-  persist:     "Tried to install itself permanently",
-  persistence: "Tried to install itself permanently",
-  recon:       "Scanned your system",
-  tamper:      "Tried to change security settings",
-  taint:       "Moved sensitive data toward the network/execution",
-  mcp:         "Suspicious AI-tool description",
-  correlate:   "Combined risky steps in one session",
-  bypass:      "Tried to bypass protection",
-  posture:     "A security weakness on your computer",
-  honeypot:    "Read a decoy secret (canary tripped)",
+// Category-prefix labels. Descriptors resolved at call time via the active
+// locale, so a language change re-renders them.
+import type { MessageDescriptor } from "@lingui/core";
+const PREFIX_MAP: Record<string, MessageDescriptor> = {
+  rce:         msg`Tried to run system code`,
+  destructive: msg`Tried a destructive action (delete/wipe)`,
+  secrets:     msg`Tried to read your credentials or passwords`,
+  egress:      msg`Tried to send data off your computer`,
+  persist:     msg`Tried to install itself permanently`,
+  persistence: msg`Tried to install itself permanently`,
+  recon:       msg`Scanned your system`,
+  tamper:      msg`Tried to change security settings`,
+  taint:       msg`Moved sensitive data toward the network/execution`,
+  mcp:         msg`Suspicious AI-tool description`,
+  correlate:   msg`Combined risky steps in one session`,
+  bypass:      msg`Tried to bypass protection`,
+  posture:     msg`A security weakness on your computer`,
+  honeypot:    msg`Read a decoy secret (canary tripped)`,
 };
 
-const FALLBACK = "An action that needs your review";
+const FALLBACK = msg`An action that needs your review`;
 
 /**
  * Converts a raw daemon verdict token into a plain-English label.
@@ -26,12 +31,12 @@ const FALLBACK = "An action that needs your review";
  *   allow → "Allowed"
  */
 export function verdictWord(verdict: string): string {
-  if (verdict === "deny") return "Blocked";
-  if (verdict === "ask") return "Waiting";
-  if (verdict === "allow") return "Allowed";
+  if (verdict === "deny") return i18n._(msg`Blocked`);
+  if (verdict === "ask") return i18n._(msg`Waiting`);
+  if (verdict === "allow") return i18n._(msg`Allowed`);
   // Canary/honeytoken trip: a decoy was READ and detected post-hoc. Deliberately
   // NOT "Blocked" — Belay saw it but did not prevent it (detection-only tier).
-  if (verdict === "detected") return "Detected · not blocked";
+  if (verdict === "detected") return i18n._(msg`Detected · not blocked`);
   return verdict;
 }
 
@@ -40,9 +45,9 @@ export function verdictWord(verdict: string): string {
  * (e.g. "secrets") into a plain-English label safe to show non-technical users.
  */
 export function humanizeRule(ruleIdOrCategory: string): string {
-  if (!ruleIdOrCategory) return FALLBACK;
+  if (!ruleIdOrCategory) return i18n._(FALLBACK);
   const prefix = ruleIdOrCategory.split(".")[0].toLowerCase();
-  return PREFIX_MAP[prefix] ?? FALLBACK;
+  return i18n._(PREFIX_MAP[prefix] ?? FALLBACK);
 }
 
 // ── describeAction (System A) ──────────────────────────────────────────────
@@ -82,39 +87,39 @@ const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 function describeBash(command: string): string {
   const cmd = command.trim();
   // Tests must be matched before builds (e.g. "cargo test" ≠ build).
-  if (/^(npm test|pytest|cargo test|go test)\b/.test(cmd)) return "Ran the tests";
-  if (/^(cargo (build|check|run)|npm (run|build)|go build|make)\b/.test(cmd)) return "Ran a build command";
-  if (/^git (status|diff|log|branch)\b/.test(cmd)) return "Checked the project's version history";
-  if (/^git (add|commit)\b/.test(cmd)) return "Saved a code change to version history";
-  if (/^git (fetch|pull)\b/.test(cmd)) return "Downloaded the latest code changes";
-  if (/^(ls|find|tree)\b/.test(cmd)) return "Listed files";
-  if (/^(cat|less|head|tail)\b/.test(cmd)) return "Read a file";
-  if (/^(grep|rg|ag)\b/.test(cmd)) return "Searched the project text";
-  if (/^(cd|pwd|echo|which)\b/.test(cmd)) return "Checked the workspace";
-  if (/^(mkdir|touch|cp|mv)\b/.test(cmd)) return "Organized project files";
-  if (/^docker build\b/.test(cmd)) return "Built a container image";
-  if (/^python\b.*\.py\b/.test(cmd) || /^node\b.*\.js\b/.test(cmd)) return "Ran a script";
-  return "Ran a command";
+  if (/^(npm test|pytest|cargo test|go test)\b/.test(cmd)) return i18n._(msg`Ran the tests`);
+  if (/^(cargo (build|check|run)|npm (run|build)|go build|make)\b/.test(cmd)) return i18n._(msg`Ran a build command`);
+  if (/^git (status|diff|log|branch)\b/.test(cmd)) return i18n._(msg`Checked the project's version history`);
+  if (/^git (add|commit)\b/.test(cmd)) return i18n._(msg`Saved a code change to version history`);
+  if (/^git (fetch|pull)\b/.test(cmd)) return i18n._(msg`Downloaded the latest code changes`);
+  if (/^(ls|find|tree)\b/.test(cmd)) return i18n._(msg`Listed files`);
+  if (/^(cat|less|head|tail)\b/.test(cmd)) return i18n._(msg`Read a file`);
+  if (/^(grep|rg|ag)\b/.test(cmd)) return i18n._(msg`Searched the project text`);
+  if (/^(cd|pwd|echo|which)\b/.test(cmd)) return i18n._(msg`Checked the workspace`);
+  if (/^(mkdir|touch|cp|mv)\b/.test(cmd)) return i18n._(msg`Organized project files`);
+  if (/^docker build\b/.test(cmd)) return i18n._(msg`Built a container image`);
+  if (/^python\b.*\.py\b/.test(cmd) || /^node\b.*\.js\b/.test(cmd)) return i18n._(msg`Ran a script`);
+  return i18n._(msg`Ran a command`);
 }
 
 function describeTool(tool: string | undefined, input?: Record<string, unknown>): string {
   const raw = targetOf(input);
   const file = raw ? truncate(basename(raw)) : "";
   switch (tool) {
-    case "Read": return file ? `Read ${file}` : "Read a file";
-    case "Write": return file ? `Created ${file}` : "Created a file";
-    case "Edit": return file ? `Edited ${file}` : "Edited a file";
+    case "Read": return file ? i18n._(msg`Read ${file}`) : i18n._(msg`Read a file`);
+    case "Write": return file ? i18n._(msg`Created ${file}`) : i18n._(msg`Created a file`);
+    case "Edit": return file ? i18n._(msg`Edited ${file}`) : i18n._(msg`Edited a file`);
     case "Skill": {
       const name = raw ? raw.split(":").pop() ?? raw : "";
-      return name ? `Used the ${name} skill` : "Used a skill";
+      return name ? i18n._(msg`Used the ${name} skill`) : i18n._(msg`Used a skill`);
     }
-    case "WebFetch": return raw ? `Read a web page (${host(raw)})` : "Read a web page";
-    case "WebSearch": return raw ? `Searched the web for "${truncate(raw)}"` : "Searched the web";
-    case "Grep": return raw ? `Searched files for "${truncate(raw)}"` : "Searched files";
-    case "Glob": return "Listed matching files";
-    case "NotebookEdit": return raw ? `Edited a notebook (${truncate(basename(raw))})` : "Edited a notebook";
-    case "Bash": return raw ? describeBash(raw) : "Ran a command";
-    default: return tool ? `Ran ${cap(tool)}` : "Action";
+    case "WebFetch": return raw ? i18n._(msg`Read a web page (${host(raw)})`) : i18n._(msg`Read a web page`);
+    case "WebSearch": return raw ? i18n._(msg`Searched the web for "${truncate(raw)}"`) : i18n._(msg`Searched the web`);
+    case "Grep": return raw ? i18n._(msg`Searched files for "${truncate(raw)}"`) : i18n._(msg`Searched files`);
+    case "Glob": return i18n._(msg`Listed matching files`);
+    case "NotebookEdit": return raw ? i18n._(msg`Edited a notebook (${truncate(basename(raw))})`) : i18n._(msg`Edited a notebook`);
+    case "Bash": return raw ? describeBash(raw) : i18n._(msg`Ran a command`);
+    default: return tool ? i18n._(msg`Ran ${cap(tool)}`) : i18n._(msg`Action`);
   }
 }
 

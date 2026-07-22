@@ -67,6 +67,13 @@ pub fn rules_dir()  -> PathBuf { layout(&data_dir()).rules }
 pub fn logs_dir()   -> PathBuf { layout(&data_dir()).logs }
 pub fn audit_path() -> PathBuf { layout(&data_dir()).audit }
 
+/// The approvals-provenance audit store (`<data_dir>/approvals.ndjson`): the
+/// hash-chained `approval.resolved`/`approval.respond` rows written by
+/// `ipc::audit_approval`. Separate from the main gate `audit_path()` so the two
+/// streams never interleave. Single source of truth for both the writer and any
+/// reader (the desktop `get_recent_approvals` command).
+pub fn approvals_path() -> PathBuf { data_dir().join("approvals.ndjson") }
+
 /// The daemon control-socket ADDRESS. Honors `BELAY_SOCK` if set (same
 /// override semantics as the hook and mcp-proxy clients).
 ///

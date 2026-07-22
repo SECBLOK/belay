@@ -18,6 +18,7 @@
 //     border/label text conveys urgency.
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Trans, useLingui } from "@lingui/react/macro";
 
 export interface DeadMansSwitchPanelProps {
   /** Server-provided absolute deadline (epoch ms). Source of truth. */
@@ -44,6 +45,7 @@ export default function DeadMansSwitchPanel({
   onKeep,
   onRevert,
 }: DeadMansSwitchPanelProps) {
+  const { t } = useLingui();
   const [remainingMs, setRemainingMs] = useState(() =>
     Math.max(0, deadlineMs - Date.now()),
   );
@@ -134,12 +136,16 @@ export default function DeadMansSwitchPanel({
 
   const isUrgent = remainingMs <= 15_000;
   const timeStr = formatRemaining(remainingMs);
-  const urgencyLabel = isUrgent ? "URGENT — " : "";
+  const countdownText = isUrgent
+    ? t`URGENT — ${timeStr} remaining`
+    : t`${timeStr} remaining`;
 
   // Amber → red visual escalation (text + border; NOT color-only).
-  const accentColor = isUrgent ? "#C8312A" : "#B27B00";
-  const accentBg = isUrgent ? "rgba(200,49,42,0.08)" : "rgba(178,123,0,0.08)";
-  const accentBorder = isUrgent ? "rgba(200,49,42,0.35)" : "rgba(178,123,0,0.35)";
+  const accentColor = isUrgent ? "#C8312A" : "#916400";
+  // 0.06 to match the chip fill alpha elsewhere: accentColor is drawn ON this
+  // fill, so a heavier tint costs the text contrast against its own panel.
+  const accentBg = isUrgent ? "rgba(200,49,42,0.06)" : "rgba(145,100,0,0.06)";
+  const accentBorder = isUrgent ? "rgba(200,49,42,0.35)" : "rgba(145,100,0,0.35)";
 
   return (
     /* Sticky overlay — covers top of viewport; NOT a full modal so the user
@@ -181,14 +187,14 @@ export default function DeadMansSwitchPanel({
               style={{ color: accentColor }}
               aria-hidden
             >
-              {isUrgent ? "Urgent" : "Action required"}
+              {isUrgent ? <Trans>Urgent</Trans> : <Trans>Action required</Trans>}
             </span>
           </div>
           <h2
             id="dms-title"
             className="text-[#1C1C1E] font-semibold text-lg leading-snug"
           >
-            Confirm or revert firewall rules
+            <Trans>Confirm or revert firewall rules</Trans>
           </h2>
         </div>
 
@@ -202,7 +208,7 @@ export default function DeadMansSwitchPanel({
               className="text-xs font-medium uppercase tracking-widest"
               style={{ color: accentColor }}
             >
-              {isUrgent ? "Reverting in" : "Auto-reverts in"}
+              {isUrgent ? <Trans>Reverting in</Trans> : <Trans>Auto-reverts in</Trans>}
             </p>
             {/* Live region: announces countdown changes to screen readers. */}
             <p
@@ -211,22 +217,24 @@ export default function DeadMansSwitchPanel({
               className="text-4xl font-mono font-bold tabular-nums"
               style={{ color: accentColor }}
             >
-              {`${urgencyLabel}${timeStr} remaining`}
+              {countdownText}
             </p>
           </div>
           <div className="text-right text-xs text-[#636366] max-w-[160px]">
             {isUrgent
-              ? "Doing nothing reverts to safe defaults."
-              : "No action needed to revert — doing nothing is safe."}
+              ? <Trans>Doing nothing reverts to safe defaults.</Trans>
+              : <Trans>No action needed to revert — doing nothing is safe.</Trans>}
           </div>
         </div>
 
         {/* Description */}
         <p id="dms-desc" className="text-sm text-[#636366]">
-          Firewall rules have been applied. If you cannot reach your host or
-          SSH is blocked, do nothing — rules will revert automatically when
-          the timer expires. Click <strong>Keep these rules</strong> only if
-          you have verified the rules are correct.
+          <Trans>
+            Firewall rules have been applied. If you cannot reach your host or
+            SSH is blocked, do nothing — rules will revert automatically when
+            the timer expires. Click <strong>Keep these rules</strong> only if
+            you have verified the rules are correct.
+          </Trans>
         </p>
 
         {/* Actions */}
@@ -237,9 +245,9 @@ export default function DeadMansSwitchPanel({
             onClick={doKeep}
             className="flex-1 py-3 rounded-xl font-semibold text-white text-sm transition-opacity"
             style={{ background: "#0A66D6" }}
-            aria-label="Keep these rules — confirm firewall ruleset"
+            aria-label={t`Keep these rules — confirm firewall ruleset`}
           >
-            Keep these rules
+            <Trans>Keep these rules</Trans>
           </button>
 
           {/* "Revert now" — visually de-emphasized because it's the SAFE default */}
@@ -251,16 +259,18 @@ export default function DeadMansSwitchPanel({
               color: accentColor,
               borderColor: accentBorder,
             }}
-            aria-label="Revert now — restore previous firewall rules immediately"
+            aria-label={t`Revert now — restore previous firewall rules immediately`}
           >
-            Revert now
+            <Trans>Revert now</Trans>
           </button>
         </div>
 
         {/* Safety note */}
-        <p className="text-[11px] text-[#8E8E93] text-center">
-          Default on timeout: <strong>Revert</strong> (safe). SSH exemption is
-          always preserved.
+        <p className="text-[11px] text-[var(--text-tertiary)] text-center">
+          <Trans>
+            Default on timeout: <strong>Revert</strong> (safe). SSH exemption is
+            always preserved.
+          </Trans>
         </p>
       </div>
     </div>

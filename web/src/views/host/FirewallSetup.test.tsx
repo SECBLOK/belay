@@ -84,4 +84,32 @@ describe("FirewallSetup with real daemon payloads", () => {
     // No throw on initial render is the core assertion; the table is present.
     expect(screen.getByRole("table", { name: /Proposed firewall rules/i })).toBeTruthy();
   });
+
+  // Regression: the daemon reports revert_deadline in epoch SECONDS, but
+  // DeadMansSwitchPanel's deadlineMs is epoch MS. Passing the seconds value
+  // straight through made the countdown ~1.7e12 ms in the past, so the confirm
+  // dialog "expired" instantly — it flashed and auto-reverted before the user
+  // could click. The fix multiplies by 1000; this pins it.
+  it("shows a real countdown (not an instant revert) for an active rollback window", async () => {
+    const nowSecs = Math.floor(Date.now() / 1000);
+    vi.mocked(api.getFirewallStatus).mockResolvedValue({
+      active: true,
+      mode: "on",
+      handle: "fw-handle-1",
+      revert_deadline: nowSecs + 120, // epoch SECONDS, ~2 minutes out
+      rule_count: 9,
+    } as never);
+
+    render(<FirewallSetup />);
+
+    // The pending-confirm panel shows a live countdown ("Auto-reverts in" …),
+    // proving deadlineMs was interpreted as a FUTURE time.
+    await waitFor(() => expect(screen.getByText(/Auto-reverts in/i)).toBeTruthy());
+    // And the operator can still act — the confirm control is present.
+    expect(
+      screen.getByRole("button", { name: /Keep these rules/i }),
+    ).toBeTruthy();
+    // Crucially, it did NOT instantly auto-revert (the bug's symptom).
+    expect(api.revertFirewall).not.toHaveBeenCalled();
+  });
 });

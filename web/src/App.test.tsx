@@ -17,6 +17,8 @@ beforeEach(() => {
 // Minimal mocks for all views mounted by App (and Sidebar which calls getPosture/getPending)
 vi.mock("./lib/api", () => ({
   getPending: vi.fn().mockResolvedValue([]),
+  getLocale: vi.fn().mockResolvedValue({ locale: "en", supported: ["en", "zh-Hans"] }),
+  setLocale: vi.fn().mockResolvedValue({ ok: true }),
   getPosture: vi.fn().mockResolvedValue({
     score: 85, total: 0, allow: 0, ask: 0, deny: 0,
     by_category: {}, trend: [], top_rules: [],

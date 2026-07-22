@@ -11,6 +11,7 @@ import {
 import type { HardeningPosture, SshGuardConfig, Ban } from "../../lib/hostTypes";
 import FindingFixRow from "../../components/host/FindingFixRow";
 import BanList from "../../components/host/BanList";
+import { Trans } from "@lingui/react/macro";
 
 // ── SSH Guard config panel ────────────────────────────────────────────────────
 
@@ -48,8 +49,8 @@ function SshGuardPanel({ config, onSave }: SshGuardPanelProps) {
   };
 
   return (
-    <div className="rounded-xl bg-white p-5 space-y-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-      <h3 className="text-[11px] uppercase tracking-widest text-[#8E8E93]">SSH guard</h3>
+    <div className="lg-glass p-5 space-y-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+      <h3 className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]"><Trans>SSH guard</Trans></h3>
 
       {/* Enabled toggle */}
       <div className="flex items-center gap-3">
@@ -58,7 +59,7 @@ function SshGuardPanel({ config, onSave }: SshGuardPanelProps) {
           aria-checked={enabled}
           onClick={() => setEnabled((v) => !v)}
           className="w-10 h-6 rounded-full relative transition-colors"
-          style={{ background: enabled ? "#1B8C3A" : "#D1D1D6" }}
+          style={{ background: enabled ? "#187D34" : "#D1D1D6" }}
         >
           <span
             className="absolute top-1 w-4 h-4 rounded-full bg-white transition-transform"
@@ -67,14 +68,14 @@ function SshGuardPanel({ config, onSave }: SshGuardPanelProps) {
           />
         </button>
         <span className="text-sm text-[#1C1C1E]">
-          {enabled ? "Guard enabled" : "Guard disabled"}
+          {enabled ? <Trans>Guard enabled</Trans> : <Trans>Guard disabled</Trans>}
         </span>
       </div>
 
       {enabled && (
         <div className="grid grid-cols-2 gap-4">
           <label className="space-y-1">
-            <span className="text-xs text-[#8E8E93]">Ban after N failures</span>
+            <span className="text-xs text-[var(--text-tertiary)]"><Trans>Ban after N failures</Trans></span>
             <input
               type="number"
               min={1}
@@ -86,7 +87,7 @@ function SshGuardPanel({ config, onSave }: SshGuardPanelProps) {
             />
           </label>
           <label className="space-y-1">
-            <span className="text-xs text-[#8E8E93]">Ban duration (seconds)</span>
+            <span className="text-xs text-[var(--text-tertiary)]"><Trans>Ban duration (seconds)</Trans></span>
             <input
               type="number"
               min={60}
@@ -106,12 +107,12 @@ function SshGuardPanel({ config, onSave }: SshGuardPanelProps) {
           className="px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40"
           style={{ background: "#0A66D6", color: "#fff" }}
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? <Trans>Saving…</Trans> : <Trans>Save</Trans>}
         </button>
       )}
       {saved && (
-        <p className="text-xs" style={{ color: "#1B8C3A" }}>
-          Settings saved.
+        <p className="text-xs" style={{ color: "#187D34" }}>
+          <Trans>Settings saved.</Trans>
         </p>
       )}
     </div>
@@ -169,10 +170,10 @@ export default function SshHardening() {
   if (state.kind === "loading") {
     return (
       <div
-        className="rounded-xl px-5 py-8 text-center text-sm text-[#8E8E93]"
+        className="rounded-xl px-5 py-8 text-center text-sm text-[var(--text-tertiary)]"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        Loading SSH guard…
+        <Trans>Loading SSH guard…</Trans>
       </div>
     );
   }
@@ -183,14 +184,14 @@ export default function SshHardening() {
         className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1"
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
-        <p className="text-[#1C1C1E] font-medium">Something went wrong</p>
-        <p className="font-mono text-xs text-[#8E8E93]">{state.message}</p>
+        <p className="text-[#1C1C1E] font-medium"><Trans>Something went wrong</Trans></p>
+        <p className="font-mono text-xs text-[var(--text-tertiary)]">{state.message}</p>
         <button
           onClick={load}
           className="text-xs hover:underline mt-1"
           style={{ color: "#0856B3" }}
         >
-          Try again
+          <Trans>Try again</Trans>
         </button>
       </div>
     );
@@ -206,13 +207,13 @@ export default function SshHardening() {
       <div className="flex items-center gap-3">
         <div
           className="text-3xl font-mono tabular-nums font-bold"
-          style={{ color: posture.score >= 70 ? "#1B8C3A" : posture.score >= 40 ? "#B27B00" : "#C8312A" }}
+          style={{ color: posture.score >= 70 ? "#187D34" : posture.score >= 40 ? "#916400" : "#C8312A" }}
         >
           {posture.score}
         </div>
-        <div className="text-xs text-[#8E8E93]">
-          <div>Hardening score</div>
-          <div>{passCount} of {posture.checks.length} checks pass</div>
+        <div className="text-xs text-[var(--text-tertiary)]">
+          <div><Trans>Hardening score</Trans></div>
+          <div><Trans>{passCount} of {posture.checks.length} checks pass</Trans></div>
         </div>
       </div>
 
@@ -221,12 +222,12 @@ export default function SshHardening() {
 
       {/* Hardening findings */}
       {failChecks.length > 0 && (
-        <div className="rounded-xl overflow-hidden bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+        <div className="lg-glass overflow-hidden">
           <div
-            className="px-4 py-2.5 border-b text-[11px] uppercase tracking-widest text-[#8E8E93]"
+            className="px-4 py-2.5 border-b text-[11px] uppercase tracking-widest text-[var(--text-tertiary)]"
             style={{ borderColor: "rgba(0,0,0,0.08)" }}
           >
-            Issues to fix{" "}
+            <Trans>Issues to fix</Trans>{" "}
             <span className="font-mono tabular-nums text-[#636366] normal-case tracking-normal">
               {failChecks.length}
             </span>
@@ -242,14 +243,14 @@ export default function SshHardening() {
           className="rounded-xl px-5 py-6 text-sm text-[#636366]"
           style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
         >
-          All hardening checks pass.
+          <Trans>All hardening checks pass.</Trans>
         </div>
       )}
 
       {/* Ban list */}
       <div>
-        <h3 className="text-[11px] uppercase tracking-widest text-[#8E8E93] mb-2">
-          Active bans
+        <h3 className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)] mb-2">
+          <Trans>Active bans</Trans>
         </h3>
         <BanList bans={bans} onUnban={handleUnban} />
       </div>

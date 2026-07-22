@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listAgents } from "../lib/api";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 
 // First-run discoverability: when Belay detects AI agents on the machine,
 // surface a friendly, dismissible prompt on the Overview so non-technical users
@@ -21,6 +22,7 @@ export default function DetectionBanner({
 }: {
   onNavigate: (tab: "agents") => void;
 }) {
+  const { t } = useLingui();
   const [names, setNames] = useState<string[] | null>(null);
   const [dismissed, setDismissed] = useState<boolean>(() => {
     try {
@@ -64,12 +66,14 @@ export default function DetectionBanner({
   };
 
   const labels = names.map(prettyName);
+  // The agent names are proper nouns kept as-is; only the joiner is localized
+  // (English "A and B" → Chinese "A 和 B").
   const list =
     labels.length === 1
       ? labels[0]
       : labels.length === 2
-        ? `${labels[0]} and ${labels[1]}`
-        : `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+        ? t`${labels[0]} and ${labels[1]}`
+        : t`${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
 
   return (
     <div
@@ -89,11 +93,18 @@ export default function DetectionBanner({
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-[#1C1C1E]">
-          We found {names.length} AI {names.length === 1 ? "tool" : "tools"} on this computer
+          <Plural
+            value={names.length}
+            one="We found # AI tool on this computer"
+            other="We found # AI tools on this computer"
+          />
         </p>
         <p className="text-xs text-[#636366] mt-0.5">
-          {list} {names.length === 1 ? "is" : "are"} installed. Review{" "}
-          {names.length === 1 ? "it" : "them"} to turn on protection.
+          {names.length === 1 ? (
+            <Trans>{list} is installed. Review it to turn on protection.</Trans>
+          ) : (
+            <Trans>{list} are installed. Review them to turn on protection.</Trans>
+          )}
         </p>
         <div className="flex items-center gap-2 mt-2.5">
           <button
@@ -101,14 +112,14 @@ export default function DetectionBanner({
             className="px-3 py-1 rounded text-[12px] font-semibold transition-colors"
             style={{ background: "#0A66D6", color: "#fff" }}
           >
-            Review &amp; protect
+            <Trans>Review &amp; protect</Trans>
           </button>
           <button
             onClick={dismiss}
             className="px-3 py-1 rounded text-[12px] font-medium transition-colors"
             style={{ background: "rgba(0,0,0,0.05)", color: "#636366" }}
           >
-            Not now
+            <Trans>Not now</Trans>
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Plural, Trans } from "@lingui/react/macro";
 import { getPending, resolve } from "../lib/api";
 import ApprovalCard, { isEgress } from "./ApprovalCard";
 import type { AnyPending, Pending } from "./ApprovalCard";
@@ -63,6 +64,10 @@ function friendlyAgent(session: unknown): string {
 export default function ApprovalSurface() {
   const [pendings, setPendings] = useState<AnyPending[]>([]);
   const [expanded, setExpanded] = useState(false); // "Review individually"
+  // Set when the daemon reports that an Allow we sent was overridden to Deny by
+  // the GateGuard self-approval guard. Without this the row simply disappears
+  // and the operator is left believing they allowed the action.
+  const [blockedCount, setBlockedCount] = useState(0);
 
   const refresh = useCallback(async () => {
     if (!isTauri()) return;
@@ -93,35 +98,91 @@ export default function ApprovalSurface() {
   // ApprovalCard's timer effect, keyed on `onResolve`, would tear down and
   // recreate its 45s auto-deny setTimeout on every 1s poll and never fire.
   // Declared before the early return below to satisfy the Rules of Hooks.
+  // `ok:true` does NOT mean the requested decision was honored - the guard can
+  // override an allow to deny. Count those so the banner below can say so.
+  const noteBlocked = useCallback((r: { self_approval_blocked?: boolean } | undefined) => {
+    if (r?.self_approval_blocked) setBlockedCount((n) => n + 1);
+  }, []);
+
   const resolveOne = useCallback(
     (id: string, d: "allow" | "deny", s: "once" | "always") =>
-      void resolve(id, d, s).then(refresh),
-    [refresh],
+      void resolve(id, d, s).then((r) => {
+        noteBlocked(r);
+        return refresh();
+      }),
+    [refresh, noteBlocked],
   );
 
-  if (pendings.length === 0) return null;
+  const blockedBanner = blockedCount > 0 && (
+    <div
+      role="alert"
+      data-testid="self-approval-blocked"
+      className="lg-glass-lite px-4 py-3 mb-2 text-sm"
+      style={{ border: "1px solid rgba(0,0,0,0.08)", borderLeft: "4px solid var(--semantic-deny)" }}
+    >
+      <div className="font-semibold" style={{ color: "var(--semantic-deny)" }}>
+        <Plural value={blockedCount} one="Approval blocked" other="# approvals blocked" />
+      </div>
+      <p className="mt-0.5" style={{ color: "var(--text-secondary)" }}>
+        <Trans>
+          That request was answered from the agent&apos;s own process, so Belay denied it
+          instead of allowing it. An agent cannot approve its own action.
+        </Trans>
+      </p>
+      <button
+        onClick={() => setBlockedCount(0)}
+        className="mt-1.5 text-xs font-medium"
+        style={{ color: "var(--accent)" }}
+      >
+        <Trans>Dismiss</Trans>
+      </button>
+    </div>
+  );
+
+  // NOTE: the banner must outlive the queue. Resolving the last item drains
+  // `pendings`, so returning null on an empty queue would blank the notice the
+  // instant it became relevant.
+  if (pendings.length === 0) return blockedBanner || null;
 
   // Always show the first item as an individual card if there's only one,
   // or if the user expanded, or if the first item is an egress pending (no batch view for egress).
   if (pendings.length === 1 || expanded || isEgress(pendings[0])) {
     const p = pendings[0];
-    return <ApprovalCard key={p.id} pending={p} onResolve={resolveOne} />;
+    return (
+      <>
+        {blockedBanner}
+        <ApprovalCard key={p.id} pending={p} onResolve={resolveOne} />
+      </>
+    );
   }
 
   // ≥2 tool pendings -> one digest card (egress items are not batched).
   const toolPendings = pendings.filter((p): p is Pending => !isEgress(p));
   if (toolPendings.length < 2) {
     const p = pendings[0];
-    return <ApprovalCard key={p.id} pending={p} onResolve={resolveOne} />;
+    return (
+      <>
+        {blockedBanner}
+        <ApprovalCard key={p.id} pending={p} onResolve={resolveOne} />
+      </>
+    );
   }
 
   return (
-    <BatchDigest
-      pendings={toolPendings}
-      onResolveAll={(d) =>
-        void Promise.all(toolPendings.map((p) => resolve(p.id, d, "once"))).then(refresh)
-      }
-      onExpand={() => setExpanded(true)}
-    />
+    <>
+      {blockedBanner}
+      <BatchDigest
+        pendings={toolPendings}
+        onResolveAll={(d) =>
+          void Promise.all(toolPendings.map((p) => resolve(p.id, d, "once")))
+            .then((rs) => {
+              // Batch path: any blocked item in the batch must still surface.
+              rs.forEach(noteBlocked);
+              return refresh();
+            })
+        }
+        onExpand={() => setExpanded(true)}
+      />
+    </>
   );
 }

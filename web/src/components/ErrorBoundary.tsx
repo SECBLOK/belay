@@ -61,7 +61,7 @@ export default class ErrorBoundary extends Component<
         style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
       >
         <p className="text-[#1C1C1E] font-medium">{region} hit an unexpected error</p>
-        <p className="font-mono text-xs text-[#8E8E93] break-words">
+        <p className="font-mono text-xs text-[var(--text-tertiary)] break-words">
           {error.message || String(error)}
         </p>
         <button

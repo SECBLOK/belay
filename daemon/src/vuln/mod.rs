@@ -500,6 +500,37 @@ pub fn overlay_advisories(mut base: Vec<Advisory>, enriched: Vec<Advisory>) -> V
 }
 
 #[cfg(test)]
+impl Advisory {
+    /// Minimal core-only advisory for tests; enrichment absent.
+    /// `pub(crate)` so the enterprise client's test module shares one builder.
+    pub(crate) fn core(
+        id: &str,
+        package: &str,
+        fixed_version: &str,
+        severity: &str,
+        ecosystem: &str,
+        release: &str,
+    ) -> Advisory {
+        Advisory {
+            id: id.into(),
+            package: package.into(),
+            fixed_version: fixed_version.into(),
+            severity: severity.into(),
+            cve: vec![],
+            release: release.into(),
+            ecosystem: ecosystem.into(),
+            source: String::new(),
+            epss: None,
+            kev: None,
+            exploit: None,
+            cvss: None,
+            references: vec![],
+            updated_at: String::new(),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -919,36 +950,5 @@ mod tests {
             !bare_out[0].1.kev && bare_out[0].1.epss.is_none(),
             "open records carry no enrichment"
         );
-    }
-}
-
-#[cfg(test)]
-impl Advisory {
-    /// Minimal core-only advisory for tests; enrichment absent.
-    /// `pub(crate)` so the enterprise client's test module shares one builder.
-    pub(crate) fn core(
-        id: &str,
-        package: &str,
-        fixed_version: &str,
-        severity: &str,
-        ecosystem: &str,
-        release: &str,
-    ) -> Advisory {
-        Advisory {
-            id: id.into(),
-            package: package.into(),
-            fixed_version: fixed_version.into(),
-            severity: severity.into(),
-            cve: vec![],
-            release: release.into(),
-            ecosystem: ecosystem.into(),
-            source: String::new(),
-            epss: None,
-            kev: None,
-            exploit: None,
-            cvss: None,
-            references: vec![],
-            updated_at: String::new(),
-        }
     }
 }
