@@ -111,6 +111,6 @@ additionally compiles the enterprise-gated code (paid plane). CI runs both surfa
 ## Questions?
 
 Open a [GitHub Discussion](https://github.com/SECBLOK/belay/discussions) or
-file an issue. For security-sensitive reports, email **secblok@gmail.com** directly.
+file an issue. For security-sensitive reports, email **hello@secblok.io** directly.
 
 *Secblok Pty Ltd — building open, auditable AI-agent defense.*
