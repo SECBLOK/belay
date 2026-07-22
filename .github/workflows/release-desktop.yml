@@ -1,18 +1,37 @@
-name: Desktop Installer (Windows)
+name: Desktop Installers
 
-# Builds the Tauri Windows desktop installer (NSIS) on a Windows runner.
-#  - PRs touching desktop/web + manual dispatch: builds UNSIGNED — a regression
-#    check that the bundle actually builds on Windows.
-#  - When the code-signing secrets are set (WINDOWS_CERTIFICATE [base64 PFX] +
-#    WINDOWS_CERTIFICATE_PASSWORD): Authenticode-signs the installer via signtool.
-#  - On a version tag (v*): also attaches the installer to the GitHub release.
+# Builds the Tauri desktop installers on each platform's own native runner:
+#  - windows-installer (windows-latest): NSIS, Authenticode-signed if
+#    WINDOWS_CERTIFICATE is set, otherwise shipped unsigned (SmartScreen warns).
+#  - linux-installer (ubuntu-latest): .deb + .AppImage, unsigned (Linux has no
+#    installer-signing convention to speak of).
+#  - macos-installer (macos-latest, matrix over x86_64/aarch64): .dmg + .app
+#    per architecture, unsigned — no Apple Developer ID cert configured, so
+#    Gatekeeper will show "unidentified developer" until a user right-click ->
+#    Open's it (or `xattr -cr`'s the .app). Notarization is a deferred item,
+#    same posture as the Windows signing cert.
+#  - PRs touching desktop/web + manual dispatch: builds UNSIGNED on all three —
+#    a regression check that each bundle actually builds on its OS.
+#  - On a version tag (v*): also attaches each installer to the GitHub release.
 #
-# Self-sufficient by design (authored on Linux; see the FIRST-RUN checklist in
-# the hand-off spec). It does the frontend + sidecar staging explicitly, then
-# overrides the (bash-only, not cmd-portable) beforeBuildCommand to a no-op,
-# forces `--bundles nsis`, and signs externally with signtool — so it does NOT
-# depend on the Phase-5 branch's bundle.windows config or on beforeBuildCommand
-# being cross-platform.
+# All three override beforeBuildCommand to a no-op (frontend + sidecar are
+# built as explicit, cacheable steps instead) and disable
+# `createUpdaterArtifacts` (its minisign key is a separate release secret) via
+# the same ci-override.json trick. The Windows job additionally forces
+# `--bundles nsis` and signs externally with signtool, since beforeBuildCommand
+# is bash-only and Tauri would otherwise run it via cmd on Windows — so
+# windows-installer does NOT depend on bundle.windows config or on
+# beforeBuildCommand being cross-platform. linux-installer and macos-installer
+# were added later, once Linux Tauri bundling was verified locally to need no
+# extra system setup beyond the standard Tauri Linux prerequisites, and macOS
+# was proven able to cross-build both architectures on one macos-latest runner
+# (see release-cli.yml's existing CLI build matrix, the same pattern reused
+# here) — a universal (lipo'd) single .dmg was considered but skipped for now:
+# it would also require manually lipo-ing the `belay` sidecar (Tauri only
+# lipo's its own binary automatically), which has no real Mac available here
+# to verify, so two per-architecture .dmg's (mirroring how the CLI already
+# ships two separate binaries rather than one universal one) was the safer
+# choice.
 
 on:
   push:
@@ -209,3 +228,169 @@ jobs:
           wrangler r2 object put "$R2_BUCKET/install.ps1" --file dist/install.ps1 --content-type 'text/plain; charset=utf-8' --remote
           wrangler r2 object put "$R2_BUCKET/belay-setup-x64.exe" --file dist/belay-setup-x64.exe --content-type 'application/octet-stream' --remote
           wrangler r2 object put "$R2_BUCKET/belay-setup-x64.exe.sha256" --file dist/belay-setup-x64.exe.sha256 --content-type 'text/plain; charset=utf-8' --remote
+
+  linux-installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same marker-based gate as windows-installer above — see that job's
+      # comment for why this checks a marker instead of the (excluded from the
+      # public export) legal-gate doc directly.
+      - name: Legal gate — malware-scan sign-off (tagged release only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          marker=".legal-gate-signoff"
+          if [ ! -r "$marker" ]; then
+            echo "::error::refusing to publish: sign-off marker missing ($marker) — the export-time legal gate (packaging/export-open-repo.sh) did not confirm malware-scan sign-off for this commit"
+            exit 1
+          fi
+          cat "$marker"
+
+      # Standard Tauri v2 Linux prerequisites. A clean ubuntu-latest runner has
+      # none of these; verified locally on a box that already had them that
+      # `cargo tauri build --bundles deb,appimage` needs no more than this list.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Fetch prebuilt tauri-cli
+        run: cargo binstall -y tauri-cli --version '^2'
+
+      - name: Build frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - name: Build + stage sidecar
+        run: |
+          triple="$(rustc -vV | sed -n 's/^host: //p')"
+          echo "target triple: $triple"
+          cargo build --release --bin belay --features channels,ai,netenrich
+          mkdir -p desktop/src-tauri/binaries
+          cp "target/release/belay" "desktop/src-tauri/binaries/belay-${triple}"
+
+      - name: Build deb + AppImage (unsigned)
+        working-directory: desktop/src-tauri
+        run: |
+          echo '{"build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":false}}' > ci-override.json
+          cargo tauri build --bundles deb,appimage --config ci-override.json
+
+      - name: Locate installers
+        id: find
+        run: |
+          deb="$(ls desktop/src-tauri/target/release/bundle/deb/*.deb | head -1)"
+          appimage="$(ls desktop/src-tauri/target/release/bundle/appimage/*.AppImage | head -1)"
+          if [ -z "$deb" ] || [ -z "$appimage" ]; then echo "installer(s) not produced" >&2; exit 1; fi
+          echo "deb=$deb" >> "$GITHUB_OUTPUT"
+          echo "appimage=$appimage" >> "$GITHUB_OUTPUT"
+          echo "deb: $deb"; echo "appimage: $appimage"
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: belay-desktop-linux
+          path: |
+            ${{ steps.find.outputs.deb }}
+            ${{ steps.find.outputs.appimage }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.find.outputs.deb }}
+            ${{ steps.find.outputs.appimage }}
+
+  macos-installer:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-apple-darwin, aarch64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Legal gate — malware-scan sign-off (tagged release only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          marker=".legal-gate-signoff"
+          if [ ! -r "$marker" ]; then
+            echo "::error::refusing to publish: sign-off marker missing ($marker) — the export-time legal gate (packaging/export-open-repo.sh) did not confirm malware-scan sign-off for this commit"
+            exit 1
+          fi
+          cat "$marker"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Fetch prebuilt tauri-cli
+        run: cargo binstall -y tauri-cli --version '^2'
+
+      - name: Build frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - name: Build + stage sidecar
+        run: |
+          cargo build --release --target ${{ matrix.target }} --bin belay --features channels,ai,netenrich
+          mkdir -p desktop/src-tauri/binaries
+          cp "target/${{ matrix.target }}/release/belay" "desktop/src-tauri/binaries/belay-${{ matrix.target }}"
+
+      - name: Build dmg + app (unsigned)
+        working-directory: desktop/src-tauri
+        run: |
+          echo '{"build":{"beforeBuildCommand":""},"bundle":{"createUpdaterArtifacts":false}}' > ci-override.json
+          cargo tauri build --target ${{ matrix.target }} --bundles dmg,app --config ci-override.json
+
+      - name: Locate installer
+        id: find
+        run: |
+          f="$(ls desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg | head -1)"
+          if [ -z "$f" ]; then echo "no dmg produced" >&2; exit 1; fi
+          echo "dmg=$f" >> "$GITHUB_OUTPUT"
+          echo "dmg: $f"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: belay-desktop-dmg-${{ matrix.target }}
+          path: ${{ steps.find.outputs.dmg }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.find.outputs.dmg }}
