@@ -301,6 +301,23 @@ jobs:
           echo "appimage=$appimage" >> "$GITHUB_OUTPUT"
           echo "deb: $deb"; echo "appimage: $appimage"
 
+      # Tauri's own filenames carry the version (Belay_<ver>_amd64.deb), so a
+      # download link naming them breaks every release. Stable-named copies +
+      # per-file checksums, same convention as the Windows job's
+      # belay-setup-x64.exe / belay-setup-x64.exe.sha256 — NOT a combined
+      # SHA256SUMS file, since release-cli.yml already attaches one with that
+      # exact name to the same release and softprops/action-gh-release
+      # overwrites same-named assets (a combined file here would silently
+      # clobber the CLI binaries' checksums).
+      - name: Stage release assets (stable name + checksum)
+        run: |
+          mkdir -p dist
+          cp "${{ steps.find.outputs.deb }}" dist/belay-amd64.deb
+          cp "${{ steps.find.outputs.appimage }}" dist/belay-amd64.AppImage
+          ( cd dist && sha256sum belay-amd64.deb > belay-amd64.deb.sha256 )
+          ( cd dist && sha256sum belay-amd64.AppImage > belay-amd64.AppImage.sha256 )
+          echo "staged:"; ls -la dist
+
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -308,6 +325,10 @@ jobs:
           path: |
             ${{ steps.find.outputs.deb }}
             ${{ steps.find.outputs.appimage }}
+            dist/belay-amd64.deb
+            dist/belay-amd64.AppImage
+            dist/belay-amd64.deb.sha256
+            dist/belay-amd64.AppImage.sha256
           if-no-files-found: error
 
       - name: Attach to release
@@ -317,13 +338,24 @@ jobs:
           files: |
             ${{ steps.find.outputs.deb }}
             ${{ steps.find.outputs.appimage }}
+            dist/belay-amd64.deb
+            dist/belay-amd64.AppImage
+            dist/belay-amd64.deb.sha256
+            dist/belay-amd64.AppImage.sha256
 
   macos-installer:
     runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-apple-darwin, aarch64-apple-darwin]
+        include:
+          # `arch` is the stable-name suffix (belay-<arch>.dmg) — matches the
+          # Windows job's belay-setup-x64.exe convention, decoupled from
+          # Tauri's own versioned filename.
+          - target: x86_64-apple-darwin
+            arch: x64
+          - target: aarch64-apple-darwin
+            arch: aarch64
     steps:
       - uses: actions/checkout@v4
 
@@ -382,15 +414,31 @@ jobs:
           echo "dmg=$f" >> "$GITHUB_OUTPUT"
           echo "dmg: $f"
 
+      # Tauri's own filename carries the version (Belay_<ver>_x64.dmg), so a
+      # download link naming it breaks every release. Stable name + per-file
+      # checksum, same convention as the Windows/Linux jobs.
+      - name: Stage release assets (stable name + checksum)
+        run: |
+          mkdir -p dist
+          cp "${{ steps.find.outputs.dmg }}" "dist/belay-${{ matrix.arch }}.dmg"
+          ( cd dist && shasum -a 256 "belay-${{ matrix.arch }}.dmg" > "belay-${{ matrix.arch }}.dmg.sha256" )
+          echo "staged:"; ls -la dist
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: belay-desktop-dmg-${{ matrix.target }}
-          path: ${{ steps.find.outputs.dmg }}
+          path: |
+            ${{ steps.find.outputs.dmg }}
+            dist/belay-${{ matrix.arch }}.dmg
+            dist/belay-${{ matrix.arch }}.dmg.sha256
           if-no-files-found: error
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.find.outputs.dmg }}
+          files: |
+            ${{ steps.find.outputs.dmg }}
+            dist/belay-${{ matrix.arch }}.dmg
+            dist/belay-${{ matrix.arch }}.dmg.sha256
