@@ -217,6 +217,30 @@ describe("Agents view — actions", () => {
     expect(mockUnprotectAgent).toHaveBeenCalledWith("claude-code");
   });
 
+  it("shows the daemon's real error text on a failed Protect, not a generic fallback", async () => {
+    // Tauri commands returning `Result<T, String>` reject with the raw
+    // string itself (not a wrapped Error) — regression test for the bug
+    // where doProtect/doUnprotect discarded that string and showed
+    // "Something went wrong" instead of the actual, actionable message.
+    mockListAgents.mockResolvedValue([AGENT_FIXTURE]);
+    mockProtectAgent.mockRejectedValue(
+      "belay protect failed: hermes config already defines a `hooks:` block",
+    );
+    render(<Agents />);
+
+    await waitFor(() => expect(screen.getByText("claude-code")).toBeTruthy());
+
+    const protectBtn = screen.getByRole("button", { name: /^protect$/i });
+    await act(async () => {
+      fireEvent.click(protectBtn);
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/hermes config already defines/)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/something went wrong/i)).toBeNull();
+  });
+
   it("clicking Cancel on Unprotect confirm does NOT call unprotectAgent", async () => {
     mockListAgents.mockResolvedValue([AGENT_FIXTURE]);
     render(<Agents />);

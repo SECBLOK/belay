@@ -154,9 +154,11 @@ function AgentCard({ agent, onRefresh }: AgentCardProps) {
       setSuccessMsg(t`Protection updated for ${agent.name}`);
       onRefresh();
     } catch (err: unknown) {
-      setErrorMsg(
-        err instanceof Error ? err.message : t`Something went wrong`
-      );
+      // Tauri commands returning `Result<T, String>` reject with the raw
+      // string itself, not a wrapped Error — `String(err)` passes that
+      // through unchanged (matches every other view's error handling); the
+      // old `t\`Something went wrong\`` fallback silently discarded it.
+      setErrorMsg(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -172,9 +174,7 @@ function AgentCard({ agent, onRefresh }: AgentCardProps) {
       setSuccessMsg(t`Protection updated for ${agent.name}`);
       onRefresh();
     } catch (err: unknown) {
-      setErrorMsg(
-        err instanceof Error ? err.message : t`Something went wrong`
-      );
+      setErrorMsg(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
