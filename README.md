@@ -6,7 +6,7 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
-[![OWASP ASI / LLM Top 10 · MITRE ATLAS](https://img.shields.io/badge/mapped%20to-OWASP%20ASI%20%2F%20LLM%20Top%2010%20%C2%B7%20MITRE%20ATLAS-critical.svg)](#what-it-stops)
+[![OWASP Top 10 for Agentic Applications / LLM Top 10 · MITRE ATLAS](https://img.shields.io/badge/mapped%20to-OWASP%20Top%2010%20for%20Agentic%20Apps%20%2F%20LLM%20Top%2010%20%C2%B7%20MITRE%20ATLAS-critical.svg)](#what-it-stops)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/pySdeDFy6y)
 
 </div>
@@ -45,9 +45,9 @@ notifies you when something happens.
 <img src=".github/readme-assets/alerts.jpg" alt="Belay's live Alerts feed showing a secret redacted from an MCP response and an injection marker detected in an MCP tool response" width="720">
 </div>
 
-Every rule is tagged with the **OWASP Agentic Security Initiative (ASI) Top 10**,
-**OWASP LLM Top 10**, and **MITRE ATLAS**, and the static scanner emits **SARIF 2.1.0**
-straight into your CI's code-scanning tab.
+Every rule is tagged with the **OWASP Top 10 for Agentic Applications** (from
+OWASP's Agentic Security Initiative), **OWASP LLM Top 10**, and **MITRE ATLAS**,
+and the static scanner emits **SARIF 2.1.0** straight into your CI's code-scanning tab.
 
 **Known limitation, stated plainly:** command-gate detection is pattern-based, not a
 full sandbox — an interpreter-wrapped call that never surfaces a recognizable shell
