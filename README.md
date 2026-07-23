@@ -27,7 +27,7 @@ outright**, escalates ambiguous-but-risky ones to you for a one-tap
 notifies you when something happens.
 
 <div align="center">
-<img src=".github/readme-assets/overview.jpg" alt="Belay desktop dashboard showing 28,227 actions monitored, 875 blocked, and 3 auto-detected AI agents awaiting review" width="720">
+<img src=".github/readme-assets/activity-demo.gif" alt="Belay's live Activity feed showing real attack attempts being blocked in real time — destructive rm -rf, credential exfiltration, fetch-and-exec droppers, all denied" width="720">
 </div>
 
 ---
@@ -93,8 +93,9 @@ on **ntfy, Teams, WeCom, and webhooks**. Enrolment is a one-time pairing
 code, and it's **default-deny** — only enrolled approvers can approve, and a
 prompt that goes stale is auto-denied, never auto-allowed.
 
-▶ [Watch a live Telegram approval](https://belay.secblok.io) — a risky action
-on the laptop pings the phone with an inline Allow/Deny button.
+<div align="center">
+<img src=".github/readme-assets/telegram-approval.gif" alt="A phone showing a Belay approval request in Telegram — a CRITICAL fetch-and-exec dropper is denied with one tap, then a MEDIUM RISK cross-agent config read arrives with a plain-English explanation of why it matters" width="320">
+</div>
 
 ## How it works
 
