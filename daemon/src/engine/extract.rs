@@ -157,6 +157,7 @@
 use std::sync::OnceLock;
 
 use super::canonicalize::{self, Piece};
+use super::data_region;
 
 /// One recognized inline-interpreter or heredoc body extracted from a masked
 /// (not yet whitespace-collapsed) Bash command string. `shape` is either
@@ -700,6 +701,58 @@ fn find_heredoc_body(s: &str, body_start: usize, delim: &str, strip_tabs: bool) 
 /// than the inline/heredoc bodies `MAX_BODIES` bounds.
 const MAX_SCRIPT_FILES: usize = 8;
 
+/// Max depth of nested-script following inside an already-resolved script.
+///
+/// v1 read the executed script and stopped, which meant a command was gated
+/// on the bytes of the file named on the command line and on nothing that
+/// file went on to run. Moving a command one level deep hid it from the gate
+/// while it still ran identically - this repo's own packaging pipeline is the
+/// worked example: `export-open-repo.sh` is gated on a grep it holds inline,
+/// and `sync-to-public.sh` ran the same grep unimpeded once that grep moved
+/// into a file it sources.
+///
+/// Bounded rather than unbounded because each level costs real filesystem
+/// reads on the synchronous `decide()` path. Three levels covers the shapes
+/// that occur in practice (a wrapper calling a build script that calls a
+/// helper) while keeping the worst case small; the total body count is still
+/// capped by [`MAX_SCRIPT_FILES`], which this shares rather than adds to.
+const MAX_NESTED_DEPTH: usize = 3;
+
+/// Max resolution candidates tried per nested invocation, bounding the
+/// `$VAR`-fallback search in [`nested_path_candidates`].
+const MAX_NESTED_CANDIDATES: usize = 4;
+
+/// Max inline bodies (`bash -c '...'`, `python -c '...'`, heredocs) harvested
+/// from resolved script files, across the whole walk.
+///
+/// A separate pool from [`MAX_BODIES`], which bounds the COMMAND LINE's own
+/// inline bodies: a script full of `-c` invocations must not be able to crowd
+/// out extraction of the command the agent actually typed. Separate from
+/// [`MAX_SCRIPT_FILES`] too, since these cost no filesystem read.
+const MAX_NESTED_INLINE_BODIES: usize = 8;
+
+/// Max nested invocations examined per file.
+///
+/// The body budget ([`MAX_SCRIPT_FILES`]) does not bound this on its own: it
+/// only stops the walk once a directive has actually RESOLVED to a file, and a
+/// file whose directives all fail to resolve never grows `bodies` at all. So
+/// this is the only thing bounding the unresolvable case.
+///
+/// Deliberately NOT justified as a DoS fix, because measurement says it is not
+/// one: 16k `metadata` calls on absent paths cost ~16ms on the dev box, and a
+/// 4000-directive script measured ~175ms slower than an identically-sized
+/// script with no directives, against a ~2.2s baseline that is the pre-existing
+/// cost of scanning a body that size through the catalog. The cap is cheap
+/// insurance that keeps the worst case explicitly bounded
+/// (`MAX_NESTED_EXECS * MAX_NESTED_CANDIDATES` stats per file) in line
+/// with every other bound in this module, and nothing more.
+///
+/// It has no observable behavioral effect and therefore no test: 32 exceeds
+/// [`MAX_SCRIPT_FILES`], so any run that could reach this cap has already been
+/// stopped by the body budget. A timing test was written for it and then
+/// removed after it passed with the cap compiled out.
+const MAX_NESTED_EXECS: usize = 32;
+
 /// Per-file read cap in bytes (design doc, Owner Decision 3 — 256 KiB). An
 /// oversized file is dropped, never truncated — same drop-not-truncate
 /// reasoning [`MAX_BODY_LEN`] documents above: truncation risks concealing a
@@ -903,6 +956,207 @@ fn resolve_path(file_token: &str, cwd: Option<&str>) -> Option<std::path::PathBu
     Some(std::path::Path::new(cwd).join(p))
 }
 
+/// Strips one layer of surrounding shell quotes from a path token.
+///
+/// Tokens reach here straight from `split_whitespace` over the raw segment,
+/// so a quoted path arrives with its quotes attached. The top-level exec
+/// forms have the same gap and are deliberately left alone here (see this
+/// module's note on `resolve_path`); this is scoped to sourced paths, where
+/// quoting is near-universal precisely because the path usually interpolates
+/// a variable.
+fn strip_token_quotes(tok: &str) -> &str {
+    for q in ['"', '\''] {
+        if let Some(inner) = tok.strip_prefix(q).and_then(|t| t.strip_suffix(q)) {
+            return inner;
+        }
+    }
+    tok
+}
+
+/// Candidate filesystem paths for one nested invocation, most-likely first.
+///
+/// A literal path resolves the obvious way: absolute as-is, relative against
+/// `cwd` (what the shell itself does - a relative path in a script resolves
+/// against the PROCESS's working directory, not the script's location) and
+/// then against the invoking script's own directory, which is where a script
+/// that computed its path from `$0`/`dirname` will have pointed.
+///
+/// A path holding an unexpanded `$VAR` cannot be resolved exactly - expanding
+/// it means running the shell, which the gate must never do. Rather than give
+/// up (which would leave the common real shape, `source "$ROOT/lib/x.sh"`,
+/// unfollowed and the gap only half closed), drop every path component up to
+/// and including the last one containing a `$` and try the literal tail that
+/// remains, against `cwd` and the invoking script's directory, plus the bare
+/// filename in that directory.
+///
+/// This is a heuristic and can name a file the shell would not have run. That
+/// is acceptable here and only here because resolution is purely additive: a
+/// candidate that does not exist contributes nothing, and a candidate that
+/// does is only ever READ, to be scanned as one more body. It can never
+/// redirect the outer command's own match, and never writes.
+fn nested_path_candidates(
+    tok: &str,
+    parent: &std::path::Path,
+    cwd: Option<&str>,
+) -> Vec<std::path::PathBuf> {
+    let tok = strip_token_quotes(tok);
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    let push = |p: std::path::PathBuf, out: &mut Vec<std::path::PathBuf>| {
+        if out.len() < MAX_NESTED_CANDIDATES && !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    let parent_dir = parent.parent();
+
+    if !tok.contains('$') {
+        let p = std::path::Path::new(tok);
+        if p.is_absolute() {
+            push(p.to_path_buf(), &mut out);
+        } else {
+            if let Some(c) = cwd {
+                push(std::path::Path::new(c).join(p), &mut out);
+            }
+            if let Some(d) = parent_dir {
+                push(d.join(p), &mut out);
+            }
+        }
+        return out;
+    }
+
+    let comps: Vec<&str> = tok.split('/').collect();
+    let tail: &[&str] = match comps.iter().rposition(|c| c.contains('$')) {
+        Some(i) => &comps[i + 1..],
+        None => &comps[..],
+    };
+    if tail.is_empty() {
+        return out;
+    }
+    let rel = tail.join("/");
+    if let Some(c) = cwd {
+        push(std::path::Path::new(c).join(&rel), &mut out);
+    }
+    if let Some(d) = parent_dir {
+        push(d.join(&rel), &mut out);
+        if tail.len() > 1 {
+            push(d.join(tail[tail.len() - 1]), &mut out);
+        }
+    }
+    out
+}
+
+/// Records a path as seen, returning false if it already was.
+///
+/// Keyed on the canonicalized path so `./lib.sh` and `lib.sh` are one entry,
+/// which is what makes a mutually-sourcing pair terminate instead of
+/// ping-ponging until the depth bound. Falls back to the path as given when
+/// canonicalization fails, so a failure here can only cost dedup, never
+/// correctness.
+fn mark_seen(seen: &mut Vec<std::path::PathBuf>, path: &std::path::Path) -> bool {
+    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if seen.contains(&key) {
+        return false;
+    }
+    seen.push(key);
+    true
+}
+
+/// Follows the script invocations inside one already-resolved script -
+/// `source`/`.`, `bash x.sh`, `python x.py`, `./x.sh` alike - appending each
+/// as its own [`ExtractedBody`].
+///
+/// Both directive kinds are followed for the same reason. A sourced file's
+/// commands run in the caller's own shell; a nested `bash x.sh` runs in a
+/// child process. The distinction matters for a shell and not at all for the
+/// gate, because in BOTH cases no hook sits between the parent invocation and
+/// the inner file. The earlier design followed neither, then only `source`, on
+/// the reasoning that a child gets gated on its own invocation - which holds
+/// when the AGENT runs the child, and not when a script the agent launched
+/// spawns it. The parent invocation is the only place either can be seen.
+///
+/// `text` is masked with the same [`data_region::mask_data_regions`] the
+/// command line itself goes through, so an invocation that is merely printed
+/// (`echo "bash ./x.sh"`) or commented out is blanked before it can be seen -
+/// the masking composes for free here exactly as it does for the command line.
+///
+/// Language is classified exactly as at the top level: a named interpreter
+/// wins, otherwise the resolved file's own shebang is sniffed.
+///
+/// Every bound is shared with the caller rather than per-level: `bodies` is
+/// still capped by [`MAX_SCRIPT_FILES`], `seen` prevents cycles and repeats
+/// across the whole command, and `depth` stops at [`MAX_NESTED_DEPTH`]. Each
+/// failure mode degrades to "this file contributes no body", never a panic
+/// and never a change to the outer command's own match.
+fn follow_nested_scripts(
+    text: &str,
+    parent: &std::path::Path,
+    cwd: Option<&str>,
+    depth: usize,
+    seen: &mut Vec<std::path::PathBuf>,
+    bodies: &mut Vec<ExtractedBody>,
+    inline_budget: &mut usize,
+) {
+    // The `MAX_INPUT_LEN` (8 KiB) bound here is load-bearing and worth stating
+    // plainly, because it is much smaller than the 256 KiB a script file may
+    // itself be: both `data_region::mask_data_regions` and `extract_bodies`
+    // no-op above it. Walking a larger body would therefore run UNMASKED, so a
+    // directive that is merely echoed or commented would be followed as if it
+    // were real. A script over 8 KiB still gets its own body scanned in full;
+    // only its children go unfollowed. Raising this means giving masking a
+    // higher bound first, not editing this line.
+    if depth > MAX_NESTED_DEPTH || text.len() > MAX_INPUT_LEN {
+        return;
+    }
+    let masked = data_region::mask_data_regions(text);
+
+    // Inline bodies inside this script (`bash -c '...'`, `python -c '...'`,
+    // heredocs). Without this, following nested FILES still missed the payload
+    // that never lands in a file: `extract_bodies` ran only on the command
+    // line, and masking blanks the quoted `-c` argument in the body, so the
+    // command was invisible twice over. Measured before this: the payload
+    // written plainly in a script denied, the same payload as `bash -c '...'`
+    // allowed.
+    for b in extract_bodies(&masked) {
+        if *inline_budget == 0 {
+            break;
+        }
+        *inline_budget -= 1;
+        bodies.push(b);
+    }
+
+    let mut examined = 0usize;
+    for piece in scoped_pieces(&masked) {
+        if bodies.len() >= MAX_SCRIPT_FILES || examined >= MAX_NESTED_EXECS {
+            return;
+        }
+        if !piece.is_segment {
+            continue;
+        }
+        let Some((tok, interp_word)) = detect_script_exec_file(piece.text) else {
+            continue;
+        };
+        examined += 1;
+        for cand in nested_path_candidates(&tok, parent, cwd) {
+            let Some(inner) = read_bounded_script(&cand) else {
+                continue;
+            };
+            if !mark_seen(seen, &cand) {
+                break; // already scanned this file; don't try further candidates
+            }
+            let language = match &interp_word {
+                Some(word) => interpreter_language(word),
+                None => shebang_language(&inner),
+            };
+            bodies.push(ExtractedBody {
+                text: inner.clone(),
+                shape: "script_file",
+                language,
+            });
+            follow_nested_scripts(&inner, &cand, cwd, depth + 1, seen, bodies, inline_budget);
+            break; // first candidate that reads wins
+        }
+    }
+}
+
 /// Bounded read: stats the resolved path FIRST (rejecting anything that
 /// isn't a regular file, plus any already-oversized file, before ever
 /// opening it), then reads through a `Take` adapter so the read itself can
@@ -966,13 +1220,25 @@ fn read_bounded_script(path: &std::path::Path) -> Option<String> {
 /// Every failure mode (path doesn't resolve, file doesn't exist, read error,
 /// oversized file, non-UTF-8 content) degrades to "this file contributes no
 /// body" — never a panic, never a change to the outer command's own
-/// raw/canonical match. No recursion: a resolved script's own inner
-/// executions are never followed (pinned v1 limitation, design doc, "Bounds").
+/// raw/canonical match.
+///
+/// A resolved script's own inner invocations ARE followed - `source`/`.`,
+/// `bash x.sh`, `python x.py` and direct `./x.sh` alike - bounded by
+/// [`MAX_NESTED_DEPTH`] and the shared [`MAX_SCRIPT_FILES`] budget. See
+/// [`follow_nested_scripts`]: no hook sits between a script and anything it
+/// runs, so the parent invocation is the only place the gate can see them.
 pub(crate) fn resolve_script_files(masked: &str, cwd: Option<&str>) -> Vec<ExtractedBody> {
     if masked.len() > MAX_INPUT_LEN {
         return Vec::new();
     }
     let mut bodies = Vec::new();
+    // Cycle/repeat guard for nested following only. Deliberately NOT consulted
+    // for the top-level entries below, so a command naming the same script
+    // twice still behaves exactly as it did before this feature.
+    let mut seen: Vec<std::path::PathBuf> = Vec::new();
+    // Shared across every resolved script, so one `-c`-heavy file cannot
+    // exhaust extraction for the rest of the command.
+    let mut inline_budget: usize = MAX_NESTED_INLINE_BODIES;
     for piece in scoped_pieces(masked) {
         if bodies.len() >= MAX_SCRIPT_FILES {
             break;
@@ -1000,11 +1266,15 @@ pub(crate) fn resolve_script_files(masked: &str, cwd: Option<&str>) -> Vec<Extra
             Some(word) => interpreter_language(&word),
             None => shebang_language(&text),
         };
+        // Seed the guard with this file before following it, so a script that
+        // sources itself (directly or through a cycle) terminates.
+        mark_seen(&mut seen, &path);
         bodies.push(ExtractedBody {
-            text,
+            text: text.clone(),
             shape: "script_file",
             language,
         });
+        follow_nested_scripts(&text, &path, cwd, 1, &mut seen, &mut bodies, &mut inline_budget);
     }
     bodies
 }

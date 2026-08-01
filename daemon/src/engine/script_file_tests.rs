@@ -479,3 +479,283 @@ fn direct_exec_of_a_python_file_via_shebang_is_also_masked() {
         "a direct-exec Python file's own string literal must be masked via shebang sniffing"
     );
 }
+
+// ============================================================================
+// Sourced files: a script's own `source`/`.` directives are followed.
+//
+// The v1 feature read the executed script and stopped there, so moving a
+// command one `source` deep made it invisible to the gate while still running
+// exactly the same. Found in this repo's own packaging pipeline:
+// export-open-repo.sh was gated on a grep it holds inline, and
+// sync-to-public.sh ran the identical grep unimpeded because the grep had
+// moved into a file it sources.
+// ============================================================================
+
+#[test]
+fn a_file_sourced_by_an_executed_script_is_scanned() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "inner.sh", DANGEROUS_CONTENT);
+    write_script(tmp.path(), "outer.sh", "echo start\nsource ./inner.sh\n");
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Deny,
+        "a payload one `source` deep must be gated exactly as if it were inline"
+    );
+}
+
+#[test]
+fn a_dot_sourced_file_is_scanned_like_the_source_keyword() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "inner.sh", DANGEROUS_CONTENT);
+    write_script(tmp.path(), "outer.sh", ". ./inner.sh\n");
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Deny,
+        "`. FILE` is the same directive as `source FILE` and must resolve too"
+    );
+}
+
+#[test]
+fn a_variable_interpolated_source_path_still_resolves() {
+    // The motivating real case: `source "$SRC/packaging/leak-gate.sh"`. The
+    // variable cannot be expanded without running the shell, so the resolver
+    // falls back to trying the path with its leading `$VAR/` component
+    // dropped, against both cwd and the sourcing script's own directory.
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("packaging")).unwrap();
+    write_script(&tmp.path().join("packaging"), "inner.sh", DANGEROUS_CONTENT);
+    write_script(
+        &tmp.path().join("packaging"),
+        "outer.sh",
+        "SRC=\"$(cd \"$(dirname \"$0\")/..\" && pwd)\"\nsource \"$SRC/packaging/inner.sh\"\n",
+    );
+    assert_eq!(
+        decide_for("bash packaging/outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Deny,
+        "a `$VAR`-interpolated source path must still be followed"
+    );
+}
+
+#[test]
+fn a_source_cycle_terminates_and_still_finds_the_payload() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "a.sh", "source ./b.sh\n");
+    write_script(
+        tmp.path(),
+        "b.sh",
+        &format!("source ./a.sh\n{DANGEROUS_CONTENT}"),
+    );
+    let start = std::time::Instant::now();
+    let decision = decide_for("bash a.sh", Some(tmp.path().to_str().unwrap()));
+    let elapsed = start.elapsed();
+    assert_eq!(
+        decision,
+        Decision::Deny,
+        "a mutually-sourcing pair must still surface the payload"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "source following must not loop on a cycle (took {elapsed:?})"
+    );
+}
+
+#[test]
+fn a_source_directive_inside_a_masked_data_region_is_not_followed() {
+    // False-positive guard. The inner file is dangerous, but the outer script
+    // only PRINTS the directive - it never runs it, so nothing should resolve.
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "inner.sh", DANGEROUS_CONTENT);
+    write_script(
+        tmp.path(),
+        "outer.sh",
+        "echo \"source ./inner.sh\"\n# source ./inner.sh\n",
+    );
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Allow,
+        "a sourced path that is only quoted or commented must not be followed"
+    );
+}
+
+#[test]
+fn source_following_stops_at_the_depth_bound() {
+    // Documented bound, pinned so a future change to MAX_SOURCE_DEPTH is a
+    // deliberate decision rather than an accident. The payload sits one level
+    // past the cap.
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "d1.sh", "source ./d2.sh\n");
+    write_script(tmp.path(), "d2.sh", "source ./d3.sh\n");
+    write_script(tmp.path(), "d3.sh", "source ./d4.sh\n");
+    write_script(tmp.path(), "d4.sh", "source ./d5.sh\n");
+    write_script(tmp.path(), "d5.sh", DANGEROUS_CONTENT);
+    assert_eq!(
+        decide_for("bash d1.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Allow,
+        "following must stop at the depth bound rather than walk an unbounded chain"
+    );
+}
+
+// ============================================================================
+// Nested execution: a script's own `bash x.sh` / `./x.sh` / `python x.py` is
+// followed too, not just `source`.
+//
+// The earlier reasoning was that a child process gets gated on its own
+// invocation. That holds only when the AGENT runs the child through the hook.
+// A script the agent launches spawns its children itself, with no hook in
+// between, so the parent invocation was the only chance to see them.
+// ============================================================================
+
+#[test]
+fn a_script_executed_by_an_executed_script_is_scanned() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "inner.sh", DANGEROUS_CONTENT);
+    write_script(tmp.path(), "outer.sh", "echo start\nbash ./inner.sh\n");
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Deny,
+        "a payload one `bash` deep must be gated: no hook sits between the two"
+    );
+}
+
+#[test]
+fn a_direct_exec_nested_in_a_script_is_scanned() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "inner.sh", DANGEROUS_CONTENT);
+    write_script(tmp.path(), "outer.sh", "./inner.sh\n");
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Deny,
+        "form 3 (direct exec) nested inside a script must resolve too"
+    );
+}
+
+#[test]
+fn a_nested_interpreter_form_is_scanned() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "evil.py", DANGEROUS_CONTENT);
+    write_script(tmp.path(), "outer.sh", "python ./evil.py\n");
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Deny,
+        "form 1 (interpreter + file) nested inside a script must resolve too"
+    );
+}
+
+#[test]
+fn a_nested_exec_cycle_terminates_and_still_finds_the_payload() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "a.sh", "bash ./b.sh\n");
+    write_script(
+        tmp.path(),
+        "b.sh",
+        &format!("bash ./a.sh\n{DANGEROUS_CONTENT}"),
+    );
+    let start = std::time::Instant::now();
+    let decision = decide_for("bash a.sh", Some(tmp.path().to_str().unwrap()));
+    let elapsed = start.elapsed();
+    assert_eq!(decision, Decision::Deny, "the payload must still surface");
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "nested exec following must not loop on a cycle (took {elapsed:?})"
+    );
+}
+
+#[test]
+fn a_nested_exec_inside_a_masked_data_region_is_not_followed() {
+    // False-positive guard, the counterpart of the sourced-directive one: the
+    // inner file is dangerous, but the outer script only prints or comments
+    // the invocation - it never runs it.
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "inner.sh", DANGEROUS_CONTENT);
+    write_script(
+        tmp.path(),
+        "outer.sh",
+        "echo \"bash ./inner.sh\"\n# bash ./inner.sh\n",
+    );
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Allow,
+        "a nested invocation that is only quoted or commented must not be followed"
+    );
+}
+
+// ============================================================================
+// Nested INLINE bodies: `bash -c '...'` inside a script.
+//
+// Following nested FILES left this sibling open. The payload never touches a
+// second file at all, and two separate mechanisms hid it: extract_bodies ran
+// only on the command line, never on a script body, and mask_data_regions
+// blanks the quoted `-c` argument inside that body. Measured before the fix:
+// the payload written plainly in a script denied, the same payload wrapped in
+// `bash -c '...'` allowed.
+// ============================================================================
+
+#[test]
+fn a_nested_inline_shell_body_is_scanned() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(
+        tmp.path(),
+        "outer.sh",
+        &format!("echo start\nbash -c '{}'\n", DANGEROUS_CONTENT.trim()),
+    );
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Deny,
+        "a payload inlined into `bash -c` inside a script must be gated"
+    );
+}
+
+#[test]
+fn a_nested_inline_body_is_scanned_at_depth() {
+    // The inline body sits inside a script that is itself reached by nesting,
+    // proving the two features compose rather than only working at level one.
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(
+        tmp.path(),
+        "inner.sh",
+        &format!("bash -c '{}'\n", DANGEROUS_CONTENT.trim()),
+    );
+    write_script(tmp.path(), "outer.sh", "bash ./inner.sh\n");
+    assert_eq!(
+        decide_for("bash outer.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Deny,
+        "an inline body inside a nested script must be gated too"
+    );
+}
+
+#[test]
+fn a_benign_nested_inline_body_still_allows() {
+    // False-positive guard: inline bodies are extremely common in real build
+    // scripts, so extracting them must not turn ordinary work into prompts.
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(
+        tmp.path(),
+        "build.sh",
+        "bash -c 'echo building'\npython3 -c \"import sys; print(sys.version)\"\n",
+    );
+    assert_eq!(
+        decide_for("bash build.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Allow,
+        "ordinary inline bodies in a build script must stay Allow"
+    );
+}
+
+#[test]
+fn a_nested_exec_of_a_benign_helper_still_allows() {
+    // The blast-radius guard. Following nested execution means a parent now
+    // inherits its children's verdicts, so an ordinary build script calling an
+    // ordinary helper must stay Allow - otherwise this feature makes routine
+    // work unrunnable.
+    let tmp = tempfile::tempdir().unwrap();
+    write_script(tmp.path(), "helper.sh", "echo building\nmkdir -p out\n");
+    write_script(
+        tmp.path(),
+        "build.sh",
+        "set -euo pipefail\nbash ./helper.sh\ncargo build --release\n",
+    );
+    assert_eq!(
+        decide_for("bash build.sh", Some(tmp.path().to_str().unwrap())),
+        Decision::Allow,
+        "ordinary nested build steps must not become blocked work"
+    );
+}
