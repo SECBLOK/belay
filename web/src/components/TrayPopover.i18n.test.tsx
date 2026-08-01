@@ -14,7 +14,10 @@ vi.mock("../lib/api", () => ({
   getBootStart: () => Promise.resolve({ enabled: false, supported: true }),
   setBootStart: vi.fn(),
 }));
-vi.mock("../lib/ipc", () => ({ setProtection: vi.fn() }));
+vi.mock("../lib/ipc", () => ({
+  setProtection: vi.fn(),
+  getProtectionStatus: () => Promise.resolve("on"),
+}));
 
 const TrayPopover = (await import("./TrayPopover")).default;
 

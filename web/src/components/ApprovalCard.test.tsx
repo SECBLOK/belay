@@ -132,6 +132,19 @@ it("Allow once resolves with scope=once", () => {
   expect(onResolve).toHaveBeenCalledWith("a1", "allow", "once");
 });
 
+it("'Deny & mute this rule' resolves with scope=rule in one click (no confirm step)", () => {
+  const onResolve = vi.fn();
+  render(<ApprovalCard pending={pending} onResolve={onResolve} timeoutMs={20000} />);
+  act(() => { vi.advanceTimersByTime(1100); });
+  fireEvent.click(screen.getByText("Deny & mute this rule"));
+  expect(onResolve).toHaveBeenCalledWith("a1", "deny", "rule");
+});
+
+it("egress variant has no 'Deny & mute this rule' button (EgressPending has no rule id)", () => {
+  render(<ApprovalCard pending={pendingEgress} onResolve={vi.fn()} timeoutMs={20000} />);
+  expect(screen.queryByText("Deny & mute this rule")).toBeNull();
+});
+
 // ── Explain & Advise (Task 8): 5-field explanation + severity badge ────────────
 
 const pendingExplain = {
@@ -383,6 +396,89 @@ it("collapses and re-expands the AI opinion without refetching", async () => {
   fireEvent.click(showToggle);
   expect(screen.getByText(/AI-detected risk: credentials could leak/)).toBeTruthy();
   expect(explainActionMock).toHaveBeenCalledTimes(1);
+});
+
+// ── Failure handling: the card must never lock permanently ────────────────────
+// See ApprovalCard's `act` - a failed IPC call must leave the card usable
+// (buttons re-enabled, no permanent `done`), show the operator why it failed,
+// and must not have disarmed the 45s auto-deny timeout.
+
+it("a failing resolve leaves the card on screen with a visible error", async () => {
+  const onResolve = vi.fn().mockRejectedValue(new Error("daemon restarting"));
+  render(<ApprovalCard pending={pending} onResolve={onResolve} timeoutMs={20000} />);
+  act(() => { vi.advanceTimersByTime(1100); });
+  fireEvent.click(screen.getByText("Deny"));
+  await flush();
+
+  // The card is still on screen (the alertdialog role never left the DOM).
+  expect(screen.getByRole("alertdialog")).toBeTruthy();
+  // The failure is visible, and it names the reason.
+  const err = screen.getByTestId("approval-error");
+  expect(err.textContent).toMatch(/daemon restarting/);
+});
+
+it("after a failure, clicking the same button again retries instead of staying locked", async () => {
+  const onResolve = vi.fn()
+    .mockRejectedValueOnce(new Error("daemon restarting"))
+    .mockResolvedValueOnce(undefined);
+  render(<ApprovalCard pending={pending} onResolve={onResolve} timeoutMs={20000} />);
+  act(() => { vi.advanceTimersByTime(1100); });
+
+  fireEvent.click(screen.getByText("Deny"));
+  await flush();
+  expect(onResolve).toHaveBeenCalledTimes(1);
+
+  // The lockout regression: with `done` set before the result was known, this
+  // second click would be a silent no-op forever.
+  fireEvent.click(screen.getByText("Deny"));
+  await flush();
+  expect(onResolve).toHaveBeenCalledTimes(2);
+  expect(onResolve).toHaveBeenNthCalledWith(2, "a1", "deny", "once");
+});
+
+it("a second click while a request is in flight does not fire a second request", async () => {
+  let settle: (() => void) | undefined;
+  const onResolve = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
+  render(<ApprovalCard pending={pending} onResolve={onResolve} timeoutMs={20000} />);
+  act(() => { vi.advanceTimersByTime(1100); });
+
+  fireEvent.click(screen.getByText("Deny"));
+  fireEvent.click(screen.getByText("Deny"));
+  expect(onResolve).toHaveBeenCalledTimes(1);
+
+  // Let the in-flight call settle so it doesn't leak into the next test.
+  await act(async () => { settle?.(); await Promise.resolve(); });
+});
+
+it("a successful resolve still resolves the card exactly once", async () => {
+  const onResolve = vi.fn().mockResolvedValue(undefined);
+  render(<ApprovalCard pending={pending} onResolve={onResolve} timeoutMs={20000} />);
+  act(() => { vi.advanceTimersByTime(1100); });
+
+  fireEvent.click(screen.getByText("Deny"));
+  await flush();
+  fireEvent.click(screen.getByText("Deny"));
+  await flush();
+  expect(onResolve).toHaveBeenCalledTimes(1);
+});
+
+it("the auto-deny timeout still fires after a failed attempt", async () => {
+  const onResolve = vi.fn()
+    .mockRejectedValueOnce(new Error("daemon restarting"))
+    .mockResolvedValueOnce(undefined);
+  render(<ApprovalCard pending={pending} onResolve={onResolve} timeoutMs={20000} />);
+  act(() => { vi.advanceTimersByTime(1100); });
+
+  // A failed manual click must NOT disarm the auto-deny timeout.
+  fireEvent.click(screen.getByText("Deny"));
+  await flush();
+  expect(onResolve).toHaveBeenCalledTimes(1);
+
+  // Advance to the 20s deadline: the timeout must still fire.
+  await act(async () => { vi.advanceTimersByTime(20000 - 1100); });
+  await flush();
+  expect(onResolve).toHaveBeenCalledTimes(2);
+  expect(onResolve).toHaveBeenNthCalledWith(2, "a1", "deny", "once");
 });
 
 it("specializes an MCP-server config approval (mcp.install.*) as an MCP change", () => {

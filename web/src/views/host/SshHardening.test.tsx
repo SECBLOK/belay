@@ -112,4 +112,39 @@ describe("SshHardening", () => {
 
     await waitFor(() => expect(api.unban).toHaveBeenCalledWith("ban-1"));
   });
+
+  // BanRow's doUnban was a try/finally with no catch: a rejected unban left
+  // the spinner running-then-stopping with no visible error.
+  it("a failed unban shows an error and leaves the row usable for another try", async () => {
+    vi.mocked(api.unban).mockRejectedValue(new Error("daemon unreachable"));
+    render(<SshHardening />);
+    await waitFor(() => expect(screen.getByText("192.168.1.100")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /^unban$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /yes, unban/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("unban-error").textContent).toMatch(/daemon unreachable/),
+    );
+    // Row is still here, still shows the ban, and Unban is clickable again.
+    expect(screen.getByText("192.168.1.100")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^unban$/i }).hasAttribute("disabled")).toBe(false);
+  });
+
+  // SshGuardPanel's handleSave had the same try/finally-no-catch shape: on
+  // failure there was no success message and no error either.
+  it("a failed SSH guard save shows an error instead of looking like a no-op", async () => {
+    vi.mocked(api.setSshGuard).mockRejectedValue(new Error("permission denied"));
+    render(<SshHardening />);
+    await waitFor(() => expect(screen.getByText("Guard enabled")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByText("Save"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("ssh-guard-save-error").textContent).toMatch(/permission denied/),
+    );
+    expect(screen.queryByText("Settings saved.")).toBeNull();
+    expect(screen.getByText("Save")).toBeTruthy();
+  });
 });

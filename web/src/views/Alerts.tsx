@@ -2,7 +2,13 @@
 // events (MCP-response injection markers, secret redactions, injection→action
 // correlation) are INFORMATIONAL: nothing was blocked. They are styled softly
 // and apart from the Live Feed's Deny/Ask decisions — "worth knowing," not
-// "acted on." Shares the same audit source (seed + live stream) as the feed.
+// "acted on."
+//
+// TWO sources, with different delivery, which is easy to get wrong: the gate
+// audit log (mcp/* + correlation rows) arrives on the live stream, while the
+// approvals store (self-approval-blocked + channel resolutions) does not and is
+// POLLED. Anything added to `classifyAlert` that reads an `approval.*` row is
+// therefore poll-delivered, not stream-delivered.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getRecentAudit, getRecentApprovals, openAuditStream } from "../lib/api";
@@ -14,6 +20,10 @@ import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 
 const CAP = 500;
+
+// How often the approvals store is re-read. Unlike the gate audit log, approval
+// rows never arrive on the live stream — see the poll in the seed effect below.
+const APPROVALS_POLL_MS = 5000;
 
 function relTime(ts: string, now: number): string {
   const t = Date.parse(ts);
@@ -119,11 +129,24 @@ export default function Alerts() {
     getRecentAudit(CAP).then((rows) => {
       if (!cancelled) add(rows);
     });
-    getRecentApprovals(CAP).then((rows) => {
-      if (!cancelled) add(rows);
-    });
-    // The live audit-event stream carries gate/mcp rows; approval-provenance
-    // rows are not streamed, so they refresh on view open (seed only).
+    // Approval-provenance rows are NOT carried on the live audit stream, so a
+    // one-shot seed left the most security-critical category here —
+    // `self_approval`, an agent answering its own approval — invisible until
+    // the operator happened to remount this view. Found live on 2026-07-27
+    // while verifying every alert category: a genuine blocked self-approval sat
+    // on disk, classified correctly, and never appeared while this tab stayed
+    // open, so the one alert nobody can afford to miss was the one that could
+    // not arrive in real time. Re-poll so it surfaces while someone is actually
+    // watching. `add` de-dupes on the audit-row hash (`seenRef`), so re-reading
+    // the same rows every tick adds nothing and can never double-count.
+    const pollApprovals = () => {
+      getRecentApprovals(CAP).then((rows) => {
+        if (!cancelled) add(rows);
+      });
+    };
+    pollApprovals();
+    const approvalsTimer = setInterval(pollApprovals, APPROVALS_POLL_MS);
+    // The live audit-event stream carries gate/mcp rows only (hence the poll above).
     esRef.current = openAuditStream({
       onOpen: () => {},
       onError: () => {},
@@ -131,6 +154,7 @@ export default function Alerts() {
     });
     return () => {
       cancelled = true;
+      clearInterval(approvalsTimer);
       esRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

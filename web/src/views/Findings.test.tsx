@@ -8,6 +8,7 @@ vi.mock("../lib/api", () => ({
   ]),
   streamAudit: vi.fn().mockReturnValue(() => {}),
 }));
+import * as api from "../lib/api";
 it("shows a finding row with outcome + plain-English description in What happened column", async () => {
   render(<Findings />);
   // "What happened" now reads the verdict word + describeAction (the daemon's
@@ -48,4 +49,16 @@ it("expanded row shows raw rule id and session for power users", async () => {
   // first row is thead, second is the deny row
   fireEvent.click(rows[1]);
   await waitFor(() => expect(screen.getByText("destructive.rm_rf")).toBeTruthy());
+});
+
+// getFindings() had no .catch(): a rejected load left rows at its initial
+// [] and rendered "No findings recorded yet", indistinguishable from a
+// genuinely clean audit log - exactly the wrong confusion for a security
+// product.
+it("a failed load shows an error instead of rendering as a clean log", async () => {
+  vi.mocked(api.getFindings).mockRejectedValueOnce(new Error("daemon unreachable"));
+  render(<Findings />);
+  await waitFor(() => expect(screen.getByText(/could not load findings/i)).toBeTruthy());
+  expect(screen.getByText(/daemon unreachable/)).toBeTruthy();
+  expect(screen.queryByText(/no findings recorded yet/i)).toBeNull();
 });

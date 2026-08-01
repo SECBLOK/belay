@@ -22,6 +22,7 @@ fn main() {
 
     let sha = git_short_sha().unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=BELAY_GIT_SHA={sha}");
+
 }
 
 /// Run `git rev-parse --short HEAD`. Returns `None` (never panics/fails the

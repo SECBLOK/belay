@@ -14,6 +14,7 @@ import {
   getPending,
   resolve,
   setProtection,
+  getProtectionStatus,
   streamAudit,
 } from "./ipc";
 
@@ -89,6 +90,28 @@ it("setProtection invokes set_protection", async () => {
   invoke.mockResolvedValue({});
   await setProtection(true);
   expect(invoke).toHaveBeenCalledWith("set_protection", { on: true });
+});
+
+it("getProtectionStatus invokes get_protection_status and reports the daemon's on/off", async () => {
+  invoke.mockResolvedValue({ protection: "off" });
+  expect(await getProtectionStatus()).toBe("off");
+  expect(invoke).toHaveBeenCalledWith("get_protection_status");
+
+  invoke.mockResolvedValue({ protection: "on" });
+  expect(await getProtectionStatus()).toBe("on");
+});
+
+it("getProtectionStatus falls back to \"unknown\" - never a guessed on/off", async () => {
+  // Daemon unreachable.
+  invoke.mockRejectedValue(new Error("daemon unreachable"));
+  expect(await getProtectionStatus()).toBe("unknown");
+
+  // Daemon reachable but replies with something unrecognised.
+  invoke.mockResolvedValue({ protection: "sideways" });
+  expect(await getProtectionStatus()).toBe("unknown");
+
+  invoke.mockResolvedValue({});
+  expect(await getProtectionStatus()).toBe("unknown");
 });
 
 it("streamAudit subscribes to audit-event and forwards e.payload", async () => {

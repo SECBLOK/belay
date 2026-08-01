@@ -1,13 +1,26 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { it, expect, vi, describe, beforeEach } from "vitest";
+
+// score 100 / deny 0 / ask 0 -> deriveStatus resolves to "protected", which is
+// what the recovery test below needs to assert against.
+const POSTURE_OK = {
+  score: 100, total: 10, allow: 10, ask: 0, deny: 0,
+  by_category: {}, trend: [], top_rules: [],
+};
+
+// Hoisted so individual tests can choose whether getPosture resolves or
+// rejects, and can capture the streamAudit callback to fire a retry - the
+// same pattern Fleet.test.tsx uses for its own "recovers" test.
+const { getPosture, streamAudit } = vi.hoisted(() => ({
+  getPosture: vi.fn(),
+  streamAudit: vi.fn(),
+}));
 
 // ── api mock ─────────────────────────────────────────────────────────────────
 vi.mock("../lib/api", () => ({
-  getPosture: vi.fn().mockResolvedValue({
-    score: 85, total: 10, allow: 8, ask: 1, deny: 1,
-    by_category: {}, trend: [], top_rules: [],
-  }),
+  getPosture,
   getPending: vi.fn().mockResolvedValue([{ id: "x" }]),
+  streamAudit,
   // LanguagePicker (rendered in the sidebar footer) reads/writes the locale.
   getLocale: vi.fn().mockResolvedValue({ locale: "en", supported: ["en", "zh-Hans"] }),
   setLocale: vi.fn().mockResolvedValue({ ok: true }),
@@ -15,9 +28,15 @@ vi.mock("../lib/api", () => ({
 
 import Sidebar from "./Sidebar";
 
+beforeEach(() => {
+  getPosture.mockReset();
+  streamAudit.mockReset();
+  getPosture.mockResolvedValue(POSTURE_OK);
+  streamAudit.mockReturnValue(() => {});
+});
+
 type Tab =
-  | "posture" | "findings" | "timeline" | "scan" | "agents" | "host"
- ;
+  | "posture" | "findings" | "timeline" | "scan" | "agents" | "host";
 
 function renderSidebar(tab: Tab = "posture", onNavigate = vi.fn()) {
   return render(<Sidebar tab={tab} onNavigate={onNavigate} />);
@@ -110,6 +129,39 @@ describe("Sidebar status footer", () => {
   });
 });
 
+// A rejected getPosture() must never render the confident "Protected" state:
+// the Sidebar mounts once at app root and never remounts, so folding "don't
+// know yet" into "protected" (the pre-fix behaviour) would strand a green
+// badge for the entire session on any daemon hiccup. See deriveStatus.
+describe("Sidebar status: unknown vs Protected", () => {
+  it("does not render Protected when the initial fetch rejects; renders the unknown state instead", async () => {
+    getPosture.mockRejectedValue(new Error("daemon unreachable"));
+    renderSidebar();
+
+    // Rejection settles asynchronously; give it a tick and confirm it never
+    // became "Protected" at any point, including the synchronous first render.
+    expect(screen.queryByText("Protected")).toBeNull();
+    await waitFor(() => expect(getPosture).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("Protected")).toBeNull();
+    expect(screen.getByText("Loading…")).toBeTruthy();
+  });
+
+  it("resolves to the real status once a later load succeeds after a rejected first fetch", async () => {
+    let fire: () => void = () => {};
+    streamAudit.mockImplementation((cb: () => void) => { fire = cb; return () => {}; });
+    getPosture.mockRejectedValueOnce(new Error("transient"));
+    renderSidebar();
+
+    await waitFor(() => expect(getPosture).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Protected")).toBeNull();
+
+    getPosture.mockResolvedValue(POSTURE_OK);
+    fire();
+    await waitFor(() => expect(screen.getByText("Protected")).toBeTruthy());
+  });
+});
+
 describe("Sidebar AGPL source link", () => {
   it("renders a 'Source (AGPL)' link to the canonical repository", () => {
     renderSidebar();
@@ -119,4 +171,3 @@ describe("Sidebar AGPL source link", () => {
     expect(link?.getAttribute("target")).toBe("_blank");
   });
 });
-

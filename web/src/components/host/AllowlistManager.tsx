@@ -3,10 +3,16 @@ import type { EgressRule } from "../../lib/hostTypes";
 import DestOwner from "./DestOwner";
 import { Trans, useLingui } from "@lingui/react/macro";
 
+// Tauri usually rejects with a plain string (the Rust command's Err
+// payload); stay defensive about Error-shaped values too.
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
+}
+
 interface Props {
   rules: EgressRule[];
-  onRemove: (id: string) => void;
-  onAdd: (rule: Omit<EgressRule, "id">) => void;
+  onRemove: (id: string) => Promise<void>;
+  onAdd: (rule: Omit<EgressRule, "id">) => Promise<void>;
 }
 
 interface AddForm {
@@ -25,14 +31,31 @@ const EMPTY_FORM: AddForm = {
   comment: "",
 };
 
-function RuleRow({ rule, onRemove }: { rule: EgressRule; onRemove: (id: string) => void }) {
+function RuleRow({ rule, onRemove }: { rule: EgressRule; onRemove: (id: string) => Promise<void> }) {
   const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // Set only when the in-flight remove actually failed; cleared on the next
+  // attempt. `onRemove` used to be called without awaiting or catching, so a
+  // rejection went unhandled: the row just sat there looking untouched, which
+  // is indistinguishable from the click doing nothing. The rule now stays on
+  // screen (no optimistic/silent removal) and the button stays retryable.
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
-  const handleClick = () => {
-    if (confirming) {
-      onRemove(rule.id);
-    } else {
+  const handleClick = async () => {
+    if (!confirming) {
       setConfirming(true);
+      return;
+    }
+    setBusy(true);
+    setRemoveError(null);
+    try {
+      await onRemove(rule.id);
+      // On success the parent drops this rule from `rules`, so the row
+      // unmounts - no local state to reset here.
+    } catch (err) {
+      setBusy(false);
+      setConfirming(false);
+      setRemoveError(errorMessage(err));
     }
   };
 
@@ -59,15 +82,21 @@ function RuleRow({ rule, onRemove }: { rule: EgressRule; onRemove: (id: string) 
       <td className="py-2 text-right">
         <button
           onClick={handleClick}
-          onBlur={() => setConfirming(false)}
-          className={`text-xs px-2 py-1 rounded transition-colors ${
+          onBlur={() => { if (!busy) setConfirming(false); }}
+          disabled={busy}
+          className={`text-xs px-2 py-1 rounded transition-colors disabled:opacity-60 ${
             confirming
               ? "bg-red-600 text-white"
               : "bg-[#E5E5EA] text-[#636366] hover:bg-[#D1D1D6]"
           }`}
         >
-          {confirming ? <Trans>Confirm remove?</Trans> : <Trans>Remove</Trans>}
+          {busy ? <Trans>Removing…</Trans> : confirming ? <Trans>Confirm remove?</Trans> : <Trans>Remove</Trans>}
         </button>
+        {removeError && (
+          <p role="alert" data-testid="allowlist-remove-error" className="text-xs text-red-600 mt-1">
+            <Trans>Could not remove rule: {removeError}</Trans>
+          </p>
+        )}
       </td>
     </tr>
   );
@@ -77,22 +106,37 @@ export default function AllowlistManager({ rules, onRemove, onAdd }: Props) {
   const { t } = useLingui();
   const [form, setForm] = useState<AddForm>(EMPTY_FORM);
   const [hostError, setHostError] = useState("");
+  const [busy, setBusy] = useState(false);
+  // Set only when the in-flight add actually failed; cleared on the next
+  // submit. `onAdd` used to be called without awaiting and the form cleared
+  // synchronously right after, so a failure looked exactly like success -
+  // the rule silently never got added. The form now keeps what the user
+  // typed until the add actually succeeds.
+  const [addError, setAddError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.host.trim()) {
       setHostError(t`Host is required`);
       return;
     }
     setHostError("");
-    onAdd({
-      host: form.host.trim(),
-      port: form.port ? Number(form.port) : undefined,
-      proto: form.proto,
-      action: form.action,
-      comment: form.comment.trim() || undefined,
-    });
-    setForm(EMPTY_FORM);
+    setAddError(null);
+    setBusy(true);
+    try {
+      await onAdd({
+        host: form.host.trim(),
+        port: form.port ? Number(form.port) : undefined,
+        proto: form.proto,
+        action: form.action,
+        comment: form.comment.trim() || undefined,
+      });
+      setForm(EMPTY_FORM);
+      setBusy(false);
+    } catch (err) {
+      setBusy(false);
+      setAddError(errorMessage(err));
+    }
   };
 
   return (
@@ -200,10 +244,16 @@ export default function AllowlistManager({ rules, onRemove, onAdd }: Props) {
 
         <button
           type="submit"
-          className="px-4 py-1.5 rounded-lg bg-[#1C1C1E] text-white text-sm font-medium hover:bg-black/80 transition-colors"
+          disabled={busy}
+          className="px-4 py-1.5 rounded-lg bg-[#1C1C1E] text-white text-sm font-medium hover:bg-black/80 transition-colors disabled:opacity-60"
         >
-          <Trans>Add rule</Trans>
+          {busy ? <Trans>Adding…</Trans> : <Trans>Add rule</Trans>}
         </button>
+        {addError && (
+          <p role="alert" data-testid="allowlist-add-error" className="text-xs text-red-600">
+            <Trans>Could not add rule: {addError}</Trans>
+          </p>
+        )}
       </form>
     </div>
   );

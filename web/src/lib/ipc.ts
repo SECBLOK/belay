@@ -43,11 +43,36 @@ export const getPending = (): Promise<any[]> =>
 export const resolve = (
   id: string,
   decision: "allow" | "deny",
-  scope: "once" | "always" = "once",
+  scope: "once" | "always" | "rule" = "once",
 ): Promise<ResolveResult> => invoke("respond_approval", { id, decision, scope });
+
+// Rule-scoped deny mutes — see lib/api.ts::DenyMuteRow for field docs.
+// Fail-safe to an empty snapshot: a daemon that predates this feature (or is
+// briefly unreachable) should read as "no active mutes," not as an error.
+export const getDenyMutes = (): Promise<import("./api").DenyMuteRow[]> =>
+  invoke<{ mutes: import("./api").DenyMuteRow[] }>("get_deny_mutes")
+    .then((r) => r?.mutes ?? [])
+    .catch(() => []);
+
+export const revokeDenyMute = (rule: string): Promise<{ ok: boolean; removed: boolean }> =>
+  invoke("revoke_deny_mute", { rule });
+
+export const revokeAllDenyMutes = (): Promise<{ ok: boolean; removed: number }> =>
+  invoke("revoke_all_deny_mutes");
 
 // Toggle the daemon-held protection flag (Task 7).
 export const setProtection = (on: boolean) => invoke("set_protection", { on });
+
+// Read the daemon-held protection flag - the REAL live state `setProtection`
+// above writes, not a guess. Never throws/rejects: an unreachable daemon or
+// an unexpected reply both settle to "unknown" so a caller can render a
+// distinct "don't know" state instead of defaulting to a confident "on"
+// (see TrayPopover.tsx's `protection` state and its "fine when it means
+// look at me" note).
+export const getProtectionStatus = (): Promise<"on" | "off" | "unknown"> =>
+  invoke<{ protection?: string }>("get_protection_status")
+    .then((r) => (r?.protection === "on" || r?.protection === "off" ? r.protection : "unknown"))
+    .catch(() => "unknown" as const);
 
 // Boot-start (autostart) toggle. get is a read-only OS query; set launches an
 // OS elevation prompt (UAC/pkexec/osascript) and returns once launched.

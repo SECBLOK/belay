@@ -6,6 +6,12 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 
+// Tauri usually rejects with a plain string (the Rust command's Err
+// payload); stay defensive about Error-shaped values too.
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
+}
+
 function expiresIn(t: (descriptor: MessageDescriptor) => string, expiresAt: string | null): string {
   if (!expiresAt) return t(msg`Permanent`);
   const ms = new Date(expiresAt).getTime() - Date.now();
@@ -26,14 +32,22 @@ function BanRow({ ban, onUnban }: BanRowProps) {
   const { t } = useLingui();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Set only when the in-flight unban actually failed; cleared on retry. A
+  // bare try/finally with no catch used to let this rejection go unhandled:
+  // busy stopped and the row looked untouched, indistinguishable from the
+  // click doing nothing.
+  const [error, setError] = useState<string | null>(null);
 
   const doUnban = async () => {
     setBusy(true);
     setConfirming(false);
+    setError(null);
     try {
       await onUnban(ban.id);
-    } finally {
       setBusy(false);
+    } catch (err) {
+      setBusy(false);
+      setError(errorMessage(err));
     }
   };
 
@@ -92,6 +106,12 @@ function BanRow({ ban, onUnban }: BanRowProps) {
           </button>
         )}
       </div>
+
+      {error && (
+        <p role="alert" data-testid="unban-error" className="text-xs" style={{ color: "#C8312A" }}>
+          <Trans>Could not unban: {error}</Trans>
+        </p>
+      )}
     </div>
   );
 }

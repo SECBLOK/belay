@@ -30,12 +30,14 @@ use tokio::sync::mpsc;
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// A sent approval prompt we may need to "expire": its post id (to edit it),
-/// when it was sent, and the short summary line (kept so the expired message
-/// still shows which request died).
+/// when it was sent, and
+/// the FULL rendered body. Editing a message REPLACES it, so anything not
+/// kept here is destroyed: keeping only the summary left the operator with
+/// "HIGH RISK - expired" and no rule, command or session to act on.
 struct SentPrompt {
     post_id: String,
     at: Instant,
-    summary: String,
+    body: String,
 }
 
 pub struct MattermostChannel {
@@ -169,7 +171,7 @@ impl ChannelAdapter for MattermostChannel {
                             SentPrompt {
                                 post_id: pid.to_string(),
                                 at: Instant::now(),
-                                summary: req.summary.clone(),
+                                body: text.clone(),
                             },
                         );
                     }
@@ -217,9 +219,10 @@ impl ChannelAdapter for MattermostChannel {
                 Err(_) => Vec::new(),
             };
             for p in stale {
+                // Append, never replace: the operator needs to know WHAT expired.
                 let text = format!(
-                    "🛡️ Belay approval\n{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
-                    p.summary
+                    "{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
+                    p.body
                 );
                 let _ = self
                     .http
@@ -292,7 +295,7 @@ impl ChannelAdapter for MattermostChannel {
                     } else {
                         "⛔ You pressed Deny."
                     };
-                    let text = format!("🛡️ Belay approval\n{}\n\n{mark}", prompt.summary);
+                    let text = format!("{}\n\n{mark}", prompt.body);
                     let _ = self
                         .http
                         .put(format!("{}/api/v4/posts/{}", self.api_base, prompt.post_id))

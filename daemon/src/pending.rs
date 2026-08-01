@@ -19,7 +19,7 @@
 //! The sessions mutex must NOT be held while parked (deadlock); callers compute
 //! the verdict under that lock, drop it, then call [`Approvals::park`].
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 #[cfg(feature = "channels")]
@@ -35,6 +35,148 @@ pub const MAX_PENDING: usize = 256;
 
 /// Default park timeout if `BELAY_APPROVAL_TIMEOUT_MS` is unset/invalid.
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
+
+// ============================================================================
+// Rule-scoped deny mutes ("deny, and apply to all similar") + flood detection.
+//
+// Framing that makes the whole design fall out: this is not a new authority.
+// It is a temporary, reversible promotion of one catalog rule from Ask to
+// Deny -- strictly MORE restrictive than doing nothing, never less. That is
+// what makes it safe to build without the self-approval/chat-trust-root
+// machinery the ALLOW-side "always" scope needs: a mute can only ever cause
+// an agent to be blocked sooner, never approved when it shouldn't be.
+//
+// See docs/research/2026-07-26-deny-mute-engine.md for the full design
+// rationale (why rule-id-only, why in-memory + TTL rather than persisted,
+// why the ask_rules "all must be muted" check is the single most important
+// line in this file, and why the flood detector counts distinct signatures
+// rather than raw park attempts).
+// ============================================================================
+
+/// How long a human-installed rule mute lasts before it silently expires and
+/// the rule reprompts normally. Deliberately short and never "forever": a
+/// mute the operator forgets about is a silent-failure generator, worse than
+/// the noise it suppresses. A genuinely permanent change has a correct home
+/// already -- a catalog patch, reviewed and applied by a human -- and a
+/// one-click mute must not be able to produce that same permanent effect
+/// with none of the review.
+const DENY_MUTE_TTL_MS: u64 = 30 * 60_000;
+
+/// How long a `scope:"always"` approval stays reusable before the next
+/// matching call parks an Ask again.
+///
+/// Continuous-authorization / anti-TOCTOU: an authorization decision should not
+/// outlive the context it was made in. Deliberately generous — this exists to
+/// bound an unbounded grant, not to nag — and deliberately LONGER than
+/// `DENY_MUTE_TTL_MS`, because re-confirming an allow is a prompt while
+/// re-confirming a mute risks re-opening a flood.
+///
+/// The important half of this problem is already closed elsewhere:
+/// `ipc.rs` refuses to honour a stored approval unless the freshly recomputed
+/// verdict is still `Ask`, which is what stops the
+/// approve-`curl` → `cat .env` → re-issue-`curl` correlation bypass. The
+/// residual this TTL closes is narrower: a still-Ask command whose meaning
+/// drifted (a referenced script's contents changed) inside one long session.
+const APPROVED_TTL_MS: u64 = 4 * 60 * 60_000;
+
+/// Shorter TTL for a daemon-installed (flood-triggered) mute: the daemon
+/// decided this without a human looking at it, so it re-checks itself sooner
+/// than a human-granted mute would.
+const FLOOD_MUTE_TTL_MS: u64 = 5 * 60_000;
+
+/// Hard cap on simultaneously active rule mutes. The (N+1)th install attempt
+/// is refused outright -- never silently evicting an earlier mute, which
+/// would let a bait flood knock out a mute the operator deliberately
+/// installed. Refusal leaves the gate at its normal Ask, the correct failure
+/// direction.
+pub const MAX_DENY_MUTES: usize = 8;
+
+/// Distinct-signature threshold that trips automatic flood muting: this many
+/// DIFFERENT `(session, tool, input)` asks for the same rule inside
+/// [`FLOOD_WINDOW_MS`] auto-installs a mute. Counting distinct signatures
+/// rather than raw park attempts is load-bearing: a stuck byte-identical
+/// retry loop (the known duplicate-delivery class the existing park-coalesce
+/// logic already handles) can never trip this, only genuinely different
+/// calls can.
+const FLOOD_N: usize = 10;
+
+/// Sliding window the flood detector counts distinct signatures within.
+const FLOOD_WINDOW_MS: u64 = 60_000;
+
+/// Hard cap on how many distinct rules the flood detector tracks at once
+/// (bounds memory under an adversary that floods many different rules
+/// simultaneously rather than one).
+const MAX_FLOOD_TRACKED_RULES: usize = 64;
+
+/// Where a rule mute came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MuteOrigin {
+    /// A local operator resolving a real parked prompt with `scope:"rule"`.
+    Local,
+    /// The daemon's own flood detector, with no human in the loop.
+    Auto,
+}
+
+impl MuteOrigin {
+    pub fn label(self) -> &'static str {
+        match self {
+            MuteOrigin::Local => "local",
+            MuteOrigin::Auto => "auto",
+        }
+    }
+}
+
+/// A live rule-scoped deny mute.
+#[derive(Debug, Clone)]
+pub struct DenyMute {
+    pub rule: String,
+    pub installed_ms: u64,
+    pub expires_ms: u64,
+    pub origin: MuteOrigin,
+    /// Number of calls this mute has auto-denied since it was installed.
+    /// This is what turns "I muted something earlier" into "this has
+    /// silently allowed-to-deny N times, most recently just now" — the
+    /// number that makes the mute's cost legible rather than invisible.
+    pub hits: u64,
+}
+
+/// Compiled-in eligibility check for rule-scoped deny mutes — deliberately
+/// independent of the catalog, so a hand-edited `catalog.yaml` cannot widen
+/// what can be muted (same reasoning `self_tamper.rs` is a compiled-in
+/// backstop rather than expressed only in YAML).
+///
+/// Excluded, and why:
+///  - `tamper.*`, `correlate.*` — the only self-protection and cross-call
+///    detections in the product; muting them defeats their entire purpose.
+///  - `skill.install.*`, `mcp.install.*` — the population behind these is
+///    unbounded and adversary-chosen; the whole point is catching something
+///    never seen before.
+///  - `persist.*` — act-shaped, not observe-shaped: a sudo/scheduler/shell-
+///    profile change is exactly the class of action where the prompt IS the
+///    control, not an obstacle to it.
+///  - `destructive.git_force` — irreversible local data loss.
+///  - `rce.untrusted_install`, `rce.fetch_chmod_exec` — a per-package/
+///    per-dropper decision, not a class to blanket-suppress.
+///
+/// An empty rule id is never mutable (nothing to key on, and every real
+/// verdict has a non-empty primary rule).
+pub fn is_mutable_rule(rule_id: &str) -> bool {
+    if rule_id.is_empty() {
+        return false;
+    }
+    if rule_id.starts_with("tamper.")
+        || rule_id.starts_with("correlate.")
+        || rule_id.starts_with("skill.install.")
+        || rule_id.starts_with("mcp.install.")
+        || rule_id.starts_with("persist.")
+    {
+        return false;
+    }
+    !matches!(
+        rule_id,
+        "destructive.git_force" | "rce.untrusted_install" | "rce.fetch_chmod_exec"
+    )
+}
 
 /// Fire-and-forget sink invoked when a request parks (channels fan-out). Boxed as
 /// a trait object so `serve_mode` can install a closure that captures the bridge.
@@ -105,6 +247,28 @@ pub enum Resolution {
     Deny(ResolveSource, SelfApprovalInfo),
 }
 
+/// Outcome of [`Approvals::respond_local`]: whether the entry was found,
+/// self-approval lineage, and whether a requested `scope:"rule"` deny mute
+/// was installed or refused.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RespondOutcome {
+    pub found: bool,
+    pub self_approval: bool,
+    pub blocked: bool,
+    /// The rule id a mute was installed for, if `scope:"rule"` was
+    /// requested and succeeded.
+    pub mute_installed_for: Option<String>,
+    /// Why `scope:"rule"` was refused, if it was requested and didn't
+    /// succeed. `None` when no mute was requested, or one was installed.
+    pub mute_refused: Option<&'static str>,
+}
+
+impl RespondOutcome {
+    fn not_found() -> Self {
+        Self::default()
+    }
+}
+
 /// Outcome of parking a request — what the gate path returns to the client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParkOutcome {
@@ -151,6 +315,10 @@ pub struct PendingEntry {
     pub gating_pid: Option<u32>,
 }
 
+/// Per-rule flood-tracking map: rule id -> a bounded deque of
+/// (timestamp_ms, signature hash) for distinct asks within the window.
+type FloodMap = HashMap<String, VecDeque<(u64, u64)>>;
+
 /// Shared interactive-approval state, cloned (via `Arc`) into each connection
 /// thread by `serve_mode`.
 #[derive(Clone)]
@@ -159,9 +327,25 @@ pub struct Approvals {
     /// `true` = enforcing (default). `false` = observe mode: dangerous gates are
     /// ALLOWED (explicit + audited) — the only non-approval allow-override.
     protection: Arc<AtomicBool>,
-    /// Stable signatures approved with `scope:"always"`; future matches allow
-    /// without re-parking.
-    approved: Arc<Mutex<HashSet<String>>>,
+    /// Stable signatures approved with `scope:"always"`, each with the epoch-ms
+    /// at which the grant expires.
+    ///
+    /// The TTL is the point. This set used to be an unbounded, never-expiring
+    /// `HashSet`, while [`DenyMute`] right above it has always carried
+    /// `installed_ms`/`expires_ms` — so the SAFE direction expired and the
+    /// UNSAFE one did not. An "always" granted early in a long session stayed
+    /// reusable hours later on a materially different task.
+    ///
+    /// Expiry can only ever cost a prompt: a lapsed grant falls back to parking
+    /// an Ask, exactly as if it had never been given, so no hard false positive
+    /// is reachable from here. See [`APPROVED_TTL_MS`].
+    approved: Arc<Mutex<HashMap<String, u64>>>,
+    /// Live rule-scoped deny mutes, keyed by rule id. In-memory only, never
+    /// persisted — see the module-level "Rule-scoped deny mutes" doc.
+    denied_rules: Arc<Mutex<HashMap<String, DenyMute>>>,
+    /// Per-rule flood tracking: a bounded deque of (timestamp_ms, signature
+    /// hash) for distinct asks seen within the last [`FLOOD_WINDOW_MS`].
+    flood: Arc<Mutex<FloodMap>>,
     /// Process-unique monotonic counter feeding the id derivation (no extra deps).
     counter: Arc<AtomicU64>,
     timeout: Duration,
@@ -219,7 +403,9 @@ impl Approvals {
         Self {
             pending: Arc::new(Mutex::new(HashMap::new())),
             protection: Arc::new(AtomicBool::new(true)),
-            approved: Arc::new(Mutex::new(HashSet::new())),
+            approved: Arc::new(Mutex::new(HashMap::new())),
+            denied_rules: Arc::new(Mutex::new(HashMap::new())),
+            flood: Arc::new(Mutex::new(HashMap::new())),
             counter: Arc::new(AtomicU64::new(0)),
             timeout,
             #[cfg(feature = "channels")]
@@ -256,13 +442,192 @@ impl Approvals {
         )
     }
 
-    /// True if this exact (session,tool,input) was previously approved "always".
+    /// True if this exact (session,tool,input) was previously approved "always"
+    /// AND that grant has not expired.
+    ///
+    /// Prunes on read, mirroring the deny-mute path, so a lapsed grant is
+    /// dropped rather than lingering. A `false` here simply parks an Ask, which
+    /// is the same thing that would have happened had the grant never existed.
     pub fn is_approved_always(&self, session: &str, tool: &str, input: &Value) -> bool {
         let sig = Self::sig(session, tool, input);
+        let now = now_ms();
         self.approved
             .lock()
-            .map(|s| s.contains(&sig))
+            .map(|mut m| {
+                m.retain(|_, &mut expires| expires > now);
+                m.contains_key(&sig)
+            })
             .unwrap_or(false)
+    }
+
+    /// Installs a rule-scoped deny mute, subject to the compiled-in
+    /// eligibility check ([`is_mutable_rule`]), the severity cap (never
+    /// `critical`), and the concurrent-mute cap ([`MAX_DENY_MUTES`]).
+    /// Re-muting an already-muted rule refreshes its TTL/origin without
+    /// counting against the cap a second time. Returns the refusal reason on
+    /// failure so the caller can report it rather than silently doing
+    /// nothing.
+    fn install_deny_mute(
+        &self,
+        rule: &str,
+        severity: &str,
+        origin: MuteOrigin,
+    ) -> Result<(), &'static str> {
+        if !is_mutable_rule(rule) {
+            return Err("rule_not_mutable");
+        }
+        if severity.eq_ignore_ascii_case("critical") {
+            return Err("severity_critical");
+        }
+        let mut map = self.denied_rules.lock().map_err(|_| "lock_poisoned")?;
+        if !map.contains_key(rule) && map.len() >= MAX_DENY_MUTES {
+            return Err("cap_reached");
+        }
+        let now = now_ms();
+        let ttl = match origin {
+            MuteOrigin::Local => DENY_MUTE_TTL_MS,
+            MuteOrigin::Auto => FLOOD_MUTE_TTL_MS,
+        };
+        map.insert(
+            rule.to_string(),
+            DenyMute {
+                rule: rule.to_string(),
+                installed_ms: now,
+                expires_ms: now + ttl,
+                origin,
+                hits: 0,
+            },
+        );
+        Ok(())
+    }
+
+    /// Checks whether EVERY id in `ask_rules` is currently muted (lazily
+    /// pruning expired entries as it goes), bumping each matched mute's hit
+    /// counter. Returns `None` — meaning "park normally" — when `ask_rules`
+    /// is empty or ANY rule in it is not muted.
+    ///
+    /// SECURITY: this "all must be muted" requirement, not "the primary rule
+    /// is muted", is the single most important line in this file. Matching
+    /// on the primary/winning rule alone would let a muted noisy rule mask a
+    /// SECOND, un-muted, more serious finding that fired on the same call —
+    /// the action would still be blocked, but the operator would never
+    /// learn the attack shape had escalated. See `engine::types::Verdict
+    /// ::ask_rules` and `skills::gate::more_restrictive`'s union of
+    /// `ask_rules`, both added specifically to make this check possible.
+    pub fn deny_mute_covers_all(&self, ask_rules: &[String]) -> Option<Vec<String>> {
+        if ask_rules.is_empty() {
+            return None;
+        }
+        let now = now_ms();
+        let mut map = self.denied_rules.lock().ok()?;
+        map.retain(|_, m| m.expires_ms > now);
+        if !ask_rules.iter().all(|r| map.contains_key(r)) {
+            return None;
+        }
+        for r in ask_rules {
+            if let Some(m) = map.get_mut(r) {
+                m.hits += 1;
+            }
+        }
+        Some(ask_rules.to_vec())
+    }
+
+    /// Records a distinct ask for `rule` (keyed by `sig`, the same stable
+    /// signature `scope:"always"` uses) toward flood detection, installing
+    /// an [`MuteOrigin::Auto`] deny mute and returning `true` exactly when
+    /// THIS call is the one that trips [`FLOOD_N`] within [`FLOOD_WINDOW_MS`]
+    /// — so the caller audits `approval.flood_detected` once, not on every
+    /// subsequent call while the mute is live (once installed,
+    /// [`deny_mute_covers_all`] short-circuits before this is ever reached
+    /// again for the same rule, so no separate cooldown bookkeeping is
+    /// needed: the auto-mute's own TTL IS the cooldown).
+    pub fn note_ask_and_maybe_trip_flood(&self, rule: &str, sig: &str) -> bool {
+        if rule.is_empty() {
+            return false;
+        }
+        let now = now_ms();
+        let sig_hash = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            sig.hash(&mut h);
+            h.finish()
+        };
+        let tripped = {
+            let mut map = match self.flood.lock() {
+                Ok(m) => m,
+                Err(_) => return false,
+            };
+            if !map.contains_key(rule) && map.len() >= MAX_FLOOD_TRACKED_RULES {
+                // Bounded: evict the least-recently-touched tracked rule to
+                // make room, rather than growing without bound.
+                if let Some(lru) = map
+                    .iter()
+                    .min_by_key(|(_, dq)| dq.back().map(|(ts, _)| *ts).unwrap_or(0))
+                    .map(|(k, _)| k.clone())
+                {
+                    map.remove(&lru);
+                }
+            }
+            let dq = map.entry(rule.to_string()).or_default();
+            while dq.front().is_some_and(|(ts, _)| now.saturating_sub(*ts) > FLOOD_WINDOW_MS) {
+                dq.pop_front();
+            }
+            // De-dupe: an identical signature already in the window doesn't
+            // count again — this is what makes a stuck byte-identical retry
+            // loop structurally unable to trip the detector.
+            if dq.iter().any(|(_, h)| *h == sig_hash) {
+                return false;
+            }
+            dq.push_back((now, sig_hash));
+            dq.len() >= FLOOD_N
+        };
+        tripped && self.install_deny_mute(rule, "high", MuteOrigin::Auto).is_ok()
+    }
+
+    /// Snapshot of every currently-live (unexpired) deny mute, for the
+    /// `get_deny_mutes` IPC command.
+    pub fn snapshot_deny_mutes(&self) -> Value {
+        let now = now_ms();
+        let map = match self.denied_rules.lock() {
+            Ok(m) => m,
+            Err(_) => return json!({"mutes": []}),
+        };
+        let mutes: Vec<Value> = map
+            .values()
+            .filter(|m| m.expires_ms > now)
+            .map(|m| {
+                json!({
+                    "rule": m.rule,
+                    "installed_ms": m.installed_ms,
+                    "expires_ms": m.expires_ms,
+                    "origin": m.origin.label(),
+                    "hits": m.hits,
+                })
+            })
+            .collect();
+        json!({"mutes": mutes})
+    }
+
+    /// Revokes a single rule mute. Returns `true` if one was actually
+    /// removed. Effective immediately — the next gate call for this rule
+    /// parks normally.
+    pub fn revoke_deny_mute(&self, rule: &str) -> bool {
+        match self.denied_rules.lock() {
+            Ok(mut m) => m.remove(rule).is_some(),
+            Err(_) => false,
+        }
+    }
+
+    /// Revokes every active rule mute. Returns the number removed.
+    pub fn revoke_all_deny_mutes(&self) -> usize {
+        match self.denied_rules.lock() {
+            Ok(mut m) => {
+                let n = m.len();
+                m.clear();
+                n
+            }
+            Err(_) => 0,
+        }
     }
 
     /// Park a would-ask request until the user resolves it or the timeout fires.
@@ -484,7 +849,7 @@ impl Approvals {
     /// engages, because with no resolver pid there is nothing to compare
     /// against (fail-open).
     pub fn respond(&self, id: &str, allow: bool, scope: &str) -> bool {
-        self.respond_local(id, allow, scope, None, false).0
+        self.respond_local(id, allow, scope, None, false).found
     }
 
     /// Resolve a parked request from the LOCAL IPC path (`respond_approval`),
@@ -510,7 +875,9 @@ impl Approvals {
     /// override makes the effective decision `Deny`, no `scope:"always"`
     /// signature is ever recorded for a blocked self-approval either.
     ///
-    /// Returns `(found, self_approval_detected, blocked)`.
+    /// Returns a [`RespondOutcome`] describing whether the entry was found,
+    /// self-approval lineage, and — new — whether a requested
+    /// `scope:"rule"` deny mute was installed or refused.
     pub fn respond_local(
         &self,
         id: &str,
@@ -518,14 +885,14 @@ impl Approvals {
         scope: &str,
         resolver_pid: Option<u32>,
         enforce_self_approval: bool,
-    ) -> (bool, bool, bool) {
+    ) -> RespondOutcome {
         let entry = match self.pending.lock() {
             Ok(mut map) => map.remove(id),
-            Err(_) => return (false, false, false),
+            Err(_) => return RespondOutcome::not_found(),
         };
         let entry = match entry {
             Some(e) => e,
-            None => return (false, false, false), // unknown id — caller returns ok:false, daemon lives
+            None => return RespondOutcome::not_found(), // unknown id — caller returns ok:false, daemon lives
         };
 
         // FAIL-OPEN: the ONLY ways `self_approval` becomes `true` are both pids
@@ -557,7 +924,40 @@ impl Approvals {
 
         if effective_allow && scope == "always" {
             if let Ok(mut set) = self.approved.lock() {
-                set.insert(Self::sig(&entry.session, &entry.tool, &entry.input));
+                // Timestamped, not bare: see APPROVED_TTL_MS for why an
+                // always-allow must not outlive the context it was granted in.
+                set.insert(
+                    Self::sig(&entry.session, &entry.tool, &entry.input),
+                    now_ms() + APPROVED_TTL_MS,
+                );
+            }
+        }
+
+        // `scope:"rule"` — install a rule-scoped deny mute. Deliberately
+        // stricter than the always-allow path above in two ways:
+        //   1. Gated on `self_approval` DETECTED, not `blocked` (detected &&
+        //      enforcing). The always-allow path uses `blocked`, so with
+        //      GateGuard enforcement off a detected self-approval can still
+        //      install an always-allow. A mute is a state change with
+        //      availability impact and no legitimate agent use case, so an
+        //      agent must not be able to install one even in audit-only
+        //      mode.
+        //   2. Only meaningful alongside an effective DENY — requesting
+        //      `scope:"rule"` with `decision:"allow"` is refused rather than
+        //      silently ignored, so the caller can report it honestly
+        //      instead of the mute looking like it "just didn't happen".
+        let mut mute_refused: Option<&'static str> = None;
+        let mut mute_installed_for: Option<String> = None;
+        if scope == "rule" {
+            if effective_allow {
+                mute_refused = Some("scope_rule_requires_deny");
+            } else if self_approval {
+                mute_refused = Some("self_approval_detected");
+            } else {
+                match self.install_deny_mute(&entry.rule, &entry.severity, MuteOrigin::Local) {
+                    Ok(()) => mute_installed_for = Some(entry.rule.clone()),
+                    Err(reason) => mute_refused = Some(reason),
+                }
             }
         }
 
@@ -578,7 +978,13 @@ impl Approvals {
         for tx in &entry.resolvers {
             let _ = tx.send(resolution);
         }
-        (true, self_approval, blocked)
+        RespondOutcome {
+            found: true,
+            self_approval,
+            blocked,
+            mute_installed_for,
+            mute_refused,
+        }
     }
 
     /// Resolve a parked request by its CSPRNG `nonce` (messaging-channel path).
@@ -982,6 +1388,8 @@ mod tests {
             pending: a.pending.clone(),
             protection: a.protection.clone(),
             approved: a.approved.clone(),
+            denied_rules: a.denied_rules.clone(),
+            flood: a.flood.clone(),
             counter: a.counter.clone(),
             timeout: Duration::from_secs(30),
             #[cfg(feature = "channels")]
@@ -1013,6 +1421,41 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
+    }
+
+    /// An `always` grant expires, and expiry falls back to "not approved" —
+    /// which parks an Ask, never a Deny. The asymmetry this fixes: `DenyMute`
+    /// has always been TTL'd, so the SAFE direction expired while the UNSAFE
+    /// one did not.
+    #[test]
+    fn an_always_approval_expires_and_expiry_can_only_cost_a_prompt() {
+        let a = fast();
+        let input = json!({"command": "cat .env"});
+        let sig = Approvals::sig("s", "Bash", &input);
+
+        // Live grant: honoured.
+        a.approved
+            .lock()
+            .unwrap()
+            .insert(sig.clone(), now_ms() + APPROVED_TTL_MS);
+        assert!(a.is_approved_always("s", "Bash", &input));
+
+        // Same grant, expired one second ago: no longer honoured...
+        a.approved
+            .lock()
+            .unwrap()
+            .insert(sig.clone(), now_ms() - 1_000);
+        assert!(
+            !a.is_approved_always("s", "Bash", &input),
+            "an expired grant must not be honoured"
+        );
+
+        // ...and it is PRUNED on read rather than left to accumulate, which is
+        // what keeps this set bounded over a long session.
+        assert!(
+            !a.approved.lock().unwrap().contains_key(&sig),
+            "expired grant must be pruned on read"
+        );
     }
 
     #[test]
@@ -1261,14 +1704,13 @@ mod tests {
                 }
                 thread::sleep(Duration::from_millis(5));
             };
-            let (found, self_approval, blocked) =
-                a.respond_local(&id, true, "once", resolver_pid, true);
-            assert!(found);
+            let out = a.respond_local(&id, true, "once", resolver_pid, true);
+            assert!(out.found);
             assert!(
-                !self_approval,
+                !out.self_approval,
                 "case gating_pid={gating_pid:?} resolver_pid={resolver_pid:?} must not detect self-approval"
             );
-            assert!(!blocked);
+            assert!(!out.blocked);
             let (out, _, sa) = h.join().unwrap();
             assert_eq!(
                 out,
@@ -1312,11 +1754,10 @@ mod tests {
 
         // Enforcement OFF: self-approval is DETECTED and would be AUDITED,
         // but the requested Allow is still honored (audit-only).
-        let (found, self_approval, blocked) =
-            a.respond_local(&id, true, "once", Some(resolver_pid), false);
-        assert!(found);
-        assert!(self_approval, "the spawned child IS a descendant of this process");
-        assert!(!blocked, "enforcement is off — must not override");
+        let out = a.respond_local(&id, true, "once", Some(resolver_pid), false);
+        assert!(out.found);
+        assert!(out.self_approval, "the spawned child IS a descendant of this process");
+        assert!(!out.blocked, "enforcement is off — must not override");
         let (out, _src, sa) = h.join().unwrap();
         assert_eq!(out, ParkOutcome::Allow, "enforcement off must honor the Allow");
         assert!(sa.detected);
@@ -1357,11 +1798,10 @@ mod tests {
         // override BOTH the delivered decision AND suppress the durable
         // "always" signature (the whole resolution is overridden, not just
         // the immediate decision).
-        let (found, self_approval, blocked) =
-            a.respond_local(&id, true, "always", Some(resolver_pid), true);
-        assert!(found);
-        assert!(self_approval);
-        assert!(blocked, "enforcement on + detected self-approval must block");
+        let out = a.respond_local(&id, true, "always", Some(resolver_pid), true);
+        assert!(out.found);
+        assert!(out.self_approval);
+        assert!(out.blocked, "enforcement on + detected self-approval must block");
         let (out, _src, sa) = h.join().unwrap();
         assert_eq!(
             out,
@@ -1413,13 +1853,13 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         };
 
-        let (found, self_approval, blocked) = a.respond_local(&id, true, "always", Some(pid), true);
-        assert!(found);
+        let out = a.respond_local(&id, true, "always", Some(pid), true);
+        assert!(out.found);
         assert!(
-            self_approval,
+            out.self_approval,
             "a resolver that IS the gated agent must count as self-approval"
         );
-        assert!(blocked, "enforcement on + detected self-approval must block");
+        assert!(out.blocked, "enforcement on + detected self-approval must block");
         let (out, _src, sa) = h.join().unwrap();
         assert_eq!(out, ParkOutcome::Deny, "must be overridden to Deny");
         assert!(sa.detected);
@@ -1450,10 +1890,424 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(5));
         };
-        let (found, self_approval, blocked) = a.respond_local(&id, true, "once", Some(1), true);
-        assert!(found);
-        assert!(!self_approval, "pid 1 must never be a positive match");
-        assert!(!blocked);
+        let out = a.respond_local(&id, true, "once", Some(1), true);
+        assert!(out.found);
+        assert!(!out.self_approval, "pid 1 must never be a positive match");
+        assert!(!out.blocked);
         assert_eq!(h.join().unwrap().0, ParkOutcome::Allow, "the allow must stand");
+    }
+
+    // ========================================================================
+    // Rule-scoped deny mutes + flood detection (2026-07-26 deny-mute engine).
+    // ========================================================================
+
+    mod deny_mute {
+        use super::*;
+
+        /// Parks `rule`/`severity` on a background thread and returns the
+        /// join handle plus the parked entry's id, once it appears in the
+        /// snapshot — the same pattern every self-approval test above uses.
+        fn park_and_get_id(
+            a: &Approvals,
+            session: &str,
+            rule: &str,
+            severity: &str,
+        ) -> (thread::JoinHandle<(ParkOutcome, ResolveSource, SelfApprovalInfo)>, String) {
+            let a2 = a.clone();
+            let (session, rule, severity) =
+                (session.to_string(), rule.to_string(), severity.to_string());
+            let h = thread::spawn(move || {
+                a2.park_with_source(
+                    &session,
+                    "Bash",
+                    &json!({"c": 1}),
+                    "r",
+                    &rule,
+                    now_ms(),
+                    &severity,
+                    None,
+                    None,
+                    None,
+                )
+            });
+            let id = loop {
+                let snap = a.snapshot();
+                if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                    break first["id"].as_str().unwrap().to_string();
+                }
+                thread::sleep(Duration::from_millis(5));
+            };
+            (h, id)
+        }
+
+        #[test]
+        fn is_mutable_rule_excludes_the_documented_categories() {
+            for excluded in [
+                "tamper.self_protect",
+                "tamper.indirect_write",
+                "tamper.direct_write",
+                "correlate.arm_sink",
+                "correlate.lethal_trifecta",
+                "correlate.injection_to_action",
+                "skill.install.review",
+                "skill.install.blocked",
+                "mcp.install.review",
+                "mcp.install.blocked",
+                "persist.sudo",
+                "persist.scheduler",
+                "persist.shell_profile",
+                "destructive.git_force",
+                "rce.untrusted_install",
+                "rce.fetch_chmod_exec",
+                "",
+            ] {
+                assert!(!is_mutable_rule(excluded), "{excluded:?} must not be mutable");
+            }
+            for eligible in [
+                "secrets.sensitive_path",
+                "secrets.env_dump",
+                "secrets.grep_hunt",
+                "secrets.cred_store",
+                "egress.exfil_host",
+                "egress.post_file",
+                "recon.fs_secret_sweep",
+                "recon.agent_config_read",
+                "recon.identity_probe",
+                "recon.agent_runtime_discovery",
+                "mcp.indirection",
+            ] {
+                assert!(is_mutable_rule(eligible), "{eligible:?} must be mutable");
+            }
+        }
+
+        #[test]
+        fn scope_rule_installs_a_mute_and_denies_the_current_call() {
+            let a = fast();
+            let (h, id) = park_and_get_id(&a, "s", "secrets.sensitive_path", "high");
+            let out = a.respond_local(&id, false, "rule", None, false);
+            assert!(out.found);
+            assert_eq!(out.mute_installed_for.as_deref(), Some("secrets.sensitive_path"));
+            assert_eq!(out.mute_refused, None);
+            let (outcome, _src, _sa) = h.join().unwrap();
+            assert_eq!(outcome, ParkOutcome::Deny, "the current call is still denied too");
+
+            let mutes = a.snapshot_deny_mutes();
+            let arr = mutes["mutes"].as_array().unwrap();
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0]["rule"], "secrets.sensitive_path");
+            assert_eq!(arr[0]["origin"], "local");
+        }
+
+        #[test]
+        fn scope_rule_with_allow_is_refused_and_installs_nothing() {
+            let a = fast();
+            let (h, id) = park_and_get_id(&a, "s", "secrets.sensitive_path", "high");
+            let out = a.respond_local(&id, true, "rule", None, false);
+            assert!(out.found);
+            assert_eq!(out.mute_installed_for, None);
+            assert_eq!(out.mute_refused, Some("scope_rule_requires_deny"));
+            assert!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty());
+            let (outcome, _, _) = h.join().unwrap();
+            assert_eq!(outcome, ParkOutcome::Allow, "the requested allow is still honored");
+        }
+
+        #[test]
+        fn scope_rule_on_an_excluded_rule_is_refused() {
+            let a = fast();
+            let (h, id) = park_and_get_id(&a, "s", "persist.sudo", "high");
+            let out = a.respond_local(&id, false, "rule", None, false);
+            assert_eq!(out.mute_refused, Some("rule_not_mutable"));
+            assert!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty());
+            h.join().unwrap();
+        }
+
+        #[test]
+        fn scope_rule_on_critical_severity_is_refused() {
+            let a = fast();
+            let (h, id) = park_and_get_id(&a, "s", "secrets.sensitive_path", "critical");
+            let out = a.respond_local(&id, false, "rule", None, false);
+            assert_eq!(out.mute_refused, Some("severity_critical"));
+            h.join().unwrap();
+        }
+
+        /// STRICTER than the always-allow path: gated on `self_approval`
+        /// DETECTED, not `blocked` (detected && enforcing) — a mute must be
+        /// refused even when GateGuard enforcement is off.
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn scope_rule_refuses_a_detected_self_approval_even_with_enforcement_off() {
+            let mut child = std::process::Command::new("sleep")
+                .arg("2")
+                .spawn()
+                .expect("spawn sleep");
+            let resolver_pid = child.id();
+            let gating_pid = std::process::id();
+            let a = Approvals::with_timeout(Duration::from_secs(5));
+            let a2 = a.clone();
+            let h = thread::spawn(move || {
+                a2.park_with_source(
+                    "s",
+                    "Bash",
+                    &json!({"c": 1}),
+                    "r",
+                    "secrets.sensitive_path",
+                    now_ms(),
+                    "high",
+                    None,
+                    None,
+                    Some(gating_pid),
+                )
+            });
+            let id = loop {
+                let snap = a.snapshot();
+                if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                    break first["id"].as_str().unwrap().to_string();
+                }
+                thread::sleep(Duration::from_millis(5));
+            };
+            // enforce_self_approval = false: an always-allow would still be
+            // HONORED here (audit-only mode). A rule mute must NOT be.
+            let out = a.respond_local(&id, false, "rule", Some(resolver_pid), false);
+            assert!(out.self_approval);
+            assert_eq!(out.mute_refused, Some("self_approval_detected"));
+            assert!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty());
+            h.join().unwrap();
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        #[test]
+        fn cap_refuses_the_ninth_mute() {
+            let a = fast();
+            let rules = [
+                "secrets.sensitive_path",
+                "secrets.env_dump",
+                "secrets.grep_hunt",
+                "secrets.cred_store",
+                "egress.exfil_host",
+                "egress.post_file",
+                "recon.fs_secret_sweep",
+                "recon.agent_config_read",
+            ];
+            assert_eq!(rules.len(), MAX_DENY_MUTES);
+            for rule in rules {
+                let (h, id) = park_and_get_id(&a, "s", rule, "high");
+                let out = a.respond_local(&id, false, "rule", None, false);
+                assert_eq!(out.mute_refused, None, "{rule} should install");
+                h.join().unwrap();
+            }
+            let (h, id) = park_and_get_id(&a, "s", "recon.identity_probe", "medium");
+            let out = a.respond_local(&id, false, "rule", None, false);
+            assert_eq!(out.mute_refused, Some("cap_reached"));
+            h.join().unwrap();
+            assert_eq!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().len(), MAX_DENY_MUTES);
+        }
+
+        #[test]
+        fn re_muting_an_already_muted_rule_does_not_count_against_the_cap() {
+            let a = fast();
+            for _ in 0..3 {
+                let (h, id) = park_and_get_id(&a, "s", "secrets.sensitive_path", "high");
+                let out = a.respond_local(&id, false, "rule", None, false);
+                assert_eq!(out.mute_refused, None);
+                h.join().unwrap();
+            }
+            assert_eq!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn deny_mute_covers_all_requires_every_ask_rule_muted() {
+            let a = fast();
+            let (h, id) = park_and_get_id(&a, "s", "secrets.sensitive_path", "high");
+            a.respond_local(&id, false, "rule", None, false);
+            h.join().unwrap();
+
+            // Only the muted rule fired -> covered.
+            assert!(a
+                .deny_mute_covers_all(&["secrets.sensitive_path".to_string()])
+                .is_some());
+
+            // The muted rule co-occurring with an UN-MUTED ask rule on the
+            // SAME call -> NOT covered. This is the load-bearing masking-
+            // prevention behaviour: a muted noisy rule must never silently
+            // absorb a second, more serious, un-muted finding.
+            assert!(a
+                .deny_mute_covers_all(&[
+                    "secrets.sensitive_path".to_string(),
+                    "egress.post_file".to_string(),
+                ])
+                .is_none());
+
+            // Empty ask_rules -> never covered (park normally).
+            assert!(a.deny_mute_covers_all(&[]).is_none());
+        }
+
+        #[test]
+        fn deny_mute_covers_all_bumps_hit_count() {
+            let a = fast();
+            let (h, id) = park_and_get_id(&a, "s", "secrets.sensitive_path", "high");
+            a.respond_local(&id, false, "rule", None, false);
+            h.join().unwrap();
+
+            for _ in 0..3 {
+                assert!(a
+                    .deny_mute_covers_all(&["secrets.sensitive_path".to_string()])
+                    .is_some());
+            }
+            let mutes = a.snapshot_deny_mutes();
+            let arr = mutes["mutes"].as_array().unwrap();
+            assert_eq!(arr[0]["hits"], 3);
+        }
+
+        #[test]
+        fn mute_expires_and_stops_covering() {
+            let a = fast();
+            let (h, id) = park_and_get_id(&a, "s", "secrets.sensitive_path", "high");
+            // Install, then manually age it past expiry by re-inserting with a
+            // past expiry — simplest deterministic way to test TTL without a
+            // real sleep. Exercise via the public surface: install, then
+            // directly manipulate the (private, in-module-scope) map.
+            a.respond_local(&id, false, "rule", None, false);
+            h.join().unwrap();
+            assert!(a
+                .deny_mute_covers_all(&["secrets.sensitive_path".to_string()])
+                .is_some());
+
+            // Force expiry.
+            {
+                let mut map = a.denied_rules.lock().unwrap();
+                if let Some(m) = map.get_mut("secrets.sensitive_path") {
+                    m.expires_ms = now_ms().saturating_sub(1);
+                }
+            }
+            assert!(
+                a.deny_mute_covers_all(&["secrets.sensitive_path".to_string()]).is_none(),
+                "an expired mute must no longer cover"
+            );
+            // Lazily pruned: no longer in the snapshot either.
+            assert!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty());
+        }
+
+        #[test]
+        fn revoke_deny_mute_is_immediate() {
+            let a = fast();
+            let (h, id) = park_and_get_id(&a, "s", "secrets.sensitive_path", "high");
+            a.respond_local(&id, false, "rule", None, false);
+            h.join().unwrap();
+            assert!(a.revoke_deny_mute("secrets.sensitive_path"));
+            assert!(!a.revoke_deny_mute("secrets.sensitive_path"), "already gone");
+            assert!(
+                a.deny_mute_covers_all(&["secrets.sensitive_path".to_string()]).is_none(),
+                "revoked mute must not cover"
+            );
+        }
+
+        #[test]
+        fn revoke_all_deny_mutes_clears_everything() {
+            let a = fast();
+            for rule in ["secrets.sensitive_path", "secrets.env_dump"] {
+                let (h, id) = park_and_get_id(&a, "s", rule, "high");
+                a.respond_local(&id, false, "rule", None, false);
+                h.join().unwrap();
+            }
+            assert_eq!(a.revoke_all_deny_mutes(), 2);
+            assert!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty());
+        }
+
+        // ---- flood detection ---------------------------------------------
+
+        #[test]
+        fn flood_trips_at_n_distinct_signatures_in_window() {
+            let a = fast();
+            for i in 0..FLOOD_N - 1 {
+                let sig = format!("sig-{i}");
+                assert!(
+                    !a.note_ask_and_maybe_trip_flood("secrets.env_dump", &sig),
+                    "must not trip before reaching FLOOD_N"
+                );
+            }
+            let final_sig = format!("sig-{}", FLOOD_N - 1);
+            assert!(
+                a.note_ask_and_maybe_trip_flood("secrets.env_dump", &final_sig),
+                "the Nth distinct signature must trip"
+            );
+            assert_eq!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().len(), 1);
+            assert_eq!(
+                a.snapshot_deny_mutes()["mutes"][0]["origin"],
+                "auto",
+                "a flood-triggered mute must be tagged auto, not local"
+            );
+        }
+
+        #[test]
+        fn identical_signature_retries_never_trip_the_flood() {
+            let a = fast();
+            let sig = "same-signature-every-time";
+            for _ in 0..(FLOOD_N * 3) {
+                assert!(
+                    !a.note_ask_and_maybe_trip_flood("secrets.env_dump", sig),
+                    "an identical signature repeated must never trip the detector"
+                );
+            }
+            assert!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty());
+        }
+
+        #[test]
+        fn flood_counter_is_per_rule() {
+            let a = fast();
+            for i in 0..FLOOD_N - 1 {
+                a.note_ask_and_maybe_trip_flood("secrets.env_dump", &format!("a-{i}"));
+                a.note_ask_and_maybe_trip_flood("secrets.grep_hunt", &format!("b-{i}"));
+            }
+            assert!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty());
+        }
+
+        #[test]
+        fn flood_window_slides_and_old_entries_are_pruned() {
+            let a = fast();
+            // Manually seed old entries far outside the window, then confirm
+            // a fresh burst of fewer-than-N new ones does not trip (the old
+            // ones must not still be counted).
+            {
+                let mut map = a.flood.lock().unwrap();
+                let dq = map.entry("secrets.env_dump".to_string()).or_default();
+                let ancient = now_ms().saturating_sub(FLOOD_WINDOW_MS * 10);
+                for i in 0..(FLOOD_N - 1) {
+                    dq.push_back((ancient, i as u64));
+                }
+            }
+            for i in 0..(FLOOD_N - 2) {
+                assert!(!a.note_ask_and_maybe_trip_flood(
+                    "secrets.env_dump",
+                    &format!("fresh-{i}")
+                ));
+            }
+            assert!(
+                a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty(),
+                "stale entries outside the window must not count toward the threshold"
+            );
+        }
+
+        #[test]
+        fn flood_disabled_for_empty_rule_id() {
+            let a = fast();
+            for i in 0..(FLOOD_N * 2) {
+                assert!(!a.note_ask_and_maybe_trip_flood("", &format!("s-{i}")));
+            }
+            assert!(a.snapshot_deny_mutes()["mutes"].as_array().unwrap().is_empty());
+        }
+
+        #[test]
+        fn flood_state_is_bounded_across_many_distinct_rules() {
+            let a = fast();
+            for i in 0..(MAX_FLOOD_TRACKED_RULES * 3) {
+                a.note_ask_and_maybe_trip_flood(&format!("rule.{i}"), "sig");
+            }
+            let tracked = a.flood.lock().unwrap().len();
+            assert!(
+                tracked <= MAX_FLOOD_TRACKED_RULES,
+                "flood tracking must stay bounded, got {tracked}"
+            );
+        }
     }
 }

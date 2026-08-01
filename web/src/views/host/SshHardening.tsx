@@ -13,6 +13,12 @@ import FindingFixRow from "../../components/host/FindingFixRow";
 import BanList from "../../components/host/BanList";
 import { Trans } from "@lingui/react/macro";
 
+// Tauri usually rejects with a plain string (the Rust command's Err
+// payload); stay defensive about Error-shaped values too.
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
+}
+
 // ── SSH Guard config panel ────────────────────────────────────────────────────
 
 interface SshGuardPanelProps {
@@ -26,6 +32,11 @@ function SshGuardPanel({ config, onSave }: SshGuardPanelProps) {
   const [banDuration, setBanDuration] = useState(String(config.ban_duration_secs));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Set only when the in-flight save actually failed; cleared on retry. A
+  // bare try/finally with no catch used to let this rejection go unhandled:
+  // saving stopped and nothing else happened, indistinguishable from a
+  // no-op click: no success message and no error either.
+  const [error, setError] = useState<string | null>(null);
 
   const isDirty =
     enabled !== config.enabled ||
@@ -35,16 +46,19 @@ function SshGuardPanel({ config, onSave }: SshGuardPanelProps) {
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
+    setError(null);
     try {
       await onSave({
         enabled,
         ban_threshold: parseInt(banThreshold, 10) || config.ban_threshold,
         ban_duration_secs: parseInt(banDuration, 10) || config.ban_duration_secs,
       });
+      setSaving(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } finally {
+    } catch (err) {
       setSaving(false);
+      setError(errorMessage(err));
     }
   };
 
@@ -113,6 +127,11 @@ function SshGuardPanel({ config, onSave }: SshGuardPanelProps) {
       {saved && (
         <p className="text-xs" style={{ color: "#187D34" }}>
           <Trans>Settings saved.</Trans>
+        </p>
+      )}
+      {error && (
+        <p role="alert" data-testid="ssh-guard-save-error" className="text-xs" style={{ color: "#C8312A" }}>
+          <Trans>Could not save: {error}</Trans>
         </p>
       )}
     </div>

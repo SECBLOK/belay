@@ -76,17 +76,100 @@ pub fn windows_service_spec(exe: &str, _user: &str) -> (String, Vec<String>) {
 ///
 /// Normalises `\` → `/` so Windows paths (`C:\…\belay.exe`) are
 /// matched identically to POSIX paths.
+///
+/// SCOPE: this deliberately covers **the whole data directory**, not an
+/// enumerated file list. The previous version named exactly three artifacts
+/// (`rules/catalog.yaml`, `audit.ndjson`, the binaries) and therefore left every
+/// other security-relevant file in `~/.belay` writable by a gated agent —
+/// including `approvals.ndjson`, `gateguard_enforce.json` (the flag controlling
+/// whether the self-approval guard blocks at all), `channels.json`, `ai.json`,
+/// `ai_key`, and the skill trust baselines. Enumerating files means every new
+/// state file starts unprotected and stays that way until someone remembers to
+/// add it; covering the directory inverts that default.
+///
+/// LIMIT, stated plainly: this guards the *gated* write path — an agent going
+/// through `Write`/`Edit`/`Bash`. It does not constrain an agent that already
+/// has arbitrary code execution as the same user. That is a standing property of
+/// the product, not a claim this function makes.
 pub fn is_self_tamper(path: &str) -> bool {
     let p = path.replace('\\', "/");
     let f = p.rsplit('/').next().unwrap_or(&p);
-    matches!(f, "belayd" | "belay" | "belayd.exe" | "belay.exe")
+    if matches!(f, "belayd" | "belay" | "belayd.exe" | "belay.exe")
         || p.ends_with("rules/catalog.yaml")
         || p.ends_with("audit.ndjson")
+    {
+        return true;
+    }
+    // Anything inside the daemon's own data directory.
+    let data = crate::paths::data_dir().to_string_lossy().replace('\\', "/");
+    if !data.is_empty() {
+        let prefix = if data.ends_with('/') { data.clone() } else { format!("{data}/") };
+        if p == data.trim_end_matches('/') || p.starts_with(&prefix) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The enumerated artifacts must stay protected — these are the three the
+    /// original implementation covered and are pinned so a refactor cannot drop
+    /// them while "covering the data dir".
+    #[test]
+    fn is_self_tamper_still_covers_the_enumerated_artifacts() {
+        assert!(is_self_tamper("/usr/local/bin/belay"));
+        assert!(is_self_tamper("/usr/local/bin/belayd"));
+        assert!(is_self_tamper("C:\\Program Files\\Belay\\belay.exe"));
+        assert!(is_self_tamper("/home/u/proj/rules/catalog.yaml"));
+        assert!(is_self_tamper("/anywhere/audit.ndjson"));
+    }
+
+    /// Regression: every one of these lives in the daemon's own data directory
+    /// and was WRITABLE by a gated agent before the directory-wide check,
+    /// because the guard named only three artifacts. `gateguard_enforce.json`
+    /// is the sharpest of them — it controls whether the self-approval guard
+    /// blocks at all, so an agent able to write it could disarm the control
+    /// that stops it approving its own actions.
+    #[test]
+    fn is_self_tamper_covers_the_whole_data_dir() {
+        let dir = crate::paths::data_dir();
+        for name in [
+            "gateguard_enforce.json",
+            "approvals.ndjson",
+            "channels.json",
+            "ai.json",
+            "ai_key",
+            "skill_baselines.json",
+            "mutes.json",
+            "some_future_state_file.json",
+        ] {
+            let p = dir.join(name);
+            assert!(
+                is_self_tamper(&p.to_string_lossy()),
+                "{name} must be self-tamper protected"
+            );
+        }
+        // Nested paths under the data dir count too.
+        assert!(is_self_tamper(&dir.join("logs").join("x.log").to_string_lossy()));
+        // The directory itself.
+        assert!(is_self_tamper(&dir.to_string_lossy()));
+    }
+
+    /// The widened check must not swallow ordinary project files — a sibling
+    /// directory whose name merely *starts with* the data dir's name is not
+    /// inside it.
+    #[test]
+    fn is_self_tamper_does_not_over_match_neighbours() {
+        let dir = crate::paths::data_dir();
+        let sibling = format!("{}-notmine/config.json", dir.to_string_lossy());
+        assert!(!is_self_tamper(&sibling), "prefix-adjacent dir must not match");
+        assert!(!is_self_tamper("/home/u/proj/src/main.rs"));
+        assert!(!is_self_tamper("/home/u/proj/README.md"));
+        assert!(!is_self_tamper("/home/u/proj/catalog.yaml"));
+    }
 
     #[test]
     fn systemd_unit_has_restart_and_exec() {

@@ -277,6 +277,7 @@ mod tests {
                     owasp: None,
                     atlas: None,
                     explain: None,
+                    ask_rules: Vec::new(),
                 },
                 called: std::cell::Cell::new(false),
             }

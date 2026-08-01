@@ -14,10 +14,12 @@ vi.mock("../lib/api", () => ({
   getPending: (...a: any[]) => mockGetPending(...a),
 }));
 
-// Mock lib/ipc for setProtection (not re-exported by api.ts).
+// Mock lib/ipc for setProtection + getProtectionStatus (not re-exported by api.ts).
 const mockSetProtection = vi.fn();
+const mockGetProtectionStatus = vi.fn();
 vi.mock("../lib/ipc", () => ({
   setProtection: (...a: any[]) => mockSetProtection(...a),
+  getProtectionStatus: (...a: any[]) => mockGetProtectionStatus(...a),
 }));
 
 import TrayPopover from "./TrayPopover";
@@ -39,6 +41,7 @@ beforeEach(() => {
   invoke.mockResolvedValue({});
   mockGetPosture.mockResolvedValue(postureProtected);
   mockGetPending.mockResolvedValue([]);
+  mockGetProtectionStatus.mockResolvedValue("on");
   mockSetProtection.mockResolvedValue({ ok: true, protection: false });
   // Simulate running inside Tauri desktop window.
   (window as any).__TAURI_INTERNALS__ = {};
@@ -76,6 +79,39 @@ it("shows pending approval count", async () => {
   expect(screen.getByTestId("popover-pending").textContent).toMatch(/2/);
 });
 
+// The tray must read the daemon's REAL protection state on open, not guess
+// "on". Regression test for the bug this task fixes: `paused` used to be
+// local-only state hardcoded to `false` on every popover open, so a tray
+// opened after protection was paused elsewhere (a previous session, another
+// surface) showed "Protected" / "Pause protection" as if nothing were wrong.
+it("shows the real state on open when protection was already paused", async () => {
+  mockGetProtectionStatus.mockResolvedValue("off");
+  render(<TrayPopover />);
+  await flush();
+  expect(screen.getByTestId("popover-status").textContent).toMatch(/paused/i);
+  expect(screen.getByTestId("btn-pause").textContent).toMatch(/resume/i);
+});
+
+// An unknown/failed read must render its OWN distinct state, never fall back
+// to a confident "Protected"/"Pause protection" label - the same idiom
+// `postureState`'s "loading" state uses for the score-derived posture.
+it("an unknown protection read does not render a confident label, and disables the toggle", async () => {
+  mockGetProtectionStatus.mockRejectedValue(new Error("daemon unreachable"));
+  render(<TrayPopover />);
+  await flush();
+  const status = screen.getByTestId("popover-status").textContent ?? "";
+  expect(status).not.toMatch(/protected/i);
+  expect(status).not.toMatch(/paused/i);
+  const btn = screen.getByTestId("btn-pause");
+  expect(btn.textContent).not.toMatch(/pause protection/i);
+  expect(btn.textContent).not.toMatch(/resume protection/i);
+  expect(btn.hasAttribute("disabled")).toBe(true);
+  // Clicking while unknown must not call setProtection with a guessed direction.
+  fireEvent.click(btn);
+  await flush();
+  expect(mockSetProtection).not.toHaveBeenCalled();
+});
+
 // (b) Clicking "Pause protection" calls setProtection with false.
 it("clicking Pause protection calls setProtection(false)", async () => {
   render(<TrayPopover />);
@@ -84,6 +120,21 @@ it("clicking Pause protection calls setProtection(false)", async () => {
   fireEvent.click(btn);
   await flush();
   expect(mockSetProtection).toHaveBeenCalledWith(false);
+});
+
+// The other toggle direction: starting from a real "off" read, clicking
+// Resume must call setProtection(true) - not just flip a local boolean.
+it("clicking Resume protection calls setProtection(true) when already paused", async () => {
+  mockGetProtectionStatus.mockResolvedValue("off");
+  mockSetProtection.mockResolvedValue({ ok: true, protection: true });
+  render(<TrayPopover />);
+  await flush();
+  const btn = screen.getByTestId("btn-pause");
+  expect(btn.textContent).toMatch(/resume/i);
+  fireEvent.click(btn);
+  await flush();
+  expect(mockSetProtection).toHaveBeenCalledWith(true);
+  expect(btn.textContent).toMatch(/pause protection/i);
 });
 
 // (b) Button label toggles after clicking pause.
@@ -96,6 +147,25 @@ it("button label reflects paused state after clicking", async () => {
   await flush();
   // After pausing, button should offer to resume.
   expect(btn.textContent).toMatch(/resume|enable/i);
+});
+
+// handlePauseResume's `catch { /* keep current state */ }` used to swallow a
+// failure with no visible message - the button silently reverted with no
+// explanation, indistinguishable from the click doing nothing.
+it("a failed pause/resume shows an error and leaves the label unchanged", async () => {
+  mockSetProtection.mockRejectedValue(new Error("daemon unreachable"));
+  render(<TrayPopover />);
+  await flush();
+  const btn = screen.getByTestId("btn-pause");
+  expect(btn.textContent).toMatch(/pause/i);
+  fireEvent.click(btn);
+  await flush();
+
+  expect(screen.getByTestId("pause-error").textContent).toMatch(/daemon unreachable/);
+  // Never having flipped, the label is still "Pause protection", not
+  // "Resume protection" - and the button is clickable again.
+  expect(btn.textContent).toMatch(/pause protection/i);
+  expect(btn.hasAttribute("disabled")).toBe(false);
 });
 
 // (c) Clicking "Open dashboard" invokes focus_main.

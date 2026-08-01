@@ -12,6 +12,12 @@ import { Trans, Plural, useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 
+// Tauri usually rejects with a plain string (the Rust command's Err
+// payload); stay defensive about Error-shaped values too.
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
+}
+
 // ── Chips ─────────────────────────────────────────────────────────────────────
 
 const RECO_STYLE: Record<SkillSummary["recommendation"], { bg: string; color: string; label: MessageDescriptor }> = {
@@ -67,6 +73,11 @@ interface SkillRowProps {
 function SkillRow({ skill, onApprove }: SkillRowProps) {
   const { t } = useLingui();
   const [busy, setBusy] = useState(false);
+  // Set only when the in-flight approve actually failed; cleared on retry.
+  // A bare try/finally with no catch used to let this rejection go
+  // unhandled: busy stopped and the row looked untouched, indistinguishable
+  // from the click doing nothing.
+  const [error, setError] = useState<string | null>(null);
 
   // Clean skills are already at their trusted baseline — no action needed.
   // Unbaselined = never approved (establish the baseline); drifted = content
@@ -76,10 +87,13 @@ function SkillRow({ skill, onApprove }: SkillRowProps) {
 
   const doApprove = async () => {
     setBusy(true);
+    setError(null);
     try {
       await onApprove(skill.path);
-    } finally {
       setBusy(false);
+    } catch (err) {
+      setBusy(false);
+      setError(errorMessage(err));
     }
   };
 
@@ -122,6 +136,12 @@ function SkillRow({ skill, onApprove }: SkillRowProps) {
         >
           {action}
         </button>
+      )}
+
+      {error && (
+        <p role="alert" data-testid="skill-approve-error" className="w-full text-xs" style={{ color: "#C8312A" }}>
+          <Trans>Could not approve: {error}</Trans>
+        </p>
       )}
     </div>
   );

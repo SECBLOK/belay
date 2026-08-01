@@ -42,11 +42,34 @@ esac
 # three are additive to the default features (firewall + vulndb); the desktop
 # is the full product, so they are always enabled here. (The open `cargo
 # build` stays feature-off for byte-identity.)
+#
+# `BELAY_ENTERPRISE=1` additionally compiles the `enterprise` feature: it gives
+# the sidecar the `belay push|enroll|agent` subcommands and makes `belay serve`
+# mount the fleet/org/device/SSO/SCIM/feed routes.
+#
+# It is OFF by default and must stay that way. The open desktop build has to
+# remain reproducible from the public mirror, and the mirror strips the
+# `enterprise` feature line outright (packaging/export-open-repo.sh), so a
+# default-on switch here would yield a build the open repo cannot reproduce.
+#
+# IMPORTANT: this script builds only the sidecar CLI. The desktop crate is a
+# SEPARATE build (`cargo tauri dev|build`) and needs the feature passed to it
+# too, otherwise the `get_fleet` Tauri command is never registered and the
+# "My Machines" tab cannot load. The full paid build is:
+#
+#   BELAY_ENTERPRISE=1 cargo tauri build -- --features enterprise
+#
+# (everything before `--` goes to tauri, everything after it to cargo).
+FEATURES="channels,ai,netenrich"
+if [ "${BELAY_ENTERPRISE:-0}" = "1" ]; then
+  FEATURES="$FEATURES,enterprise"
+fi
+
 if [ "$PROFILE" = "release" ]; then
-  cargo build --release --bin belay --features channels,ai,netenrich
+  cargo build --release --bin belay --features "$FEATURES"
   SRC="$ROOT/target/release/belay$EXE"
 else
-  cargo build --bin belay --features channels,ai,netenrich
+  cargo build --bin belay --features "$FEATURES"
   SRC="$ROOT/target/debug/belay$EXE"
 fi
 
@@ -60,4 +83,4 @@ ln -sfn "$SRC" "$DEST_DIR/belay$EXE"
 mkdir -p "$TAURI_DIR/binaries"
 cp -f "$SRC" "$TAURI_DIR/binaries/belay-$TRIPLE$EXE"
 
-echo "build-belay: refreshed belay ($PROFILE) -> $DEST_DIR/belay$EXE and binaries/belay-$TRIPLE$EXE"
+echo "build-belay: refreshed belay ($PROFILE, features: $FEATURES) -> $DEST_DIR/belay$EXE and binaries/belay-$TRIPLE$EXE"

@@ -9,6 +9,7 @@ import { getPosture, streamAudit, type PostureSummary } from "../lib/api";
 import { C, tip, Card, StatTile, Empty, useChartReflow } from "../components/dash";
 import StatusRing, { type RingState } from "../components/StatusRing";
 import TrustPanel from "../components/TrustPanel";
+import MutedRulesPanel from "../components/MutedRulesPanel";
 import { PawLoader } from "../components/Paw";
 import MascotEmpty from "../components/MascotEmpty";
 import ActivityFeed from "../components/ActivityFeed";
@@ -147,6 +148,41 @@ function TrendArea({ p }: { p: PostureSummary }) {
   );
 }
 
+/** A failed posture load must never be mistaken for a slow one.
+ *
+ *  `get_posture` is a bare Tauri invoke (see lib/ipc.ts) with no `.catch()` on
+ *  the caller's side, so a rejection used to be swallowed and this - the FIRST
+ *  screen the app opens - sat on "Fetching your protection status…" forever:
+ *  a broken build and a slow one looked identical. Same silent-failure class
+ *  as the Fleet tab's `get_fleet` bug (see FleetUnavailable in Fleet.tsx).
+ *
+ *  The raw reason is shown deliberately, so the cause is diagnosable from a
+ *  screenshot without asking the user to open a console. */
+function PostureUnavailable({ reason }: { reason: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 gap-5 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.deny} strokeWidth="1.5" strokeLinecap="round">
+          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" strokeLinejoin="round" />
+          <path d="M12 9v4M12 17h.01" />
+        </svg>
+      </div>
+      <div>
+        <p className="text-[#1C1C1E] font-semibold mb-1"><Trans>Could not load your protection status</Trans></p>
+        <p className="text-[#636366] text-sm max-w-sm">
+          <Trans>Only this page failed to load. Belay keeps protecting this computer either way.</Trans>
+        </p>
+      </div>
+      {reason && (
+        <div className="lg-glass px-4 py-3 text-left max-w-md w-full">
+          <p className="text-[11px] uppercase tracking-widest text-[var(--text-tertiary)] mb-1"><Trans>Reason</Trans></p>
+          <p className="text-xs font-mono text-[#636366] break-all">{reason}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TopRules({ rules }: { rules: PostureSummary["top_rules"] }) {
   if (!rules.length) return <Empty><Trans>No rules triggered</Trans></Empty>;
   const max = rules[0]?.count ?? 1;
@@ -168,12 +204,20 @@ function TopRules({ rules }: { rules: PostureSummary["top_rules"] }) {
 export default function Posture() {
   const { t } = useLingui();
   const [p, setP] = useState<PostureSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const [recent, setRecent] = useState<any[]>([]);
   const [showDetails, setShowDetails] = useState(false);
   useChartReflow();
   useEffect(() => {
     let live = true;
-    const load = () => getPosture().then((d) => { if (live) setP(d); });
+    // A later success clears the error, so a transient blip does not strand
+    // the tab; a persistent failure keeps saying so rather than spinning
+    // forever (see PostureUnavailable above).
+    const load = () => getPosture()
+      .then((d) => { if (live) { setP(d); setErr(null); } })
+      .catch((e: unknown) => {
+        if (live) setErr(String((e as { message?: string })?.message ?? e));
+      });
     load();
     // refresh on each new audit event so counters stay live, and keep the
     // last ~50 rows for the native desktop activity feed (newest first).
@@ -183,6 +227,8 @@ export default function Posture() {
     });
     return () => { live = false; stop(); };
   }, []);
+
+  if (err) return <div className="p-6"><PostureUnavailable reason={err} /></div>;
 
   if (!p) return (
     <div className="p-6 flex items-center gap-3 text-[var(--text-tertiary)] text-sm">
@@ -216,6 +262,10 @@ export default function Posture() {
       {/* Security signals: per-session trust grades + GateGuard self-approval
           attempts (spec §1). Both degrade to empty/zero off-daemon. */}
       <TrustPanel />
+
+      {/* Rule-scoped deny mutes ("Deny & mute this rule"): renders nothing
+          when no mute is active, so it never clutters a calm Overview. */}
+      <MutedRulesPanel />
 
       {/* Start-on-boot + update check (desktop only; render nothing in the web build) */}
       <BootStartToggle />

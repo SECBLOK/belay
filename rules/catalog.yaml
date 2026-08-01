@@ -245,7 +245,13 @@ rules:
     match:
       command_regex:
         - '(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b'
-        - '(curl|wget)\b[^|]*\|\s*(python\d?|node|ruby|perl)\b'
+        # Bare interpreter after the pipe: stdin IS the program.
+        # `-c`/`-e` supply the program as an argument, so stdin is data
+        # (`curl … | python3 -c 'json.load(sys.stdin)'` executes nothing
+        # that was downloaded) — that form is covered by the next pattern
+        # only when the inline script itself executes what it reads.
+        - '(curl|wget)\b[^|]*\|\s*(python\d?|node|ruby|perl)\b(?!\s+-)'
+        - '(curl|wget)\b[^|]*\|\s*(python\d?|node|ruby|perl)\b[^|]*\b(exec|eval|compile|system|popen|run|check_output|check_call)\s*\('
         # Windows download-and-run: `irm https://... | iex`, `iwr ... | Invoke-Expression`.
         - '(iwr|irm|curl|wget|invoke-webrequest|invoke-restmethod)\b[^|]*\|\s*(iex|invoke-expression)\b'
   - id: rce.decode_exec
@@ -527,9 +533,12 @@ rules:
         - 'ANTHROPIC_BASE_URL'
         - '/\.claude\.json$'
         - '/\.codex/config\.toml$'
-        - 'belayd$'
-        - 'rules/catalog\.yaml$'
-        - 'audit\.ndjson$'
+        - '/belayd$'
+        - '>{1,2}\s*["\x27]?(?:[^\s"\x27|;&]*/)?(?:rules/catalog\.yaml|audit\.ndjson)'
+        - '(?:^|[;&|]\s*)(?:sudo\s+)?(?:cp|mv|rm|shred|unlink|truncate|touch|chmod|chown|chgrp|ln|install|dd|tee)\b[^|;&]*(?:rules/catalog\.yaml|audit\.ndjson)'
+        - '(?:^|[;&|]\s*)(?:sudo\s+)?(?:sed|perl|ruby)\b[^|;&]*\s-[a-zA-Z]*i[a-zA-Z]*\b[^|;&]*(?:rules/catalog\.yaml|audit\.ndjson)'
+        - '(?:^|[;&|]\s*)(?:sudo\s+)?yq\b[^|;&]*\s-i\b[^|;&]*(?:rules/catalog\.yaml|audit\.ndjson)'
+        - '(?:^|[;&|]\s*)git\s+checkout\b[^|;&]*(?:rules/catalog\.yaml|audit\.ndjson)'
   # ---- secrets ----
   - id: secrets.sensitive_path
     category: secrets
@@ -584,7 +593,17 @@ rules:
     match:
       command_regex:
         - '\bprintenv\b'
-        - '(^|\s)env(\s|$)'
+        # Command position only. The old '(^|\s)env(\s|$)' matched the
+        # bare word in any prose — an echo string, a heredoc, a comment —
+        # and data-region masking is disqualified for an arg whose
+        # sibling contains '(' outside single quotes.
+        # Word-boundary anchor, not a trailing-terminator allowlist: "env"
+        # must still be the command word (start of command, or right
+        # after ; & |), but what follows it — args, a redirect, a pipe,
+        # or nothing — is unrestricted. Round 1's trailing '(?:$|[;&|])'
+        # silently dropped `env > file`, `env -i FOO=bar cmd`, and any
+        # other invocation with real arguments.
+        - '(?:^|[;&|]\s*)env\b'
         - '/proc/\d+/environ'
         - 'echo\s+\$[A-Z_]*(KEY|TOKEN|SECRET|PASS)'
         - '(gci|get-childitem|ls|dir)\s+env:'

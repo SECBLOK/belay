@@ -1,7 +1,9 @@
 pub mod audit_reader;
 pub mod auth;
+pub mod csrf;
 pub mod source;
 pub mod stream;
+
 
 
 
@@ -53,6 +55,23 @@ pub struct AppState {
     broadcast: tokio::sync::broadcast::Sender<Value>,
     pub users: Vec<User>,
     pub auth_secret: String,
+    /// Whether the session cookie carries the `Secure` attribute. False only
+    /// for a loopback bind: browsers refuse to store a `Secure` cookie from a
+    /// plaintext origin, which would make `http://127.0.0.1` dev unusable.
+    /// Derived from the same `is_loopback` that `bind_policy` uses, so there
+    /// is one source of truth for "is this a local dev bind".
+    pub cookie_secure: bool,
+    /// The bare host (no port) this server is actually bound to and reachable
+    /// at, e.g. `127.0.0.1` or `console.example.com`. Set from the real bind
+    /// address in `run()`, mirroring how `cookie_secure` is derived from the
+    /// same address. Defaults to loopback so a freshly constructed state
+    /// (tests, or before `run()` overrides it) allows only loopback names
+    /// until told otherwise.
+    pub bind_host: String,
+    /// Extra hostnames the console may be reached at, from
+    /// `BELAY_CONSOLE_HOSTS` (comma-separated). Empty means "bind address and
+    /// loopback names only", never "any host".
+    pub console_hosts: Vec<String>,
     /// In-memory cache of the last host scan results (TS `HostFinding` JSON).
     /// Written by `POST /api/host/scan`, read by `GET /api/host/scan/results`.
     pub scan_cache: Arc<std::sync::Mutex<Vec<Value>>>,
@@ -70,6 +89,9 @@ impl AppState {
             broadcast: tx,
             users: vec![],
             auth_secret: String::new(),
+            cookie_secure: false,
+            bind_host: "127.0.0.1".to_string(),
+            console_hosts: Vec::new(),
             scan_cache: Arc::new(std::sync::Mutex::new(vec![])),
             vuln_cache: Arc::new(std::sync::Mutex::new(None)),
         }
@@ -82,6 +104,9 @@ impl AppState {
             broadcast: tx,
             users,
             auth_secret: secret,
+            cookie_secure: false,
+            bind_host: "127.0.0.1".to_string(),
+            console_hosts: Vec::new(),
             scan_cache: Arc::new(std::sync::Mutex::new(vec![])),
             vuln_cache: Arc::new(std::sync::Mutex::new(None)),
         }
@@ -107,6 +132,9 @@ impl AppState {
             broadcast: tx,
             users: vec![],
             auth_secret: String::new(),
+            cookie_secure: false,
+            bind_host: "127.0.0.1".to_string(),
+            console_hosts: Vec::new(),
             scan_cache: Arc::new(std::sync::Mutex::new(vec![])),
             vuln_cache: Arc::new(std::sync::Mutex::new(None)),
         }
@@ -921,7 +949,12 @@ pub fn create_app(state: AppState) -> Router {
     let router = router.merge(auth::open_auth_routes());
 
 
-    router.with_state(shared)
+    router
+        .layer(axum::middleware::from_fn_with_state(
+            shared.clone(),
+            csrf::csrf_guard,
+        ))
+        .with_state(shared)
 }
 
 /// Whether binding a given address is permitted under the current auth config.
@@ -955,6 +988,59 @@ fn insecure_override_set() -> bool {
         .unwrap_or(false)
 }
 
+/// Whether `run()` should print a Host-allowlist startup warning, and which
+/// one. Both cases leave the server reachable but with the Host allowlist
+/// narrower than an operator is likely to expect, so both are worth a
+/// warning even though only the wildcard case refuses to serve without one
+/// existing.
+#[derive(Debug, PartialEq, Eq)]
+enum HostAllowlistWarning {
+    /// A wildcard bind has no single hostname to compare a request's Host
+    /// against at all.
+    Wildcard,
+    /// A non-loopback, non-wildcard bind with no `BELAY_CONSOLE_HOSTS`: only
+    /// a Host that literally equals the bind address passes, so a client
+    /// reaching this instance under any other Host (a DNS name, most
+    /// commonly) is rejected everywhere except the two exempt routes - while
+    /// `/api/health` keeps returning 200, so a load balancer reports the
+    /// backend healthy the whole time it is unusable.
+    NoConsoleHosts,
+    /// Nothing to warn about.
+    None,
+}
+
+/// Decide which [`HostAllowlistWarning`], if any, applies to a bind. Kept as
+/// a pure function, separate from `run()`, so the condition is unit-testable
+/// without binding a real socket - matching the existing `bind_policy` shape
+/// just above.
+fn host_allowlist_warning(
+    is_wildcard: bool,
+    is_loopback: bool,
+    console_hosts_empty: bool,
+) -> HostAllowlistWarning {
+    if is_wildcard {
+        HostAllowlistWarning::Wildcard
+    } else if !is_loopback && console_hosts_empty {
+        HostAllowlistWarning::NoConsoleHosts
+    } else {
+        HostAllowlistWarning::None
+    }
+}
+
+/// The bare host string used for `AppState::bind_host` (and, through it, the
+/// Host allowlist), derived from the address `run()` actually bound. IPv6
+/// literals are bracketed (`[::1]`), matching both what a browser sends in
+/// its `Host` header and what `csrf::host_allowed`'s bracket-aware parsing
+/// expects. An earlier version used `ip.to_string()` directly, which for
+/// IPv6 has no brackets, so a bracketed IPv6 `Host` header - the only form a
+/// browser ever sends - quietly never matched the bind host (F3).
+fn derive_bind_host(ip: std::net::IpAddr) -> String {
+    match ip {
+        std::net::IpAddr::V6(v6) => format!("[{v6}]"),
+        std::net::IpAddr::V4(v4) => v4.to_string(),
+    }
+}
+
 /// Bind `addr` and serve the audit/web API (the `axum::serve` glue the unified
 /// `belay serve` subcommand needs — the crate is otherwise a library with
 /// no run loop). Reads audit rows from `audit_path`; loads users from
@@ -970,11 +1056,44 @@ pub async fn run(addr: std::net::SocketAddr, audit_path: PathBuf) -> anyhow::Res
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
     let (users, secret) = load_users_and_secret(&data_dir);
-    let state = if users.is_empty() {
+    let mut state = if users.is_empty() {
         AppState::new(audit_path)
     } else {
         AppState::with_users(audit_path, users, secret)
     };
+    state.cookie_secure = !addr.ip().is_loopback();
+    state.bind_host = derive_bind_host(addr.ip());
+    state.console_hosts = std::env::var("BELAY_CONSOLE_HOSTS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    match host_allowlist_warning(
+        addr.ip().is_unspecified(),
+        addr.ip().is_loopback(),
+        state.console_hosts.is_empty(),
+    ) {
+        HostAllowlistWarning::Wildcard => eprintln!(
+            "belay serve: WARNING - bound to a wildcard address ({addr}); the Host \
+             allowlist has no single hostname to check a request's Host against, so \
+             only loopback names are allowed by default. Set BELAY_CONSOLE_HOSTS to a \
+             comma-separated list of the real hostname(s) clients will use to reach \
+             this instance."
+        ),
+        HostAllowlistWarning::NoConsoleHosts => eprintln!(
+            "belay serve: WARNING - bound to a non-loopback address ({addr}) with no \
+             BELAY_CONSOLE_HOSTS configured; only a request whose Host is the bind \
+             address itself will be accepted - requests arriving under any other Host \
+             (e.g. a DNS name) will be rejected with 403 on every route except \
+             /api/health and /api/source, while /api/health keeps returning 200, so a \
+             load balancer will report this instance healthy the whole time it is \
+             unreachable. Set BELAY_CONSOLE_HOSTS to a comma-separated list of the \
+             real hostname(s) clients will use to reach this instance."
+        ),
+        HostAllowlistWarning::None => {}
+    }
     match bind_policy(
         addr.ip().is_loopback(),
         !state.users.is_empty(),
@@ -1023,6 +1142,67 @@ mod bind_policy_tests {
     #[test]
     fn non_loopback_open_access_with_override_warns() {
         assert_eq!(bind_policy(false, false, true), BindPolicy::WarnInsecure);
+    }
+}
+
+#[cfg(test)]
+mod host_allowlist_warning_tests {
+    use super::*;
+
+    #[test]
+    fn wildcard_bind_warns_regardless_of_console_hosts() {
+        assert_eq!(
+            host_allowlist_warning(true, false, false),
+            HostAllowlistWarning::Wildcard
+        );
+        assert_eq!(
+            host_allowlist_warning(true, false, true),
+            HostAllowlistWarning::Wildcard
+        );
+    }
+
+    #[test]
+    fn non_loopback_with_no_console_hosts_warns() {
+        assert_eq!(
+            host_allowlist_warning(false, false, true),
+            HostAllowlistWarning::NoConsoleHosts
+        );
+    }
+
+    #[test]
+    fn non_loopback_with_console_hosts_configured_is_fine() {
+        assert_eq!(
+            host_allowlist_warning(false, false, false),
+            HostAllowlistWarning::None
+        );
+    }
+
+    #[test]
+    fn loopback_bind_is_fine_even_without_console_hosts() {
+        assert_eq!(
+            host_allowlist_warning(false, true, true),
+            HostAllowlistWarning::None
+        );
+    }
+}
+
+#[cfg(test)]
+mod derive_bind_host_tests {
+    use super::*;
+
+    #[test]
+    fn ipv4_is_unbracketed() {
+        assert_eq!(derive_bind_host("127.0.0.1".parse().unwrap()), "127.0.0.1");
+    }
+
+    #[test]
+    fn ipv6_loopback_is_bracketed() {
+        assert_eq!(derive_bind_host("::1".parse().unwrap()), "[::1]");
+    }
+
+    #[test]
+    fn ipv6_wildcard_is_bracketed() {
+        assert_eq!(derive_bind_host("::".parse().unwrap()), "[::]");
     }
 }
 

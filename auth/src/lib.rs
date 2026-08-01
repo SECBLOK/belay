@@ -7,7 +7,9 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const EXPIRE_HOURS: i64 = 24;
+/// Session/token lifetime. Public so the server can set a cookie `Max-Age`
+/// that matches the JWT's own `exp` instead of duplicating the number.
+pub const EXPIRE_HOURS: i64 = 24;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {

@@ -25,11 +25,40 @@ const PROXY: [&str; 2] = ["belay", "mcp-proxy"];
 fn resolve_hook_exe(env_override: Option<String>, current_exe: Option<PathBuf>) -> Option<String> {
     if let Some(val) = env_override {
         if PathBuf::from(&val).is_absolute() {
-            return Some(val);
+            return Some(strip_verbatim_prefix(&val));
         }
     }
     let p = current_exe?;
-    p.is_absolute().then(|| p.to_string_lossy().into_owned())
+    p.is_absolute()
+        .then(|| strip_verbatim_prefix(&p.to_string_lossy()))
+}
+
+/// Removes Windows' extended-length (`\\?\`) path prefix.
+///
+/// `std::fs::canonicalize` on Windows returns a VERBATIM path —
+/// `\\?\C:\Program Files\Belay\belay.exe` — and that form is not executable
+/// through a shell. `cmd.exe` parses the leading `\\` as a UNC network path and
+/// fails with "The system cannot find the path specified"; PowerShell and most
+/// process launchers reject it too.
+///
+/// The consequence is the exact failure this module's [`resolve_hook_exe`] doc
+/// already warns about for the bare-`belay` case, and it is silent: the agent
+/// runs the hook, the hook cannot start, the tool call proceeds UNGATED, and
+/// nothing is recorded. A Windows install would report no detections at all
+/// while appearing to be protected.
+///
+/// Stripping is safe on every platform and for both the `\\?\C:\…` (drive) and
+/// `\\?\UNC\server\share` (network) forms — the latter is rewritten back to a
+/// real `\\server\share` UNC path rather than being left as a broken literal.
+/// A no-op on paths that carry no prefix, and on Unix.
+fn strip_verbatim_prefix(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = p.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    p.to_string()
 }
 
 /// Absolute path to the `belay` binary to embed in installed agent hooks.
@@ -47,6 +76,101 @@ fn belay_exe() -> Option<String> {
 /// binary path followed by `hook <phase>`.
 fn hook_command(exe: &str, phase: &str) -> String {
     format!("\"{exe}\" hook {phase}")
+}
+
+/// How long the post-install self-test waits for the hook to answer before
+/// giving up. Generous: a cold-start binary on a loaded machine is slow, and a
+/// false "your hook is broken" is worse than a slow install.
+const SELF_TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Runs the freshly-installed hook command and checks it actually answers.
+///
+/// # Why this exists
+///
+/// A hook can install perfectly and still be unable to RUN, and that failure is
+/// invisible from every direction: the agent invokes it, the process never
+/// starts, the tool call proceeds ungated, nothing is recorded, and the UI
+/// still reports the agent as protected. A broken hook and a quiet day look
+/// identical.
+///
+/// That is not hypothetical. Belay v0.1.14 on Windows embedded the verbatim
+/// (`\\?\C:\…`) path that `canonicalize` returns, which no shell can execute,
+/// so every Windows install silently gated nothing until a user reported it.
+/// No engine test could have caught it, because the engine was never invoked.
+/// [`resolve_hook_exe`] already refuses the shapes it can prove are broken;
+/// this catches the ones it cannot.
+///
+/// # Faithful by construction
+///
+/// The command is run THROUGH A SHELL (`cmd /C` on Windows, `sh -c` elsewhere)
+/// because that is how the agent runs it, and a path that a shell rejects but
+/// `Command::new` would happily accept is precisely the bug class in question.
+/// Testing it any other way would have passed on the broken Windows build.
+///
+/// The probe payload is deliberately innocuous so the gate answers `allow`
+/// immediately and never parks an approval; this must not leave a prompt
+/// waiting on a messaging channel at install time.
+fn self_test_hook(pre_cmd: &str) -> Result<(), String> {
+    use std::io::{Read, Write};
+    use std::process::{Command, Stdio};
+
+    let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+    let mut child = Command::new(shell)
+        .arg(flag)
+        .arg(pre_cmd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not start the hook via {shell}: {e}"))?;
+
+    // A benign call: allowed instantly, so this never parks.
+    let probe = serde_json::json!({
+        "session_id": "belay-install-self-test",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": { "command": "true" },
+    })
+    .to_string();
+    if let Some(mut stdin) = child.stdin.take() {
+        // Ignore a write error: a hook that died before reading stdin shows up
+        // as a bad/missing answer below, which is the message we want to give.
+        let _ = stdin.write_all(probe.as_bytes());
+    } // dropped here -> EOF, so a well-behaved one-shot hook exits
+
+    // Wait with a bound. A hook that hangs is as broken as one that fails, and
+    // must not wedge `belay protect` forever.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let mut out = String::new();
+        if let Some(mut so) = child.stdout.take() {
+            let _ = so.read_to_string(&mut out);
+        }
+        let status = child.wait();
+        let _ = tx.send((out, status));
+    });
+    let (out, status) = rx.recv_timeout(SELF_TEST_TIMEOUT).map_err(|_| {
+        format!(
+            "the hook did not answer within {}s",
+            SELF_TEST_TIMEOUT.as_secs()
+        )
+    })?;
+    let _ = handle.join();
+
+    let code = status.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+    let v: serde_json::Value = serde_json::from_str(out.trim()).map_err(|_| {
+        let shown: String = out.trim().chars().take(200).collect();
+        if shown.is_empty() {
+            format!("the hook produced no output (exit code {code})")
+        } else {
+            format!("the hook did not answer with JSON (exit code {code}): {shown}")
+        }
+    })?;
+    v.get("hookSpecificOutput")
+        .and_then(|h| h.get("permissionDecision"))
+        .and_then(serde_json::Value::as_str)
+        .map(|_| ())
+        .ok_or_else(|| format!("the hook answered without a permission decision: {v}"))
 }
 
 /// Mirror Python `protect(agent)` from proxy_wire.py.
@@ -80,6 +204,26 @@ pub fn protect(agent: &DetectedAgent) -> Result<(), String> {
                         uninstall(Path::new(p));
                     }
                     if install(Path::new(primary), &pre, &post) {
+                        // Verify the hook we just wrote can actually run. NOT
+                        // fatal: the hook is installed and may well work
+                        // (a sandbox with no shell, an antivirus holding the
+                        // binary, a transient failure), and tearing down a
+                        // possibly-good install over a failed probe would be
+                        // worse than the uncertainty. But it must be LOUD:
+                        // the whole point is that this failure is otherwise
+                        // indistinguishable from silence.
+                        if let Err(why) = self_test_hook(&pre) {
+                            eprintln!(
+                                "[belay] WARNING: installed the hook for '{}', but the \
+                                 self-test could not confirm it runs: {why}\n\
+                                 [belay] Until this is resolved, tool calls for this agent \
+                                 may proceed UNGATED while the UI reports it as protected.\n\
+                                 [belay] Hook command: {pre}\n\
+                                 [belay] See docs/TROUBLESHOOTING.md \
+                                 (\"Belay never prompts, never blocks\").",
+                                agent.name
+                            );
+                        }
                         Ok(())
                     } else {
                         Err(format!(
@@ -158,8 +302,29 @@ pub fn protect(agent: &DetectedAgent) -> Result<(), String> {
                 .ok_or_else(|| "opencode plugin dir is unknown".to_string())?;
             crate::gates::install_opencode_plugin(Path::new(dir), &exe)
         }
+        // Detected-but-unsupported agents (currently `config-policy`: gemini,
+        // goose). There is no interception path for these and none is planned —
+        // they are detected so `belay detect` output is complete, not because
+        // Belay can gate them.
+        //
+        // This returns Ok because "nothing to do" is not an error, but the
+        // CALLER must not report success: see `run_protect`, which checks
+        // `is_interceptable` and tells the user plainly. Reporting "Protecting
+        // gemini (mode=enforce)" after a no-op is worse than not supporting the
+        // agent at all — it tells someone they are covered when they are not.
         _ => Ok(()),
     }
+}
+
+/// True if Belay has a real interception path for this agent.
+///
+/// `protect()`'s catch-all returns `Ok(())` for anything else, so this is what
+/// distinguishes "wired up" from "silently did nothing".
+pub fn is_interceptable(agent: &DetectedAgent) -> bool {
+    matches!(
+        agent.interception.as_str(),
+        "hook" | "mcp-proxy" | "hermes-hook" | "cursor-hook" | "exec-policy" | "opencode-plugin"
+    )
 }
 
 /// Mirror Python `unprotect(agent)` from proxy_wire.py.
@@ -224,8 +389,29 @@ pub fn run_protect(agent_name: &str, observe: bool, home: Option<&str>) -> ExitC
             return ExitCode::FAILURE;
         }
     }
+    // Report per agent what actually happened. An agent with no interception
+    // path must never be reported as protected.
     let mode = if observe { "observe" } else { "enforce" };
-    println!("Protecting {} (mode={})", agent_name, mode);
+    let (wired, skipped): (Vec<_>, Vec<_>) = matched.iter().partition(|a| is_interceptable(a));
+
+    for a in &skipped {
+        eprintln!(
+            "NOT protecting '{}': Belay has no interception path for it \
+             (detected as '{}'). It is detected for reporting only; \
+             `belay protect` cannot gate this agent.",
+            a.name, a.interception
+        );
+    }
+
+    if wired.is_empty() {
+        // Nothing was wired. Exiting SUCCESS here is what previously told users
+        // they were covered when they were not.
+        return ExitCode::FAILURE;
+    }
+
+    for a in &wired {
+        println!("Protecting {} (mode={})", a.name, mode);
+    }
     ExitCode::SUCCESS
 }
 
@@ -253,6 +439,55 @@ pub fn run_unprotect(agent_name: &str, home: Option<&str>) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn agent_with(interception: &str) -> DetectedAgent {
+        DetectedAgent {
+            name: "test-agent".to_string(),
+            settings_paths: vec![],
+            risky_flags: vec![],
+            interception: interception.to_string(),
+            mcp_config_paths: vec![],
+            mcp_servers: vec![],
+            skills: vec![],
+            protected: false,
+        }
+    }
+
+    /// Every interception string that `protect()` actually has an arm for must
+    /// be reported as interceptable, and anything reaching the catch-all must
+    /// not be. If someone adds a new `protect()` arm without adding it here,
+    /// `belay protect` would silently claim to have wired an agent it skipped —
+    /// which is the exact defect this function exists to prevent.
+    #[test]
+    fn is_interceptable_matches_the_arms_protect_actually_has() {
+        for wired in [
+            "hook",
+            "mcp-proxy",
+            "hermes-hook",
+            "cursor-hook",
+            "exec-policy",
+            "opencode-plugin",
+        ] {
+            assert!(
+                is_interceptable(&agent_with(wired)),
+                "{wired} has a protect() arm"
+            );
+        }
+    }
+
+    /// `config-policy` is gemini and goose. They are detected for reporting
+    /// only; `protect()` falls through to its no-op catch-all. Reporting them
+    /// as protected told users they were covered when they were not.
+    #[test]
+    fn config_policy_agents_are_not_interceptable() {
+        assert!(
+            !is_interceptable(&agent_with("config-policy")),
+            "gemini/goose must never be reported as protected"
+        );
+        // A future unknown mechanism must also fail closed rather than being
+        // assumed wired.
+        assert!(!is_interceptable(&agent_with("some-future-mechanism")));
+    }
 
     #[test]
     fn resolve_hook_exe_requires_absolute_path() {
@@ -305,6 +540,103 @@ mod tests {
         // We exercise the guard via resolve_hook_exe (protect() uses it): a
         // relative-only resolution yields None → the ok_or_else Err branch.
         assert!(resolve_hook_exe(None, Some(PathBuf::from("belay"))).is_none());
+    }
+
+    /// Windows `canonicalize` returns a verbatim (`\\?\`) path, which no shell
+    /// can execute. Installing that as the hook command produces a Windows
+    /// install that looks protected and gates nothing — reported live on
+    /// v0.1.14 as "no alerts at all".
+    #[test]
+    fn a_verbatim_windows_path_is_normalised_for_the_hook() {
+        // Drive form.
+        assert_eq!(
+            strip_verbatim_prefix(r"\\?\C:\Program Files\Belay\belay.exe"),
+            r"C:\Program Files\Belay\belay.exe"
+        );
+        // UNC form becomes a real UNC path, not a broken literal.
+        assert_eq!(
+            strip_verbatim_prefix(r"\\?\UNC\server\share\belay.exe"),
+            r"\\server\share\belay.exe"
+        );
+        // No-ops.
+        assert_eq!(strip_verbatim_prefix(r"C:\Belay\belay.exe"), r"C:\Belay\belay.exe");
+        assert_eq!(strip_verbatim_prefix("/usr/local/bin/belay"), "/usr/local/bin/belay");
+
+        // End to end through the resolver, which is what protect() calls.
+        // Windows-only: the resolver gates on `Path::is_absolute`, and a
+        // `C:\`-rooted path is absolute on Windows but NOT on Unix, so this
+        // half can only be asserted where it actually runs.
+        #[cfg(windows)]
+        {
+            let got = resolve_hook_exe(
+                None,
+                Some(PathBuf::from(r"\\?\C:\Program Files\Belay\belay.exe")),
+            );
+            assert_eq!(got.as_deref(), Some(r"C:\Program Files\Belay\belay.exe"));
+
+            // And through the env override, which takes the other branch.
+            let got = resolve_hook_exe(Some(r"\\?\C:\tools\belay.exe".to_string()), None);
+            assert_eq!(got.as_deref(), Some(r"C:\tools\belay.exe"));
+        }
+    }
+
+    /// The self-test must FAIL for a hook that cannot execute. This is the
+    /// whole point: `resolve_hook_exe` already rejects the shapes it can prove
+    /// broken, and this catches the rest: a path that looks fine and is not.
+    ///
+    /// The Windows verbatim-path bug is the motivating case, and it is
+    /// reproduced here in the form that matters: a shell being handed a command
+    /// it cannot run. On Unix a `\\?\C:\…` path is simply a missing file, which
+    /// exercises the identical failure path (shell starts, command does not).
+    #[test]
+    fn the_self_test_fails_for_a_hook_that_cannot_execute() {
+        let broken = hook_command(r"\\?\C:\Program Files\Belay\belay.exe", "pretooluse");
+        let err = self_test_hook(&broken).expect_err("a non-executable hook must fail the probe");
+        assert!(!err.is_empty(), "failure must carry a reason");
+
+        // A path that does not exist at all, same expectation.
+        let missing = hook_command("/nonexistent/belay-does-not-exist", "pretooluse");
+        assert!(self_test_hook(&missing).is_err());
+    }
+
+    /// And it must PASS for a hook that answers properly, or it would cry wolf
+    /// on every install. Uses a stub that emits the real hook wire format, so
+    /// the assertion is about the contract rather than about our binary being
+    /// built in this test run.
+    #[test]
+    fn the_self_test_passes_for_a_hook_that_answers() {
+        // A shell one-liner standing in for the hook: consumes stdin and emits
+        // the PreToolUse allow payload the agent expects.
+        let ok = if cfg!(windows) {
+            r#"echo {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}"#
+                .to_string()
+        } else {
+            r#"cat >/dev/null; printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'"#
+                .to_string()
+        };
+        assert!(self_test_hook(&ok).is_ok(), "a well-behaved hook must pass");
+    }
+
+    /// A hook that starts, but answers with something that is not a decision,
+    /// is broken too: silence and garbage are equally unusable.
+    #[test]
+    fn the_self_test_rejects_a_non_answer() {
+        let empty = if cfg!(windows) { "cd ." } else { "cat >/dev/null" };
+        assert!(
+            self_test_hook(empty).is_err(),
+            "no output must not count as a pass"
+        );
+        let garbage = if cfg!(windows) { "echo hello" } else { "printf hello" };
+        assert!(self_test_hook(garbage).is_err(), "non-JSON must not pass");
+        let wrong_shape = if cfg!(windows) {
+            r#"echo {"ok":true}"#.to_string()
+        } else {
+            r#"printf '%s' '{"ok":true}'"#.to_string()
+        };
+        assert!(
+            self_test_hook(&wrong_shape).is_err(),
+            "JSON without a permission decision must not pass"
+        );
     }
 
     #[test]

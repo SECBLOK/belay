@@ -17,12 +17,14 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 /// A sent approval prompt we may need to "expire": its message id (a Discord
-/// snowflake, so a string), when it was sent, and the short summary line (kept
-/// so the expired message still shows which request died).
+/// snowflake, so a string), when it was sent, and the FULL rendered body.
+/// Editing a message replaces it, so anything not kept here is destroyed:
+/// keeping only the summary left the operator with "HIGH RISK - expired" and
+/// no rule, command or session to act on.
 struct SentPrompt {
     message_id: String,
     at: Instant,
-    summary: String,
+    body: String,
 }
 
 pub struct DiscordChannel {
@@ -215,7 +217,7 @@ impl ChannelAdapter for DiscordChannel {
                             SentPrompt {
                                 message_id: mid.to_string(),
                                 at: Instant::now(),
-                                summary: req.summary.clone(),
+                                body: text.clone(),
                             },
                         );
                     }
@@ -269,9 +271,10 @@ impl ChannelAdapter for DiscordChannel {
                     "{}/channels/{}/messages/{}",
                     self.api_base, self.channel_id, p.message_id
                 );
+                // Append, never replace: the operator needs to know WHAT expired.
                 let content = format!(
-                    "🛡️ Belay approval\n{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
-                    p.summary
+                    "{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
+                    p.body
                 );
                 let _ = self
                     .http
@@ -337,7 +340,7 @@ impl ChannelAdapter for DiscordChannel {
                             "{}/channels/{}/messages/{}",
                             self.api_base, self.channel_id, p.message_id
                         );
-                        let content = format!("🛡️ Belay approval\n{}{mark}", p.summary);
+                        let content = format!("{}{mark}", p.body);
                         let _ = self
                             .http
                             .patch(&edit)

@@ -46,6 +46,7 @@ async fn put_json(app: &axum::Router, path: &str, body: &str) -> (StatusCode, Va
         .method("PUT")
         .uri(path)
         .header("content-type", "application/json")
+        .header("Sec-Fetch-Site", "same-origin")
         .body(Body::from(body.to_owned()))
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -209,7 +210,10 @@ async fn host_scan_schedule_put_persists() {
 // ── Mutation routes ───────────────────────────────────────────────────────────
 
 async fn send(app: &axum::Router, method: &str, path: &str, body: Option<&str>) -> StatusCode {
-    let mut b = Request::builder().method(method).uri(path);
+    let mut b = Request::builder()
+        .method(method)
+        .uri(path)
+        .header("Sec-Fetch-Site", "same-origin");
     let req = match body {
         Some(s) => {
             b = b.header("content-type", "application/json");
@@ -312,6 +316,7 @@ async fn host_scan_eicar_returns_malicious_finding() {
     let req = Request::builder()
         .method("POST")
         .uri("/api/host/scan")
+        .header("Sec-Fetch-Site", "same-origin")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -335,6 +340,7 @@ async fn post_json(app: &axum::Router, path: &str) -> (StatusCode, Value) {
     let req = Request::builder()
         .method("POST")
         .uri(path)
+        .header("Sec-Fetch-Site", "same-origin")
         .body(Body::empty())
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();

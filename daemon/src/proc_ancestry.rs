@@ -151,15 +151,13 @@ fn walk_ancestry(ancestor: u32, pid: u32, lookup: impl Fn(u32) -> Option<u32>) -
         if current <= 1 {
             return Some(false);
         }
-        match lookup(current) {
-            Some(parent) => {
-                if parent == ancestor {
-                    return Some(true);
-                }
-                current = parent;
-            }
-            None => return None, // read failed mid-walk — inconclusive, fail open
+        // `?` propagates the None: a read that failed mid-walk is inconclusive,
+        // which fails open. Same behaviour as the match it replaces.
+        let parent = lookup(current)?;
+        if parent == ancestor {
+            return Some(true);
         }
+        current = parent;
     }
     // Bound exhausted without reaching <=1 or a match: treat as "not found"
     // rather than "inconclusive" — we got clean answers the whole way, we

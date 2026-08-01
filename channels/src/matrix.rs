@@ -21,12 +21,14 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 /// A sent approval prompt we may need to "expire" (or acknowledge): its original
-/// event id (to target an m.replace edit), when it was sent, and the short
-/// summary line (kept so the rewritten message still shows which request it was).
+/// event id (to target an m.replace edit), when it was sent, and
+/// the FULL rendered body. Editing a message REPLACES it, so anything not
+/// kept here is destroyed: keeping only the summary left the operator with
+/// "HIGH RISK - expired" and no rule, command or session to act on.
 struct SentPrompt {
     event_id: String,
     at: Instant,
-    summary: String,
+    body: String,
 }
 
 pub struct MatrixChannel {
@@ -164,7 +166,7 @@ impl ChannelAdapter for MatrixChannel {
                             SentPrompt {
                                 event_id: eid.to_string(),
                                 at: Instant::now(),
-                                summary: req.summary.clone(),
+                                body: text.clone(),
                             },
                         );
                     }
@@ -216,9 +218,10 @@ impl ChannelAdapter for MatrixChannel {
                 Err(_) => Vec::new(),
             };
             for (nonce, p) in stale {
+                // Append, never replace: the operator needs to know WHAT expired.
                 let text = format!(
-                    "🛡️ Belay approval\n{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
-                    p.summary
+                    "{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
+                    p.body
                 );
                 // Fresh txn id: the nonce was already consumed by the original send.
                 self.edit_prompt(&p.event_id, &format!("{nonce}-exp"), &text)
@@ -302,7 +305,7 @@ impl ChannelAdapter for MatrixChannel {
                     } else {
                         "\n\n⛔ You pressed Deny."
                     };
-                    let text = format!("🛡️ Belay approval\n{}{mark}", p.summary);
+                    let text = format!("{}{mark}", p.body);
                     self.edit_prompt(&p.event_id, &format!("{nonce}-ack"), &text)
                         .await;
                 }

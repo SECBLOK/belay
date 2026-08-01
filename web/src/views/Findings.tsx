@@ -53,6 +53,11 @@ function outcomeWord(v: string): MessageDescriptor {
 export default function Findings() {
   const { t } = useLingui();
   const [rows, setRows] = useState<Finding[]>([]);
+  // A failed load must never render as "0 findings" - that reads as a
+  // genuinely clean audit log, which is exactly the wrong confusion for a
+  // security product. See FleetUnavailable/PostureUnavailable for the same
+  // silent-failure class this follows.
+  const [err, setErr] = useState<string | null>(null);
   const [verdicts, setVerdicts] = useState<Set<string>>(new Set());
   const [tool, setTool] = useState("");
   const [q, setQ] = useState("");
@@ -62,7 +67,14 @@ export default function Findings() {
 
   useEffect(() => {
     let live = true;
-    const load = () => getFindings().then((d) => { if (live) setRows(Array.isArray(d) ? d : []); });
+    // A later success clears the error, so a transient blip does not strand
+    // the tab; a persistent failure keeps saying so rather than rendering an
+    // ambiguous "no findings".
+    const load = () => getFindings()
+      .then((d) => { if (live) { setRows(Array.isArray(d) ? d : []); setErr(null); } })
+      .catch((e: unknown) => {
+        if (live) setErr(String((e as { message?: string })?.message ?? e));
+      });
     load();
     const stop = streamAudit(() => load());
     return () => { live = false; stop(); };
@@ -107,6 +119,20 @@ export default function Findings() {
   const clearAll = () => { setVerdicts(new Set()); setTool(""); setQ(""); };
   const RENDER_CAP = 300;
   const shown = filtered.slice(0, RENDER_CAP);
+
+  if (err) {
+    return (
+      <div className="p-6">
+        <div
+          className="rounded-xl px-5 py-6 text-sm text-[#636366] space-y-1"
+          style={{ background: "#F5F5F7", border: "1px solid rgba(0,0,0,0.08)" }}
+        >
+          <p className="text-[#1C1C1E] font-medium"><Trans>Could not load findings</Trans></p>
+          <p className="font-mono text-xs text-[var(--text-tertiary)]">{err}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-3">

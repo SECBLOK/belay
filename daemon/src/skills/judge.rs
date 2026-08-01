@@ -112,18 +112,29 @@ fn user_prompt(skill_md: &str, findings: &[skillscan::finding::SkillFinding]) ->
 
 /// Core judge call shared by both entry points: builds the prompts, calls
 /// the client under `timeout`, and strictly parses the response. Fails soft
-/// to `None` on a timeout, a provider error, or a response that doesn't
-/// parse into the exact `SkillJudgeRaw` schema — same fail-closed shape as
-/// the (now-callers-only) enabled-flag checks. Deliberately does NOT check
-/// any enabled flag itself: that's the callers' job, so each entry point can
-/// gate on its own independent opt-in before ever reaching the network call.
+/// to `None` on the daily AI call budget being exhausted
+/// (`crate::ai::budget`), a timeout, a provider error, or a response that
+/// doesn't parse into the exact `SkillJudgeRaw` schema -- same fail-closed
+/// shape as the (now-callers-only) enabled-flag checks. Deliberately does
+/// NOT check any enabled flag itself: that's the callers' job, so each
+/// entry point can gate on its own independent opt-in before ever reaching
+/// the network call.
 async fn judge_skill_inner<C: AiClient>(
     client: &C,
-    _cfg: &AiConfig,
+    cfg: &AiConfig,
     skill_md: &str,
     findings: &[skillscan::finding::SkillFinding],
     timeout: Duration,
 ) -> Option<SkillJudgeResult> {
+    // Spend-ceiling gate, shared with `ai::explain::ai_explain` (one daily
+    // budget across the whole BYOK layer, not one per task). `false` here
+    // degrades exactly like a timeout or a provider error below: `None`,
+    // which every caller of this fn already treats as "no opinion, keep the
+    // static verdict" -- never a way to clear a gate.
+    if !crate::ai::budget::allow_call(cfg) {
+        return None;
+    }
+
     let system = system_prompt();
     let user = user_prompt(skill_md, findings);
 
@@ -589,5 +600,106 @@ mod tests {
         let cfg = enabled_gate_cfg();
         let out = judge_skill_gate(&client, &cfg, "skill body", &[]).await;
         assert_eq!(out, None);
+    }
+
+    // ── Spend ceiling (`crate::ai::budget`) wiring ──────────────────────────
+    //
+    // Mirrors `ai::explain::tests`' budget wiring tests: these exercise the
+    // PRODUCTION `crate::ai::budget::allow_call` seam through
+    // `crate::ai::budget::TestBudgetPathGuard`, a thread-local override that
+    // points `allow_call`/`status` at a private temp file for the guard's
+    // lifetime rather than the real `~/.belay/ai_budget.json`. A plain lock
+    // around the real file is not enough here: other, unrelated pre-existing
+    // tests in this crate exercise real production AI config (there's no
+    // path-injection seam on `AiConfig::load_default()` by design) and don't
+    // know to respect any such lock. A `#[tokio::test]`'s whole body (default
+    // `current_thread` flavor) runs on one OS thread, so the override is
+    // invisible to every other concurrently-running test. Deep coverage of
+    // the cap logic itself lives in `crate::ai::budget`'s own tests; these
+    // prove the WIRING into `judge_skill_inner`.
+
+    #[tokio::test]
+    async fn budget_under_cap_allows_the_judge_call() {
+        let path = crate::ai::budget::unique_temp_path_for_test("judge-under-cap");
+        let _guard = crate::ai::budget::TestBudgetPathGuard::set(path.clone());
+
+        let cfg = AiConfig {
+            max_ai_calls_per_day: 5,
+            ..enabled_cfg()
+        };
+        let client = StubClient::ok(r#"{"verdict":"uncertain","reason":"x"}"#);
+        let out = judge_skill(&client, &cfg, "skill body", &[]).await;
+        assert!(out.is_some(), "a call well under the cap must succeed normally");
+
+        drop(_guard);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn budget_cap_reached_degrades_to_none_without_hitting_the_client() {
+        let path = crate::ai::budget::unique_temp_path_for_test("judge-at-cap");
+        let _guard = crate::ai::budget::TestBudgetPathGuard::set(path.clone());
+
+        let cfg = AiConfig {
+            max_ai_calls_per_day: 1,
+            ..enabled_cfg()
+        };
+
+        // First call: exactly at the cap, must succeed and consume the
+        // single slot for today.
+        let client1 = StubClient::ok(r#"{"verdict":"uncertain","reason":"x"}"#);
+        let out1 = judge_skill(&client1, &cfg, "skill body", &[]).await;
+        assert!(out1.is_some(), "the first call, exactly at the cap, must still succeed");
+
+        // Second call, same day: budget exhausted. Must degrade to `None`
+        // (the same no-AI fallback a timeout/provider-error/disabled-flag
+        // takes -- callers already treat that as "no opinion, keep the
+        // static verdict"), and never even reach the client.
+        let client2 = StubClient::panics_if_called();
+        let out2 = judge_skill(&client2, &cfg, "skill body", &[]).await;
+        assert_eq!(
+            out2, None,
+            "a call at/over the daily budget must degrade to no-AI, not panic, hang, or allow"
+        );
+        assert!(
+            !client2.called.load(std::sync::atomic::Ordering::SeqCst),
+            "client.complete must not be called once the daily AI call budget is exhausted"
+        );
+
+        drop(_guard);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn budget_is_shared_between_watcher_and_gate_entry_points() {
+        // One daily budget across the WHOLE BYOK layer, not one allowance
+        // per entry point: the watcher (`judge_skill`) and the gate
+        // (`judge_skill_gate`) both funnel through the same
+        // `judge_skill_inner`, so usage on one must be visible to the other.
+        let path = crate::ai::budget::unique_temp_path_for_test("judge-shared-budget");
+        let _guard = crate::ai::budget::TestBudgetPathGuard::set(path.clone());
+
+        let cfg = AiConfig {
+            mode: AiMode::Local,
+            skill_judge_enabled: true,
+            skill_judge_gate_enabled: true,
+            max_ai_calls_per_day: 1,
+            ..AiConfig::default()
+        };
+
+        let watcher_client = StubClient::ok(r#"{"verdict":"uncertain","reason":"x"}"#);
+        let watcher_out = judge_skill(&watcher_client, &cfg, "skill body", &[]).await;
+        assert!(watcher_out.is_some(), "watcher call under the cap succeeds");
+
+        let gate_client = StubClient::panics_if_called();
+        let gate_out = judge_skill_gate(&gate_client, &cfg, "skill body", &[]).await;
+        assert_eq!(
+            gate_out, None,
+            "the gate path must be blocked by the watcher path's budget usage -- one shared cap"
+        );
+        assert!(!gate_client.called.load(std::sync::atomic::Ordering::SeqCst));
+
+        drop(_guard);
+        let _ = std::fs::remove_file(&path);
     }
 }

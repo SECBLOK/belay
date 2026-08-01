@@ -9,6 +9,7 @@ pub mod integrity;
 pub mod rule_i18n;
 pub mod rules;
 pub mod self_tamper;
+pub mod shell_spawn;
 pub mod trust;
 pub mod types;
 
@@ -51,6 +52,7 @@ pub fn evaluate_event_with_egress(
                     owasp: None,
                     atlas: None,
                     explain: None,
+                    ask_rules: Vec::new(),
                 };
             }
             if is_sensitive_read_path(&ev.detail) {
@@ -64,6 +66,7 @@ pub fn evaluate_event_with_egress(
                     owasp: None,
                     atlas: None,
                     explain: None,
+                    ask_rules: Vec::new(),
                 };
             }
             allow()
@@ -93,6 +96,7 @@ pub fn evaluate_event_with_egress(
                 owasp: None,
                 atlas: None,
                 explain: None,
+                ask_rules: Vec::new(),
             }
         }
         EventKind::TlsWrite => {
@@ -127,6 +131,7 @@ pub fn evaluate_event_with_egress(
                 owasp: None,
                 atlas: None,
                 explain: None,
+                ask_rules: Vec::new(),
             }
         }
         EventKind::Exec => allow(),
@@ -145,6 +150,7 @@ pub fn evaluate_event_with_egress(
                     owasp: None,
                     atlas: None,
                     explain: None,
+                    ask_rules: Vec::new(),
                 };
             }
             allow()
@@ -222,6 +228,7 @@ fn allow() -> Verdict {
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: Vec::new(),
     }
 }
 

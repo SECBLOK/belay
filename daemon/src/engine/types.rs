@@ -68,6 +68,20 @@ pub struct Verdict {
     /// Curated plain-English explanation of the winning rule (if authored).
     #[serde(default)]
     pub explain: Option<Explain>,
+    /// Ids of the rules that specifically contributed an **Ask** to this
+    /// verdict — a subset of `rules`.
+    ///
+    /// Load-bearing for rule-scoped deny mutes: a mute may auto-deny a call
+    /// only when EVERY Ask-contributing rule is muted. Matching on
+    /// `primary_rule` alone would let a muted noisy rule mask a second,
+    /// un-muted, more serious finding that fired on the same call — the
+    /// action would still be blocked, but the operator would never learn the
+    /// attack shape had escalated.
+    ///
+    /// Additive on the wire (`skip_serializing_if`) so older clients and
+    /// golden fixtures are unaffected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ask_rules: Vec<String>,
 }
 
 /// A single past verdict with the unix-seconds timestamp it occurred at.

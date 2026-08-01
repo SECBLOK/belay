@@ -61,4 +61,22 @@ describe("HostSkills", () => {
       expect(api.approveSkill).toHaveBeenCalledWith("/home/u/.claude/skills/sketchy"),
     );
   });
+
+  // doApprove was a try/finally with no catch: a rejected approveSkill left
+  // the button re-enabled with no error, indistinguishable from the click
+  // doing nothing.
+  it("a failed approve shows an error and leaves the button usable", async () => {
+    vi.mocked(api.approveSkill).mockRejectedValue(new Error("permission denied"));
+    render(<HostSkills />);
+    await waitFor(() => expect(screen.getByText("greeter")).toBeTruthy());
+
+    const approveBtn = screen.getByRole("button", { name: /approve fresh/i });
+    fireEvent.click(approveBtn);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("skill-approve-error").textContent).toMatch(/permission denied/),
+    );
+    // Row still shows "unbaselined" (no optimistic flip) and stays retryable.
+    expect(screen.getByRole("button", { name: /approve fresh/i }).hasAttribute("disabled")).toBe(false);
+  });
 });

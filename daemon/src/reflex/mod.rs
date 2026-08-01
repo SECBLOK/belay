@@ -198,6 +198,7 @@ mod tests {
             owasp: None,
             atlas: None,
             explain: None,
+            ask_rules: Vec::new(),
         }
     }
     fn benign() -> Verdict {
@@ -211,6 +212,7 @@ mod tests {
             owasp: None,
             atlas: None,
             explain: None,
+            ask_rules: Vec::new(),
         }
     }
     fn ev() -> ObservedEvent {

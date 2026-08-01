@@ -138,12 +138,19 @@ export interface ResolveResult {
   decision?: "allow" | "deny";
   requested?: "allow" | "deny";
   self_approval_blocked?: boolean;
+  // Set only when the request carried scope:"rule" (see respond_local):
+  // `mute` is the rule id that got muted; `mute_refused` is a machine reason
+  // code (rule_not_mutable | severity_critical | cap_reached |
+  // self_approval_detected | scope_rule_requires_deny | lock_poisoned) when
+  // the daemon declined to install one.
+  mute?: string | null;
+  mute_refused?: string | null;
   error?: string;
 }
 export const resolve = (
   id: string,
   decision: "allow" | "deny",
-  scope: "once" | "always" = "once",
+  scope: "once" | "always" | "rule" = "once",
 ): Promise<ResolveResult> =>
   isTauri()
     ? ipc.resolve(id, decision, scope)
@@ -151,6 +158,25 @@ export const resolve = (
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ decision, scope }),
       }).then((r) => r.json());
+
+// ── Rule-scoped deny mutes (desktop app; owner-gated daemon IPC) ─────────────
+// A temporary, reversible promotion of one catalog rule from Ask to Deny,
+// installed via `resolve(id, "deny", "rule")`. Desktop-only: the browser
+// console has no daemon socket, so these degrade to an empty/no-op state
+// rather than throwing.
+export interface DenyMuteRow {
+  rule: string;
+  installed_ms: number;
+  expires_ms: number;
+  origin: "local" | "auto";
+  hits: number;
+}
+export const getDenyMutes = (): Promise<DenyMuteRow[]> =>
+  isTauri() ? ipc.getDenyMutes() : Promise.resolve([]);
+export const revokeDenyMute = (rule: string): Promise<{ ok: boolean; removed: boolean }> =>
+  isTauri() ? ipc.revokeDenyMute(rule) : Promise.resolve({ ok: false, removed: false });
+export const revokeAllDenyMutes = (): Promise<{ ok: boolean; removed: number }> =>
+  isTauri() ? ipc.revokeAllDenyMutes() : Promise.resolve({ ok: false, removed: 0 });
 export const getEgress = () =>
   isTauri() ? ipc.getEgress() : j("/api/egress");
 // Shell-out commands — only available in the desktop app.

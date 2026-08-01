@@ -96,4 +96,43 @@ describe("FilesScan", () => {
     fireEvent.click(screen.getByText("Scan now"));
     await waitFor(() => expect(api.runHostScan).toHaveBeenCalledWith({ quick: true }));
   });
+
+  // QuarantineList's Restore/Delete used to be a try/finally with no catch:
+  // a rejected restoreQuarantine left the spinner running-then-stopping with
+  // no visible error - indistinguishable from the click doing nothing.
+  it("a failed restore shows an error and leaves the row usable for another try", async () => {
+    vi.mocked(api.restoreQuarantine).mockRejectedValue(new Error("daemon unreachable"));
+    render(<FilesScan />);
+    await waitFor(() => expect(screen.getAllByText(/evil\.sh/i).length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("button", { name: /^restore$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /yes, restore/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("quarantine-row-error").textContent).toMatch(/daemon unreachable/),
+    );
+    // The row is still here and Restore is still clickable (not stuck busy).
+    expect(screen.getAllByText(/evil\.sh/i).length).toBeGreaterThan(0);
+    const restoreBtn = screen.getByRole("button", { name: /^restore$/i });
+    expect(restoreBtn.hasAttribute("disabled")).toBe(false);
+  });
+
+  // ScheduleCard's Save schedule had the same try/finally-no-catch shape: on
+  // failure there was no success message and no error, so it looked like
+  // nothing happened.
+  it("a failed schedule save shows an error instead of looking like a no-op", async () => {
+    vi.mocked(api.setSchedule).mockRejectedValue(new Error("permission denied"));
+    render(<FilesScan />);
+    await waitFor(() => expect(screen.getByText("Off")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Daily"));
+    fireEvent.click(screen.getByText("Save schedule"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("schedule-save-error").textContent).toMatch(/permission denied/),
+    );
+    expect(screen.queryByText("Schedule saved.")).toBeNull();
+    // Still retryable.
+    expect(screen.getByText("Save schedule")).toBeTruthy();
+  });
 });

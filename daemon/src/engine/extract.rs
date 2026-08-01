@@ -70,7 +70,7 @@
 //!   `grep`, "bash" is merely `grep`'s search-pattern argument, not a pipe
 //!   target — extracts nothing.
 //!
-//! See `heredoc_destination_is_interpreter` and
+//! See `heredoc_destination_interpreter_word` and
 //! `position_is_interpreter_command_word` below, and
 //! `bypass_corpus::false_positive_guards` for the regression pins.
 //!
@@ -166,6 +166,43 @@ use super::canonicalize::{self, Piece};
 pub(crate) struct ExtractedBody {
     pub(crate) text: String,
     pub(crate) shape: &'static str,
+    pub(crate) language: BodyLanguage,
+}
+
+/// Which family of syntax an extracted body's text actually is.
+///
+/// This exists because Belay's rule patterns are shaped for BASH syntax.
+/// A [`Shell`](BodyLanguage::Shell) body (a `bash`/`sh`/`zsh`/`dash -c`
+/// argument, a heredoc destined for one of those, or a resolved `.sh`-style
+/// script file) genuinely IS bash source, so the existing bash-oriented
+/// masking (`data_region::mask_data_regions`) is the right and only tool.
+///
+/// A [`NonShell`](BodyLanguage::NonShell) body (Python/Node/Ruby/Perl) is
+/// NOT bash syntax at all — none of the bash-shaped command_regex/
+/// path_glob_regex patterns have any real business matching it, and can
+/// only ever match by accident, when the file's own string literals happen
+/// to contain text that LOOKS like a dangerous bash command (a test
+/// fixture, a doc string, a piece of embedded documentation). See
+/// `data_region::mask_non_shell_string_literals` and
+/// `docs/research/2026-07-26-script-body-prose-masking.md` for the
+/// incident this distinction exists to fix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BodyLanguage {
+    Shell,
+    NonShell,
+}
+
+/// Classifies an already-recognized interpreter word (one for which
+/// [`is_recognized_interpreter`] or [`is_script_exec_interpreter`] already
+/// returned `true`) as [`Shell`](BodyLanguage::Shell) or
+/// [`NonShell`](BodyLanguage::NonShell).
+pub(crate) fn interpreter_language(word: &str) -> BodyLanguage {
+    let lower = word.to_ascii_lowercase();
+    if matches!(lower.as_str(), "bash" | "sh" | "zsh" | "dash") {
+        BodyLanguage::Shell
+    } else {
+        BodyLanguage::NonShell
+    }
 }
 
 /// Bodies-per-command cap: stop extracting once this many bodies have been
@@ -207,7 +244,7 @@ pub(crate) fn extract_bodies(masked: &str) -> Vec<ExtractedBody> {
 /// passed to `split_top_level_segments`, so its start pointer always sits at
 /// or after that string's own start pointer within the same allocation).
 /// Keeping delimiters (not just segments) is what lets
-/// `heredoc_destination_is_interpreter` tell a `|` pipe-target delimiter
+/// `heredoc_destination_interpreter_word` tell a `|` pipe-target delimiter
 /// apart from `;`/`&&`/newline.
 struct ScopedPiece<'a> {
     text: &'a str,
@@ -327,7 +364,14 @@ fn eval_re() -> &'static regex::Regex {
 fn extract_inline_bodies(s: &str, bodies: &mut Vec<ExtractedBody>) {
     let bytes = s.as_bytes();
     let pieces = scoped_pieces(s);
-    for re in [shell_c_re(), python_c_re(), node_e_re(), eval_re()] {
+    // `shell_c_re`/`eval_re` bodies genuinely ARE bash source; `python_c_re`/
+    // `node_e_re` bodies are not — see `BodyLanguage`.
+    for (re, language) in [
+        (shell_c_re(), BodyLanguage::Shell),
+        (python_c_re(), BodyLanguage::NonShell),
+        (node_e_re(), BodyLanguage::NonShell),
+        (eval_re(), BodyLanguage::Shell),
+    ] {
         for caps in re.captures_iter(s) {
             if bodies.len() >= MAX_BODIES {
                 return;
@@ -377,6 +421,7 @@ fn extract_inline_bodies(s: &str, bodies: &mut Vec<ExtractedBody>) {
             bodies.push(ExtractedBody {
                 text,
                 shape: "inline_interpreter",
+                language,
             });
         }
     }
@@ -518,39 +563,39 @@ fn is_python_word(lower: &str) -> bool {
 /// segment's command word is `grep`; `bash` is merely `grep`'s argument, not
 /// a pipe target — matches neither shape, so this returns `false`, closing
 /// the false positive naive token-before-`<<` scanning had.
-fn heredoc_destination_is_interpreter(pieces: &[ScopedPiece<'_>], open_pos: usize) -> bool {
-    let Some(k) = pieces
+/// Returns the interpreter word when the heredoc's destination is a
+/// recognized interpreter, so the caller can both gate extraction on
+/// `.is_some()` and classify the body's [`BodyLanguage`] (`bash <<EOF` is
+/// Shell; `python3 <<EOF` is NonShell) from the same lookup.
+fn heredoc_destination_interpreter_word(
+    pieces: &[ScopedPiece<'_>],
+    open_pos: usize,
+) -> Option<String> {
+    let k = pieces
         .iter()
-        .position(|p| p.is_segment && open_pos >= p.start && open_pos < p.start + p.text.len())
-    else {
-        return false;
-    };
-    let Some(word) = segment_command_word(pieces[k].text) else {
-        return false;
-    };
+        .position(|p| p.is_segment && open_pos >= p.start && open_pos < p.start + p.text.len())?;
+    let word = segment_command_word(pieces[k].text)?;
     if is_recognized_interpreter(&word) {
-        return true;
+        return Some(word);
     }
     if !word.eq_ignore_ascii_case("cat") {
-        return false;
+        return None;
     }
     // Pipe-target shape: the piece immediately after this segment must be a
     // literal `|` delimiter (never `;`/`&&`/newline — those start a new,
     // unrelated command, not a pipe target), and the piece after *that* must
     // be a segment whose own command word is the real interpreter.
-    let (Some(delim), Some(next_seg)) = (pieces.get(k + 1), pieces.get(k + 2)) else {
-        return false;
-    };
+    let (delim, next_seg) = (pieces.get(k + 1)?, pieces.get(k + 2)?);
     if delim.is_segment || delim.text != "|" || !next_seg.is_segment {
-        return false;
+        return None;
     }
-    segment_command_word(next_seg.text)
-        .is_some_and(|w| is_recognized_interpreter(&w))
+    let next_word = segment_command_word(next_seg.text)?;
+    is_recognized_interpreter(&next_word).then_some(next_word)
 }
 
 /// Runs the heredoc-open detector over `s`, and for each match whose
 /// destination is a recognized interpreter (position-scoped — see
-/// [`heredoc_destination_is_interpreter`]), locates the body via
+/// [`heredoc_destination_interpreter_word`]), locates the body via
 /// [`find_heredoc_body`] and pushes it (shape `"heredoc"`). A heredoc whose
 /// destination is neither shape — most notably one redirected to a file
 /// (`cat <<EOF > install.sh`), or one destined for a non-interpreter command
@@ -576,9 +621,11 @@ fn extract_heredoc_bodies(s: &str, bodies: &mut Vec<ExtractedBody>) {
             continue;
         }
 
-        if !heredoc_destination_is_interpreter(&pieces, whole.start()) {
+        let Some(interp_word) = heredoc_destination_interpreter_word(&pieces, whole.start())
+        else {
             continue;
-        }
+        };
+        let language = interpreter_language(&interp_word);
 
         let line_end = s[whole.end()..]
             .find('\n')
@@ -599,6 +646,7 @@ fn extract_heredoc_bodies(s: &str, bodies: &mut Vec<ExtractedBody>) {
         bodies.push(ExtractedBody {
             text: body_text.to_string(),
             shape: "heredoc",
+            language,
         });
     }
 }
@@ -741,23 +789,71 @@ fn is_known_value_flag(interpreter: &str, flag: &str) -> bool {
 /// Detects one of the three recognized "executing a script file" segment
 /// shapes (design doc, "What counts as executing a script file") and returns
 /// the literal file-argument token as written in the segment (not yet
-/// resolved to a filesystem path). `None` when this segment doesn't execute a
-/// file at all — either not script-exec shaped, or an inline
-/// `-c`/`-e`/`--eval` body that belongs to the sibling inline-body feature
-/// instead (form 1 explicitly steps aside for it: "FILE is the first
-/// non-flag operand that is not itself a `-c`/`-e`/`--eval` inline body").
-fn detect_script_exec_file(seg: &str) -> Option<String> {
+/// resolved to a filesystem path), plus the interpreter word when the
+/// segment itself names one (form 1: `interp FILE`) — `None` for that second
+/// element on forms 2/3, where the interpreter isn't named in the invoking
+/// command at all (`. FILE`/`source FILE` always runs as the current shell,
+/// so it's unambiguously [`BodyLanguage::Shell`]; a direct `./x.sh` needs its
+/// own shebang line sniffed by the caller once the file is read).
+///
+/// `None` (outer) when this segment doesn't execute a file at all — either
+/// not script-exec shaped, or an inline `-c`/`-e`/`--eval` body that belongs
+/// to the sibling inline-body feature instead (form 1 explicitly steps aside
+/// for it: "FILE is the first non-flag operand that is not itself a
+/// `-c`/`-e`/`--eval` inline body").
+/// Classifies a resolved script file's language from its own first-line
+/// shebang (`#!/usr/bin/env python3`, `#!/bin/bash`, ...), for the one case
+/// (form 3, direct execution — `./x.sh`) where the invoking Bash command
+/// names no interpreter at all; the OS itself resolves the real interpreter
+/// this way. Defaults to [`BodyLanguage::Shell`] when there is no shebang, an
+/// unrecognized one, or the line can't be read — the pre-existing behavior,
+/// so this can only ever ADD `NonShell` classification for a script this
+/// module already resolves, never remove existing Shell-path coverage.
+fn shebang_language(text: &str) -> BodyLanguage {
+    let Some(first_line) = text.lines().next() else {
+        return BodyLanguage::Shell;
+    };
+    let Some(rest) = first_line.strip_prefix("#!") else {
+        return BodyLanguage::Shell;
+    };
+    // `#!/usr/bin/env python3` (the common form) or a direct
+    // `#!/usr/bin/python3` — either way, the interpreter word is the last
+    // `/`-separated component of the first token.
+    let Some(first_token) = rest.split_whitespace().next() else {
+        return BodyLanguage::Shell;
+    };
+    let word = first_token.rsplit('/').next().unwrap_or(first_token);
+    let word = if word == "env" {
+        match rest.split_whitespace().nth(1) {
+            Some(w) => w,
+            None => return BodyLanguage::Shell,
+        }
+    } else {
+        word
+    };
+    if is_recognized_interpreter(word) {
+        interpreter_language(word)
+    } else {
+        BodyLanguage::Shell
+    }
+}
+
+fn detect_script_exec_file(seg: &str) -> Option<(String, Option<String>)> {
     let (cmd, args) = segment_command_and_args(seg)?;
 
     // Form 3: direct execution — the command word IS the file (contains a
     // `/`: `./x.sh`, `../tools/x.sh`, `/abs/x.sh`, `dir/x.sh`).
     if cmd.contains('/') {
-        return Some(cmd);
+        return Some((cmd, None));
     }
 
-    // Form 2: sourced file — `. FILE` / `source FILE`.
+    // Form 2: sourced file — `. FILE` / `source FILE`. Always the current
+    // shell's own syntax, never a non-shell interpreter.
     if cmd == "." || cmd.eq_ignore_ascii_case("source") {
-        return args.into_iter().find(|a| looks_like_file_operand(a));
+        return args
+            .into_iter()
+            .find(|a| looks_like_file_operand(a))
+            .map(|f| (f, Some("sh".to_string())));
     }
 
     // Form 1: interpreter + file — the first non-flag, non-redirection
@@ -782,7 +878,7 @@ fn detect_script_exec_file(seg: &str) -> Option<String> {
                 continue;
             }
             if looks_like_file_operand(a) {
-                return Some(a.clone());
+                return Some((a.clone(), Some(cmd)));
             }
             i += 1;
         }
@@ -884,7 +980,7 @@ pub(crate) fn resolve_script_files(masked: &str, cwd: Option<&str>) -> Vec<Extra
         if !piece.is_segment {
             continue;
         }
-        let Some(file_token) = detect_script_exec_file(piece.text) else {
+        let Some((file_token, interp_word)) = detect_script_exec_file(piece.text) else {
             continue;
         };
         let Some(path) = resolve_path(&file_token, cwd) else {
@@ -893,9 +989,21 @@ pub(crate) fn resolve_script_files(masked: &str, cwd: Option<&str>) -> Vec<Extra
         let Some(text) = read_bounded_script(&path) else {
             continue;
         };
+        // Form 1 (`interp FILE`) names the interpreter directly. Form 2
+        // (`. FILE`/`source FILE`) is hard-coded to "sh" above — always the
+        // current shell. Form 3 (direct exec, `./x.sh`) names no interpreter
+        // at all; the OS resolves it from the file's own shebang line, so
+        // sniff that instead of guessing. Absent/unrecognized shebang
+        // defaults to Shell — the pre-existing behavior, so this can only
+        // ADD non-shell classification, never remove Shell-path coverage.
+        let language = match interp_word {
+            Some(word) => interpreter_language(&word),
+            None => shebang_language(&text),
+        };
         bodies.push(ExtractedBody {
             text,
             shape: "script_file",
+            language,
         });
     }
     bodies
@@ -1227,19 +1335,19 @@ mod script_file_shape_tests {
 
     #[test]
     fn interpreter_plus_file_detected() {
-        assert_eq!(detect_script_exec_file("bash x.sh").as_deref(), Some("x.sh"));
+        assert_eq!(detect_script_exec_file("bash x.sh").map(|(f, _)| f).as_deref(), Some("x.sh"));
         assert_eq!(
-            detect_script_exec_file("python3 deploy.py").as_deref(),
+            detect_script_exec_file("python3 deploy.py").map(|(f, _)| f).as_deref(),
             Some("deploy.py")
         );
-        assert_eq!(detect_script_exec_file("node build.js").as_deref(), Some("build.js"));
-        assert_eq!(detect_script_exec_file("ruby run.rb").as_deref(), Some("run.rb"));
-        assert_eq!(detect_script_exec_file("perl run.pl").as_deref(), Some("run.pl"));
+        assert_eq!(detect_script_exec_file("node build.js").map(|(f, _)| f).as_deref(), Some("build.js"));
+        assert_eq!(detect_script_exec_file("ruby run.rb").map(|(f, _)| f).as_deref(), Some("run.rb"));
+        assert_eq!(detect_script_exec_file("perl run.pl").map(|(f, _)| f).as_deref(), Some("run.pl"));
     }
 
     #[test]
     fn interpreter_with_flags_before_file_detected() {
-        assert_eq!(detect_script_exec_file("bash -x script.sh").as_deref(), Some("script.sh"));
+        assert_eq!(detect_script_exec_file("bash -x script.sh").map(|(f, _)| f).as_deref(), Some("script.sh"));
     }
 
     // ---- value-taking interpreter flags: the flag's VALUE must not defeat
@@ -1251,27 +1359,27 @@ mod script_file_shape_tests {
         // token (`ignore`, `lib`, `./pre`, `lib`, `myrc`) as if it were the
         // script — the real trailing file was never resolved/scanned.
         assert_eq!(
-            detect_script_exec_file("python -W ignore evil.py").as_deref(),
+            detect_script_exec_file("python -W ignore evil.py").map(|(f, _)| f).as_deref(),
             Some("evil.py")
         );
         assert_eq!(
-            detect_script_exec_file("python3 -X utf8 evil.py").as_deref(),
+            detect_script_exec_file("python3 -X utf8 evil.py").map(|(f, _)| f).as_deref(),
             Some("evil.py")
         );
         assert_eq!(
-            detect_script_exec_file("ruby -I lib evil.rb").as_deref(),
+            detect_script_exec_file("ruby -I lib evil.rb").map(|(f, _)| f).as_deref(),
             Some("evil.rb")
         );
         assert_eq!(
-            detect_script_exec_file("node -r ./pre evil.js").as_deref(),
+            detect_script_exec_file("node -r ./pre evil.js").map(|(f, _)| f).as_deref(),
             Some("evil.js")
         );
         assert_eq!(
-            detect_script_exec_file("perl -I lib evil.pl").as_deref(),
+            detect_script_exec_file("perl -I lib evil.pl").map(|(f, _)| f).as_deref(),
             Some("evil.pl")
         );
         assert_eq!(
-            detect_script_exec_file("bash --rcfile myrc script.sh").as_deref(),
+            detect_script_exec_file("bash --rcfile myrc script.sh").map(|(f, _)| f).as_deref(),
             Some("script.sh")
         );
     }
@@ -1282,7 +1390,7 @@ mod script_file_shape_tests {
         // the same token — `is_known_value_flag` must not consume an
         // additional token after it (that would wrongly skip the real file).
         assert_eq!(
-            detect_script_exec_file("node --require=./pre evil.js").as_deref(),
+            detect_script_exec_file("node --require=./pre evil.js").map(|(f, _)| f).as_deref(),
             Some("evil.js")
         );
     }
@@ -1300,7 +1408,7 @@ mod script_file_shape_tests {
         // allowlist is a visible, deliberate graduation of THIS test, not an
         // accidental behavior change nobody notices.
         assert_eq!(
-            detect_script_exec_file("python -Z something evil.py").as_deref(),
+            detect_script_exec_file("python -Z something evil.py").map(|(f, _)| f).as_deref(),
             Some("something")
         );
     }
@@ -1332,27 +1440,27 @@ mod script_file_shape_tests {
 
     #[test]
     fn dot_and_source_forms_detected() {
-        assert_eq!(detect_script_exec_file(". x.sh").as_deref(), Some("x.sh"));
-        assert_eq!(detect_script_exec_file("source x.sh").as_deref(), Some("x.sh"));
-        assert_eq!(detect_script_exec_file("SOURCE x.sh").as_deref(), Some("x.sh"));
+        assert_eq!(detect_script_exec_file(". x.sh").map(|(f, _)| f).as_deref(), Some("x.sh"));
+        assert_eq!(detect_script_exec_file("source x.sh").map(|(f, _)| f).as_deref(), Some("x.sh"));
+        assert_eq!(detect_script_exec_file("SOURCE x.sh").map(|(f, _)| f).as_deref(), Some("x.sh"));
     }
 
     // ---- form 3: direct execution -------------------------------------------
 
     #[test]
     fn direct_execution_forms_detected() {
-        assert_eq!(detect_script_exec_file("./x.sh").as_deref(), Some("./x.sh"));
+        assert_eq!(detect_script_exec_file("./x.sh").map(|(f, _)| f).as_deref(), Some("./x.sh"));
         assert_eq!(
-            detect_script_exec_file("../tools/x.sh").as_deref(),
+            detect_script_exec_file("../tools/x.sh").map(|(f, _)| f).as_deref(),
             Some("../tools/x.sh")
         );
-        assert_eq!(detect_script_exec_file("/abs/x.sh").as_deref(), Some("/abs/x.sh"));
-        assert_eq!(detect_script_exec_file("dir/x.sh").as_deref(), Some("dir/x.sh"));
+        assert_eq!(detect_script_exec_file("/abs/x.sh").map(|(f, _)| f).as_deref(), Some("/abs/x.sh"));
+        assert_eq!(detect_script_exec_file("dir/x.sh").map(|(f, _)| f).as_deref(), Some("dir/x.sh"));
     }
 
     #[test]
     fn sudo_wrapped_direct_execution_still_detected() {
-        assert_eq!(detect_script_exec_file("sudo ./x.sh").as_deref(), Some("./x.sh"));
+        assert_eq!(detect_script_exec_file("sudo ./x.sh").map(|(f, _)| f).as_deref(), Some("./x.sh"));
     }
 
     // ---- resolve_script_files: fail-open paths provable without I/O --------
@@ -1429,5 +1537,98 @@ mod script_file_shape_tests {
             elapsed < std::time::Duration::from_millis(500),
             "resolve_script_files must never hang on a non-regular-file target (took {elapsed:?})"
         );
+    }
+
+    // ---- BodyLanguage classification (2026-07-26 script-body-prose-masking fix) --
+
+    #[test]
+    fn interpreter_language_classifies_shells_vs_scripting_languages() {
+        for shell in ["bash", "sh", "zsh", "dash", "BASH", "Sh"] {
+            assert_eq!(interpreter_language(shell), BodyLanguage::Shell, "{shell}");
+        }
+        for non_shell in ["python", "python3", "python3.11", "node", "nodejs", "ruby", "perl"] {
+            assert_eq!(interpreter_language(non_shell), BodyLanguage::NonShell, "{non_shell}");
+        }
+    }
+
+    #[test]
+    fn shebang_language_reads_the_first_line() {
+        assert_eq!(shebang_language("#!/usr/bin/env python3\nprint(1)\n"), BodyLanguage::NonShell);
+        assert_eq!(shebang_language("#!/usr/bin/python3\nprint(1)\n"), BodyLanguage::NonShell);
+        assert_eq!(shebang_language("#!/bin/bash\necho hi\n"), BodyLanguage::Shell);
+        assert_eq!(shebang_language("#!/usr/bin/env node\nconsole.log(1)\n"), BodyLanguage::NonShell);
+        // No shebang, unrecognized shebang, empty input -> default Shell
+        // (pre-existing behavior; this can only ADD NonShell classification,
+        // never remove Shell-path coverage).
+        assert_eq!(shebang_language("echo hi\n"), BodyLanguage::Shell);
+        assert_eq!(shebang_language("#!/usr/bin/env made-up-lang\nx\n"), BodyLanguage::Shell);
+        assert_eq!(shebang_language(""), BodyLanguage::Shell);
+    }
+
+    #[test]
+    fn resolve_script_files_classifies_form1_interpreter_directly() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("x.py"), "print(1)\n").unwrap();
+        std::fs::write(tmp.path().join("x.sh"), "echo hi\n").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+
+        let bodies = resolve_script_files("python3 x.py", Some(cwd));
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::NonShell);
+
+        let bodies = resolve_script_files("bash x.sh", Some(cwd));
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::Shell);
+    }
+
+    #[test]
+    fn resolve_script_files_form2_sourced_is_always_shell() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("x.sh"), "echo hi\n").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        let bodies = resolve_script_files(". x.sh", Some(cwd));
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::Shell);
+    }
+
+    #[test]
+    fn resolve_script_files_form3_direct_exec_sniffs_shebang() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("x.py"), "#!/usr/bin/env python3\nprint(1)\n").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        let bodies = resolve_script_files("./x.py", Some(cwd));
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::NonShell);
+    }
+
+    #[test]
+    fn extract_inline_bodies_classifies_python_and_node_as_non_shell() {
+        let mut bodies = Vec::new();
+        extract_inline_bodies(r#"python3 -c "print(1)""#, &mut bodies);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::NonShell);
+
+        let mut bodies = Vec::new();
+        extract_inline_bodies(r#"node -e "console.log(1)""#, &mut bodies);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::NonShell);
+
+        let mut bodies = Vec::new();
+        extract_inline_bodies(r#"bash -c "echo hi""#, &mut bodies);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::Shell);
+    }
+
+    #[test]
+    fn extract_heredoc_bodies_classifies_by_destination_interpreter() {
+        let mut bodies = Vec::new();
+        extract_heredoc_bodies("python3 <<EOF\nprint(1)\nEOF", &mut bodies);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::NonShell);
+
+        let mut bodies = Vec::new();
+        extract_heredoc_bodies("bash <<EOF\necho hi\nEOF", &mut bodies);
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0].language, BodyLanguage::Shell);
     }
 }

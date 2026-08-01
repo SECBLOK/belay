@@ -50,6 +50,7 @@ async fn login_token(app: &axum::Router, username: &str, password: &str) -> Stri
         .method("POST")
         .uri("/api/login")
         .header("content-type", "application/json")
+        .header("Sec-Fetch-Site", "same-origin")
         .body(Body::from(body.to_string()))
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();

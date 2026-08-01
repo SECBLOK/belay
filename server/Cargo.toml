@@ -6,6 +6,9 @@ edition = "2021"
 
 [features]
 # belay-auth is now a non-optional open dep (single-user auth primitives).
+# Also gates the embedded admin console (`console` module, `GET /console`):
+# build.rs panics if `web/dist-console` (from `cd web && npm run build:console`)
+# is missing rather than shipping a build that silently 404s it at runtime.
 
 [dependencies]
 axum = "0.7"

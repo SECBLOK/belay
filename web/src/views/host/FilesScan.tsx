@@ -17,6 +17,12 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 
+// Tauri usually rejects with a plain string (the Rust command's Err
+// payload); stay defensive about Error-shaped values too.
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
+}
+
 // ── Verdict badge ─────────────────────────────────────────────────────────────
 
 const VERDICT_STYLE: Record<string, { bg: string; color: string; label: MessageDescriptor }> = {
@@ -70,6 +76,11 @@ function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
   const [scope, setScope] = useState<ScanSchedule["scope"]>(schedule.scope);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Set only when the in-flight save actually failed; cleared on retry. A
+  // bare try/finally with no catch used to let this rejection go unhandled:
+  // saving stopped and nothing else happened - no success message and no
+  // error, so it looked like nothing happened.
+  const [error, setError] = useState<string | null>(null);
 
   const isDirty =
     selected !== cronToOption(schedule) || scope !== schedule.scope;
@@ -77,12 +88,15 @@ function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
+    setError(null);
     try {
       await onSave({ ...optionToCron(selected), scope });
+      setSaving(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } finally {
+    } catch (err) {
       setSaving(false);
+      setError(errorMessage(err));
     }
   };
 
@@ -148,6 +162,11 @@ function ScheduleCard({ schedule, onSave }: ScheduleCardProps) {
       {saved && (
         <p className="text-xs" style={{ color: "#187D34" }}>
           <Trans>Schedule saved.</Trans>
+        </p>
+      )}
+      {error && (
+        <p role="alert" data-testid="schedule-save-error" className="text-xs" style={{ color: "#C8312A" }}>
+          <Trans>Could not save: {error}</Trans>
         </p>
       )}
     </div>

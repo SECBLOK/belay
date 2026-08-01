@@ -29,12 +29,13 @@ describe("ApprovalCard gating buttons render in Simplified Chinese", () => {
     i18n.activate("zh-Hans");
     render(
       <I18nProvider i18n={i18n}>
-        <ApprovalCard pending={pending} onResolve={() => {}} timeoutMs={20000} />
+        <ApprovalCard pending={pending} onResolve={() => Promise.resolve()} timeoutMs={20000} />
       </I18nProvider>,
     );
     expect(screen.getByText("允许一次")).toBeTruthy();       // Allow once
     expect(screen.getByText("拒绝并停止代理")).toBeTruthy(); // Deny & stop agent
     // Plain "Deny" also present (high-risk layout shows both).
     expect(screen.getByText("拒绝")).toBeTruthy();
+    expect(screen.getByText("拒绝并静音此规则")).toBeTruthy(); // Deny & mute this rule
   });
 });

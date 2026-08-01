@@ -331,8 +331,24 @@ pub fn more_restrictive(
         }
     }
     match gate {
-        Some(g) if rank(g.decision) > rank(base.decision) => g,
-        _ => base,
+        Some(g) => {
+            // Whichever verdict wins, the Ask-contributing rule ids of BOTH must
+            // survive. A rule-scoped deny mute auto-denies only when every rule
+            // in `ask_rules` is muted; if the loser's Ask rule were dropped here,
+            // a muted noisy rule could mask an un-muted install-gate review that
+            // fired on the same call. Deny/Allow verdicts contribute nothing, so
+            // this only ever unions genuine Ask contributions.
+            let mut merged_ask = base.ask_rules.clone();
+            for id in &g.ask_rules {
+                if !merged_ask.contains(id) {
+                    merged_ask.push(id.clone());
+                }
+            }
+            let mut winner = if rank(g.decision) > rank(base.decision) { g } else { base };
+            winner.ask_rules = merged_ask;
+            winner
+        }
+        None => base,
     }
 }
 
@@ -349,6 +365,7 @@ fn deny_verdict(r: &skillscan::SkillScanResult) -> crate::engine::types::Verdict
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: Vec::new(),
     }
 }
 
@@ -365,6 +382,7 @@ fn review_verdict(r: &skillscan::SkillScanResult) -> crate::engine::types::Verdi
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: vec!["skill.install.review".into()],
     }
 }
 
@@ -382,6 +400,7 @@ fn ask_verdict(src: &str) -> crate::engine::types::Verdict {
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: vec!["skill.install.review".into()],
     }
 }
 
@@ -647,6 +666,7 @@ mod tests {
             owasp: None,
             atlas: None,
             explain: None,
+            ask_rules: Vec::new(),
         }
     }
 

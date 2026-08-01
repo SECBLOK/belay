@@ -32,13 +32,14 @@ use tokio::sync::mpsc;
 
 /// A sent approval prompt we may need to "expire": the resolved conversation id
 /// and message `ts` (needed to `chat.update` it), when it was sent, and the
-/// short summary line (kept so the expired message still shows which request
-/// died).
+/// the FULL rendered body. Editing a message REPLACES it, so anything not
+/// kept here is destroyed: keeping only the summary left the operator with
+/// "HIGH RISK - expired" and no rule, command or session to act on.
 struct SentPrompt {
     channel: String,
     ts: String,
     at: Instant,
-    summary: String,
+    body: String,
 }
 
 pub struct SlackChannel {
@@ -159,7 +160,7 @@ impl ChannelAdapter for SlackChannel {
                                 channel,
                                 ts: ts.to_string(),
                                 at: Instant::now(),
-                                summary: req.summary.clone(),
+                                body: heading.clone(),
                             },
                         );
                     }
@@ -199,9 +200,10 @@ impl ChannelAdapter for SlackChannel {
                 Err(_) => Vec::new(),
             };
             for p in stale {
+                // Append, never replace: the operator needs to know WHAT expired.
                 let text = format!(
-                    "🛡️ Belay approval\n{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
-                    p.summary
+                    "{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
+                    p.body
                 );
                 // chat.update with a plain section (no actions block) drops the
                 // buttons so a late click can't look like it might still work.

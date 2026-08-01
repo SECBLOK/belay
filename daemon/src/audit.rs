@@ -82,7 +82,22 @@ impl AuditWriter {
         row.as_object_mut()
             .unwrap()
             .insert("hash".into(), Value::String(hash.clone()));
-        writeln!(self.file, "{}", row)?;
+        // Serialize to a String FIRST, then a single `write_all` — not
+        // `writeln!(self.file, "{}", row)`. `Value`'s `Display` impl streams the
+        // object through many small `write_str` calls (one per brace/key/value/
+        // comma), each becoming its own `write(2)` syscall; concurrent callers
+        // (a fresh `AuditWriter::open` per `audit_approval()` call, no shared
+        // lock) can interleave those syscalls mid-row even though the file is
+        // opened `O_APPEND`, corrupting one or both rows into invalid JSON that
+        // silently vanishes from every reader. A single `write_all` of the
+        // complete, pre-formatted line is one syscall (the OS append offset is
+        // taken atomically for that one call), so concurrent writers can only
+        // ever interleave whole lines, never bytes within a line. Confirmed via
+        // `concurrent_appends_from_many_threads_never_corrupt_a_row`, which
+        // reliably corrupted rows under the old `writeln!` and is clean here.
+        let mut line = serde_json::to_string(&row).unwrap_or_else(|_| row.to_string());
+        line.push('\n');
+        self.file.write_all(line.as_bytes())?;
         self.file.flush()?;
         self.prev_hash = hash;
         let _ = &self.path;
@@ -276,6 +291,66 @@ mod tests {
         w.append(json!({"event": "b", "verdict": "deny"})).unwrap();
         assert_eq!(verify_chain(p).unwrap(), 2);
         std::fs::remove_file(p).ok();
+    }
+
+    #[test]
+    fn concurrent_appends_from_many_threads_never_corrupt_a_row() {
+        // Reproduces the exact symptom from docs/research/2026-07-26-open-issue-missing-approval-resolved.md:
+        // a park resolved quickly (so its `approval.resolved` write races another
+        // thread's concurrent audit_approval call) sometimes vanishes entirely.
+        // `AuditWriter::open` is called FRESH per call site (ipc.rs's `audit_approval`
+        // never holds a writer across calls), so N concurrent writers each opening
+        // their own `File` handle in append mode is the REAL shape of production
+        // traffic, not an artificial setup.
+        let dir = std::env::temp_dir().join(format!("aud-concurrent-{}.ndjson", std::process::id()));
+        let p = dir.to_str().unwrap().to_string();
+        let _ = std::fs::remove_file(&p);
+
+        const N: usize = 64;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(N));
+        let handles: Vec<_> = (0..N)
+            .map(|i| {
+                let p = p.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait(); // maximize the odds every thread's write overlaps
+                    let mut w = AuditWriter::open(&p).unwrap();
+                    w.append(json!({
+                        "event": "approval.resolved",
+                        "unique_id": i,
+                        // Padding widens the row so serde_json's serializer emits
+                        // multiple internal write_str calls (brace/key/value/comma
+                        // each a separate write to the underlying File) -- a single
+                        // small object could fit in one syscall by luck and hide
+                        // the race the padding is here to expose.
+                        "padding": "x".repeat(400),
+                    }))
+                    .unwrap()
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let content = std::fs::read_to_string(&p).unwrap();
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+        let mut seen = std::collections::HashSet::new();
+        for line in &lines {
+            let v: Value = serde_json::from_str(line).unwrap_or_else(|e| {
+                panic!("row failed to parse as JSON (corrupted by a concurrent write): {e}\nline: {line}")
+            });
+            let id = v["unique_id"].as_u64().expect("every valid row must carry unique_id");
+            seen.insert(id);
+        }
+        assert_eq!(
+            lines.len(),
+            N,
+            "expected exactly {N} lines, got {} -- some appends were lost or merged",
+            lines.len()
+        );
+        assert_eq!(seen.len(), N, "every thread's unique_id must survive intact");
+        std::fs::remove_file(&p).ok();
     }
 
     #[test]

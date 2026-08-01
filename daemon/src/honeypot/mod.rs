@@ -105,6 +105,7 @@ impl Honeypot {
             owasp: None,
             atlas: None,
             explain: None,
+            ask_rules: Vec::new(),
         }
     }
 }

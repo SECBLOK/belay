@@ -250,64 +250,6 @@ enum Cmd {
         #[arg(long)]
         home: Option<String>,
     },
-    /// Push local audit rows to a remote Belay server's ingest endpoint (Phase 13 Task 2).
-    #[cfg(feature = "enterprise")]
-    Push {
-        /// Remote Belay server URL (required).
-        #[arg(long)]
-        server: String,
-        /// Bearer token override (optional; stored device token used when absent).
-        #[arg(long)]
-        token: Option<String>,
-        /// Device identifier (default: hostname).
-        #[arg(long = "device-id")]
-        device_id: Option<String>,
-        /// Override home directory (used for testing or non-default homes).
-        #[arg(long)]
-        home: Option<String>,
-    },
-    /// Register this device with a Belay fleet server (TB-3 Task 7).
-    ///
-    /// Redeems an enrollment token via `POST /api/enroll` and writes the
-    /// returned device token to `<data_dir>/device_token` (mode 0600).
-    /// Subsequent `belay push` calls read that token automatically.
-    ///
-    /// Fleet-deploy flow: bake an enroll token into the image → agent
-    /// self-registers on first boot → thereafter pushes with its own device token.
-    #[cfg(feature = "enterprise")]
-    Enroll {
-        /// Remote Belay server URL (required).
-        #[arg(long)]
-        server: String,
-        /// Enrollment token (from the fleet operator; baked into the image for
-        /// automated fleet deploy). Redeemed once to obtain a per-device token.
-        #[arg(long = "enroll-token")]
-        enroll_token: String,
-        /// Device identifier (default: hostname).
-        #[arg(long = "device-id")]
-        device_id: Option<String>,
-        /// Override home directory (used for testing or non-default homes).
-        #[arg(long)]
-        home: Option<String>,
-    },
-    /// Run the persistent fleet-command agent loop (TB-4).
-    ///
-    /// Long-polls `GET /api/agent/commands` with the stored device token, executes
-    /// each allowlisted command via the local daemon (firewall/egress) or in-process
-    /// (ssh-guard/host-scan), and reports results. Requires `belay enroll` first
-    /// and a running local `belay daemon`. Telemetry `push` is unchanged.
-    #[cfg(feature = "enterprise")]
-    Agent {
-        /// Remote Belay server URL (required).
-        #[arg(long)]
-        server: String,
-        /// Long-poll hold seconds the server uses (client read timeout = this + 15).
-        #[arg(long = "poll-timeout", default_value_t = 25)]
-        poll_timeout: u64,
-        /// Override home directory (used for testing or non-default homes).
-        #[arg(long)]
-        home: Option<String>,
-    },
     /// Build or verify a tamper-evident SHA-256 evidence pack (Phase 13 Task 3).
     Evidence {
         /// Action: build or verify.
@@ -463,6 +405,50 @@ enum Cmd {
         /// Installed skill name, or a path to the skill directory.
         skill: String,
     },
+
+    /// Show recent agent-surface sweeps: what each examined, and what it could
+    /// not reach. The skipped-list is the point: a sweep that silently missed a
+    /// directory is otherwise indistinguishable from a clean one.
+    #[command(name = "sweep-history")]
+    SweepHistory {
+        /// Show only the most recent N sweeps.
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Emit JSON instead of a table.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Compare two sweeps: what is new, persisting, changed, resolved, or
+    /// unknown. Defaults to the two most recent.
+    #[command(name = "sweep-compare")]
+    SweepCompare {
+        /// Sweep id to compare FROM. Defaults to the second most recent.
+        #[arg(long)]
+        from: Option<String>,
+        /// Sweep id to compare TO. Defaults to the most recent.
+        #[arg(long)]
+        to: Option<String>,
+        /// Emit JSON instead of a table.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Run an agent-surface sweep right now, in this process, instead of
+    /// waiting for the daemon's periodic loop (default every 6h, and OFF
+    /// entirely if `skill-watch` is disabled or the rescan interval is set
+    /// to 0). Writes one record to the same `sweeps.ndjson` history
+    /// `sweep-history`/`sweep-compare` read, tagged `trigger: "manual"` so
+    /// it is distinguishable from the daemon's own sweeps. On-demand use
+    /// only: the alert dedup state is per-process, so running this
+    /// repeatedly (e.g. via cron) re-alerts skills that are still flagged
+    /// instead of standing in for the disabled loop.
+    #[command(name = "sweep-now")]
+    SweepNow {
+        /// Emit JSON instead of a table.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
 }
 
 /// The `on|off` state for `belay skill-watch` (mirrors `EvidenceAction`'s
@@ -479,6 +465,37 @@ enum OnOff {
 enum EvidenceAction {
     Build,
     Verify,
+}
+
+/// Render a `belay serve` startup failure with its FULL cause chain, plus a
+/// hint when the failure looks like another instance already holding the data.
+///
+/// Two things were wrong with the previous one-liner.
+///
+/// First, `anyhow`'s plain `{e}` prints only the OUTERMOST context and drops
+/// everything under it. Every store's `open()` already attaches
+/// "open <name> store at <path>", and `run()` wrapped that again with
+/// "fatal: cannot open <name> store at <path>", so the operator saw the word
+/// "fatal" twice, the path twice, and the actual reason zero times. `{e:#}`
+/// walks the chain instead, so the root cause is what they read.
+///
+/// Second, the most common cause has an obvious fix that the message never
+/// mentioned: redb permits a single writer, so a second `belay serve` against
+/// the same data directory fails on the first store it opens. Naming that, and
+/// how to look for the other process, turns a dead end into an instruction.
+fn serve_failure_message(e: &anyhow::Error) -> String {
+    let chain = format!("{e:#}");
+    let mut msg = format!("belay serve: fatal: {chain}");
+    if chain.contains(" store at ") {
+        msg.push_str(
+            "\nbelay serve: these files allow a single writer, so this usually means another \
+             `belay serve` is already running against the same data directory. Look for it with \
+             `ps -ef | grep 'belay serve'` and stop it, or point this one elsewhere with \
+             BELAY_FLEET_DB / BELAY_ORG_DB / BELAY_DEVICE_DB / BELAY_COMMAND_DB / BELAY_IDP_DB / \
+             BELAY_FEED_DB.",
+        );
+    }
+    msg
 }
 
 fn default_audit_path() -> PathBuf {
@@ -522,7 +539,18 @@ fn provision_admin(data_dir: &std::path::Path, username: &str) -> anyhow::Result
         password_hash,
         role: "admin".to_string(),
         org: String::new(),
-        platform_admin: false,
+        // `--set-admin` is the bootstrap account, so it MUST be a platform
+        // admin. the enterprise login resolver resolves a login with no `org` in the
+        // body by looking at memberships: zero memberships on a non-platform
+        // user is a 403 "no org membership", and the one path that escapes it
+        // is `org absent + platform_admin`, documented there as the bootstrap
+        // that lets a fresh platform admin create the first org.
+        //
+        // With this false, that path was unreachable: no CLI flag set it
+        // anywhere, so the only supported way to provision an admin produced
+        // an account that could authenticate and was then refused at login,
+        // with no org to join and no way to create one. Door built, no key cut.
+        platform_admin: true,
     };
     users.retain(|u| u.username != username);
     users.push(new_user);
@@ -1363,8 +1391,9 @@ fn resolve_device_id(device_id: Option<&str>) -> String {
 ///
 /// Ports `evidence_cmd` (the deleted Python predecessor's `cli/main.py`):
 ///   - `build`: `findings = to_findings(recent(500))`, `sarif =
-///     {"version":"2.1.0","runs":[]}`, write the pack to `--out` or a fresh
-///     temp dir, print `Evidence pack built: {path}`.
+///     {"version":"2.1.0","runs":[]}`, `sweeps` from the agent-surface sweep
+///     history (Task 6), write the pack to `--out` or a fresh temp dir, print
+///     `Evidence pack built: {path}`.
 ///   - `verify`: require `--dir`; print `Pack verified: OK` (exit 0) or
 ///     `Pack TAMPERED or missing files` (exit 1).
 fn run_evidence(
@@ -1384,6 +1413,23 @@ fn run_evidence(
             // Python's `[a.model_dump() for a in to_findings(...)]`).
             let findings = belay_server::audit_reader::to_findings(&rows);
             let sarif = json!({"version": "2.1.0", "runs": []});
+
+            // Sweep history: what the agent-surface sweeps examined and what
+            // they could not reach. `read_all` also reports a count of
+            // history lines that failed to parse (e.g. a truncated line from
+            // power loss mid-append); that count is carried alongside the
+            // records rather than discarded, because a coverage record that
+            // silently drops its own damage would misrepresent what the
+            // auditor is being told. `records` stays a plain array shaped
+            // like `SweepRecord`, and `unparseable_lines` sits next to it as
+            // a manifest-covered fact about the pack's own completeness.
+            let (sweep_recs, unparseable_sweep_lines) = belayd::skills::sweep::read_all();
+            let sweep_records = serde_json::to_value(&sweep_recs)
+                .unwrap_or_else(|_| serde_json::json!([]));
+            let sweeps = json!({
+                "records": sweep_records,
+                "unparseable_lines": unparseable_sweep_lines,
+            });
 
             // Default out dir: a fresh `belay_evidence_<pid>_<nanos>` temp
             // dir (mkdtemp-style), matching Python's tempfile.mkdtemp prefix.
@@ -1405,7 +1451,7 @@ fn run_evidence(
                 }
             };
 
-            match belay_manage::evidence::build_pack(&out_dir, &findings, &sarif) {
+            match belay_manage::evidence::build_pack(&out_dir, &findings, &sarif, &sweeps) {
                 Ok(path) => {
                     println!("Evidence pack built: {path}");
                     ExitCode::SUCCESS
@@ -1521,7 +1567,7 @@ async fn main() -> ExitCode {
                 {
                     Ok(result) => scanner::print_result_and_exit(&result, &format),
                     Err(e) => {
-                        eprintln!("belay scan --llm: fatal: {e}");
+                        eprintln!("belay scan --llm: fatal: {e:#}");
                         ExitCode::FAILURE
                     }
                 }
@@ -1557,23 +1603,42 @@ async fn main() -> ExitCode {
             match belay_server::run(addr, audit_path).await {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("belay serve: fatal: {e}");
+                    eprintln!("{}", serve_failure_message(&e));
                     ExitCode::FAILURE
                 }
             }
         }
         Cmd::Channels => {
-            // The `belay-channels` crate is a library (NotificationChannel
-            // trait + per-platform impls, no run loop) and is not yet wired into
-            // the daemon's runtime ASK fan-out — it is excluded from the default
-            // build (build with `--features channels` to link it). Print guidance
-            // rather than fake a server.
-            println!(
-                "belay channels: notification channels (terminal/Telegram/Discord/WhatsApp) \
-                 are a library pending daemon integration; they are not in the default build. \
-                 Rebuild with `--features channels` to include the crate. There is no standalone \
-                 channels server to start."
-            );
+            // Report the REAL build state. This arm used to print "not in the
+            // default build" unconditionally, so a binary that *did* have the
+            // feature still claimed it did not — which sent at least one
+            // investigation of "why did no Telegram alert arrive?" down the
+            // wrong path entirely. The cfg split below is the whole fix: never
+            // let a diagnostic lie about the build it is running in.
+            #[cfg(feature = "channels")]
+            {
+                println!(
+                    "belay channels: COMPILED IN (--features channels).\n\
+                     Approval prompts fan out to configured channels when the daemon parks an ASK.\n\
+                     There is no standalone channels server to start — the daemon owns the loop.\n\n\
+                     Configure via the desktop app's Messaging tab, or edit ~/.belay/channels.json\n\
+                     directly (0600). A platform sends prompts only when it has both credentials\n\
+                     and a matching entry in the `allow` list.\n\
+                     Changes are picked up by the running daemon; no restart needed."
+                );
+            }
+            #[cfg(not(feature = "channels"))]
+            {
+                println!(
+                    "belay channels: NOT COMPILED IN.\n\
+                     This binary was built without `--features channels`, so no notification \
+                     channel (Telegram/Discord/Slack/Matrix/Mattermost/WhatsApp/ntfy/Teams/\
+                     WeCom/webhook) can send or receive an approval, even if ~/.belay/channels.json \
+                     is fully configured.\n\
+                     Rebuild with `--features channels` (official release binaries already \
+                     include it). There is no standalone channels server to start."
+                );
+            }
             ExitCode::SUCCESS
         }
         Cmd::Posture { home } => {
@@ -1676,6 +1741,32 @@ async fn main() -> ExitCode {
         Cmd::Egress { action, args } => run_egress(&action, &args),
         Cmd::SkillWatch { state } => run_skill_watch(state),
         Cmd::SkillApprove { skill } => run_skill_approve(&skill),
+        Cmd::SweepHistory { limit, format } => {
+            let path = belayd::skills::sweep::sweeps_path();
+            if format == "json" {
+                let v = sweep_history_json_at(&path, limit);
+                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+            } else {
+                print!("{}", render_sweep_history_at(&path, limit));
+            }
+            ExitCode::SUCCESS
+        }
+        Cmd::SweepCompare { from, to, format } => {
+            let path = belayd::skills::sweep::sweeps_path();
+            let ok = sweep_compare_succeeded(&path, from.as_deref(), to.as_deref());
+            if format == "json" {
+                let v = sweep_compare_json_at(&path, from.as_deref(), to.as_deref());
+                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+            } else {
+                print!("{}", render_sweep_compare_at(&path, from.as_deref(), to.as_deref()));
+            }
+            if ok {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Cmd::SweepNow { format } => run_sweep_now(&format),
     }
 }
 
@@ -1727,6 +1818,503 @@ fn run_skill_approve(skill: &str) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Run `belay sweep-now`: an on-demand agent-surface sweep, in-process (the
+/// CLI already links `belayd` and acts directly on the shared data
+/// directory -- same convention `run_skill_approve` above uses; there is no
+/// CLI-to-daemon IPC helper). Exists because the daemon's periodic sweep
+/// (`watch::run_periodic_rescan`) only runs inside `belayd`'s own loop, on a
+/// default 6h interval, and is gated OFF entirely when `skill-watch` is
+/// disabled or the rescan interval is set to 0 -- exactly the situation
+/// where an operator most needs a way to force one.
+///
+/// Two hazards come with running the scan in a fresh CLI process rather than
+/// the long-lived daemon, both weighed and accepted rather than silently
+/// picked:
+///
+/// 1. `watch::content_hash_alerted()`'s already-alerted dedup set is
+///    process-global (an in-memory `HashSet`, see its doc comment). A fresh
+///    CLI process starts with an empty set, so a skill the running daemon
+///    already alerted on (and deduped) can get a fresh `skill/detected` or
+///    `skill/drift` audit row here. Judged CORRECT, not spam: this is an
+///    operator-triggered, on-demand action, not a periodic tick that could
+///    fire many times a minute (that volume argument -- see
+///    `run_watch_tick_over`'s doc comment -- is exactly why the *watch* tick
+///    does NOT get its own sweep record; a human running `sweep-now` is
+///    self-limiting the same way). The worst case is one duplicate row per
+///    explicit invocation, and the row is honest: "this skill was examined
+///    just now and is still flagged" is true regardless of what the daemon's
+///    private dedup state remembers. Sharing that set across processes would
+///    need cross-process IPC this codebase deliberately doesn't give the CLI,
+///    or a new file-backed dedup store -- either is new decision-making
+///    machinery, and this command must record decisions, never make one.
+/// 2. Two processes could append to `sweeps.ndjson` at the same moment (the
+///    daemon's own periodic tick landing mid-`sweep-now`). Fixed at the
+///    root in `sweep::append_to` (one `write_all` syscall per record instead
+///    of the previous `writeln!`'s two, see its doc comment) rather than
+///    with a lock here: the corruption came from THIS function making two
+///    separate writes per record, not from the OS failing to serialize one,
+///    so fixing the write shape removes the race for both callers (daemon
+///    and CLI) without adding any synchronization primitive, and the fix
+///    lives in the one function both paths already share -- the daemon's own
+///    behaviour (same file, same format, same append semantics) is
+///    unchanged.
+fn run_sweep_now(format: &str) -> ExitCode {
+    let roots = belayd::skills::enumerate::skill_roots();
+    let sweeps_path = belayd::skills::sweep::sweeps_path();
+    let (_n, record) =
+        belayd::skills::watch::run_recording_with_trigger(&roots, &sweeps_path, "manual");
+
+    let watch_enabled = belayd::host_config::skill_watch_enabled();
+    let interval_secs = belayd::host_config::skill_rescan_interval_secs();
+
+    if format == "json" {
+        let v = sweep_now_json(&record, watch_enabled, interval_secs);
+        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+    } else {
+        print!("{}", render_sweep_now(&record, watch_enabled, interval_secs));
+    }
+    ExitCode::SUCCESS
+}
+
+/// Whether the daemon's periodic sweep loop is off, and why -- pure so it is
+/// testable without touching `$HOME` (mirrors why `render_sweep_compare_at`
+/// takes an explicit path instead of always resolving the real one).
+/// `belay skill-watch` gates BOTH the 30s watch tick and the periodic full
+/// rescan; `skill_rescan_interval_secs() == 0` only gates the latter -- the
+/// two branches below say which is actually off, since that changes what an
+/// operator should do about it.
+///
+/// Both messages also warn against scheduling `sweep-now` itself as a
+/// replacement for the disabled loop: `content_hash_alerted()`
+/// (`watch.rs`) dedupes alerts in a process-global `HashSet` that a fresh
+/// CLI process always starts empty, so every `sweep-now` run re-alerts
+/// anything still flagged, writing a duplicate `skill/detected` or
+/// `skill/drift` row per run. That is harmless if run once by hand, but
+/// cron it on a tight interval and it reproduces the exact audit-log spam
+/// the dedup set exists to prevent.
+fn periodic_loop_disabled_note(watch_enabled: bool, interval_secs: u64) -> Option<&'static str> {
+    if !watch_enabled {
+        Some(
+            "the skill dir-watch is disabled (belay skill-watch off): neither the 30s \
+             watch tick nor the periodic full rescan are running; sweep-now is currently \
+             the only sweep happening. Running it repeatedly (for example on a cron) \
+             re-alerts skills that are still flagged, because the dedup state that \
+             suppresses repeat alerts lives only in this process. Use it on demand, not \
+             on a schedule.",
+        )
+    } else if interval_secs == 0 {
+        Some(
+            "the periodic full-rescan interval is set to 0 (disabled): scheduled sweeps \
+             are off; sweep-now is currently the only way to get a fresh sweep record. \
+             Running it repeatedly (for example on a cron) re-alerts skills that are \
+             still flagged, because the dedup state that suppresses repeat alerts lives \
+             only in this process. Use it on demand, not on a schedule.",
+        )
+    } else {
+        None
+    }
+}
+
+/// Human-readable `sweep-now` output. Leads with the counts an operator acts
+/// on, breaks the skipped count down by reason (mirrors `sweep-history`'s
+/// per-item skip lines, but grouped since a single sweep's skipped list can
+/// repeat the same reason across several roots), and calls the sweep id out
+/// on its own line so it is easy to paste into `sweep-compare --from`.
+fn render_sweep_now(
+    record: &belayd::skills::sweep::SweepRecord,
+    watch_enabled: bool,
+    interval_secs: u64,
+) -> String {
+    let mut s = String::new();
+    s.push_str(&format!(
+        "sweep-now: examined {}, skipped {}\n",
+        record.examined.len(),
+        record.skipped.len()
+    ));
+    if !record.skipped.is_empty() {
+        let mut by_reason: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+        for sk in &record.skipped {
+            *by_reason.entry(sk.reason.as_str()).or_insert(0) += 1;
+        }
+        for (reason, count) in &by_reason {
+            s.push_str(&format!("  skipped ({reason}): {count}\n"));
+        }
+    }
+    s.push_str(&format!(
+        "sweep id: {}  (use with: belay sweep-compare --from {})\n",
+        record.sweep_id, record.sweep_id
+    ));
+    if let Some(note) = periodic_loop_disabled_note(watch_enabled, interval_secs) {
+        s.push_str(&format!("note: {note}\n"));
+    }
+    s
+}
+
+/// JSON `sweep-now` output. `"ok": true` for shape parity with
+/// `sweep-compare`'s JSON (`sweep_compare_json_at`): `sweep-now` has no
+/// caller-error path today (no `--from`/`--to` to get wrong), but keeping the
+/// field lets a script check `.ok` the same way across all three sweep
+/// subcommands without special-casing this one.
+fn sweep_now_json(
+    record: &belayd::skills::sweep::SweepRecord,
+    watch_enabled: bool,
+    interval_secs: u64,
+) -> serde_json::Value {
+    let mut by_reason: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for sk in &record.skipped {
+        *by_reason.entry(sk.reason.as_str()).or_insert(0) += 1;
+    }
+    let note = periodic_loop_disabled_note(watch_enabled, interval_secs);
+    serde_json::json!({
+        "ok": true,
+        "sweep_id": record.sweep_id,
+        "trigger": record.trigger,
+        "examined": record.examined.len(),
+        "skipped": record.skipped.len(),
+        "skipped_by_reason": by_reason,
+        "periodic_loop_disabled": note.is_some(),
+        "periodic_loop_note": note,
+    })
+}
+
+/// Outcome of resolving `--from`/`--to` against the sweep history and running
+/// `compare::classify`. Shared by the text and JSON renderers below so the
+/// index-picking logic (and its two distinct failure modes) lives in exactly
+/// one place instead of being duplicated per output format.
+enum SweepCompareOutcome {
+    /// Fewer than two sweeps recorded: there is nothing to compare yet. Kept
+    /// as its own variant, distinct from `Ready` with an empty `classified`,
+    /// so neither renderer can collapse "no history" and "compared, nothing
+    /// changed" into the same shape. Carries `bad_lines` too: a history file
+    /// with 2 corrupt lines and 0 usable records must not read as "haven't
+    /// swept twice yet" when the real story is a damaged history file.
+    InsufficientHistory { found: usize, bad_lines: usize },
+    /// `--from` or `--to` named a sweep id that is not in the history.
+    UnknownSweepId {
+        flag: &'static str,
+        id: String,
+        bad_lines: usize,
+    },
+    /// `--from` and `--to` resolved to the SAME sweep. A self-comparison
+    /// makes every flagged item `Persisting`, which looks exactly like a
+    /// real (if boring) diff instead of the degenerate no-op it actually is,
+    /// so it is rejected rather than rendered.
+    SameSweep { id: String, bad_lines: usize },
+    /// `--from` resolved to a sweep chronologically AFTER `--to`. Silently
+    /// swapping them would flip the meaning of every status `classify`
+    /// produces - a genuine `Resolved` would print as `Reopened`, claiming a
+    /// fixed finding came back when the opposite happened - so this is
+    /// rejected rather than corrected for the caller.
+    ReversedOrder {
+        from_id: String,
+        to_id: String,
+        bad_lines: usize,
+    },
+    Ready {
+        bad_lines: usize,
+        from_id: String,
+        to_id: String,
+        classified: Vec<belayd::skills::compare::Classified>,
+    },
+}
+
+/// The "some history lines could not be parsed" note, shared by every
+/// `sweep-compare` text-output arm (both error and success) so a corrupt
+/// history file is never invisible just because the caller hit one of the
+/// error paths instead of `Ready`. Empty string when there is nothing to
+/// report, so callers can unconditionally prepend it.
+fn bad_lines_note(bad_lines: usize) -> String {
+    if bad_lines > 0 {
+        format!("note: {bad_lines} unreadable line(s) in the history were skipped\n")
+    } else {
+        String::new()
+    }
+}
+
+/// Read the history at `path` and classify `to` against `from`, defaulting to
+/// the two most recent sweeps. Pure selection + classification, no
+/// formatting: `render_sweep_compare_at` and `sweep_compare_json_at` each
+/// turn this into their own output shape.
+fn resolve_sweep_compare(
+    path: &std::path::Path,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> SweepCompareOutcome {
+    use belayd::skills::compare::{classify, resolved_hashes};
+    let (recs, bad) = belayd::skills::sweep::read_all_from(path);
+
+    if recs.len() < 2 {
+        return SweepCompareOutcome::InsufficientHistory {
+            found: recs.len(),
+            bad_lines: bad,
+        };
+    }
+
+    let pick = |id: Option<&str>, default_idx: usize| -> Option<usize> {
+        match id {
+            Some(want) => recs.iter().position(|r| r.sweep_id == want),
+            None => Some(default_idx),
+        }
+    };
+    let to_idx = match pick(to, recs.len() - 1) {
+        Some(i) => i,
+        None => {
+            return SweepCompareOutcome::UnknownSweepId {
+                flag: "to",
+                id: to.unwrap_or("").to_string(),
+                bad_lines: bad,
+            }
+        }
+    };
+    let from_idx = match pick(from, recs.len().saturating_sub(2)) {
+        Some(i) => i,
+        None => {
+            return SweepCompareOutcome::UnknownSweepId {
+                flag: "from",
+                id: from.unwrap_or("").to_string(),
+                bad_lines: bad,
+            }
+        }
+    };
+
+    // `--from` and `--to` must name two DIFFERENT sweeps, in chronological
+    // order, or the comparison is either a no-op or a lie. Checked before
+    // any classification runs, on the final resolved indices, so it catches
+    // both an explicit id typo and a default that lands past an explicit
+    // flag on the other side.
+    if from_idx == to_idx {
+        return SweepCompareOutcome::SameSweep {
+            id: recs[from_idx].sweep_id.clone(),
+            bad_lines: bad,
+        };
+    }
+    if from_idx > to_idx {
+        return SweepCompareOutcome::ReversedOrder {
+            from_id: recs[from_idx].sweep_id.clone(),
+            to_id: recs[to_idx].sweep_id.clone(),
+            bad_lines: bad,
+        };
+    }
+
+    // Only sweeps up to and including `from` can have resolved anything: a
+    // resolution needs an earlier flag and a later clean, and nothing after
+    // `from` has happened yet from the comparison's point of view.
+    let resolved = resolved_hashes(&recs[..=from_idx]);
+    let classified = classify(&recs[to_idx], &recs[from_idx], &resolved);
+
+    SweepCompareOutcome::Ready {
+        bad_lines: bad,
+        from_id: recs[from_idx].sweep_id.clone(),
+        to_id: recs[to_idx].sweep_id.clone(),
+        classified,
+    }
+}
+
+/// Whether `sweep-compare` produced a usable comparison, for the CLI exit
+/// code. `belay scan` already maps result content to a nonzero exit (a
+/// score over the threshold is exit 1), so a caller that gates a script on
+/// `sweep-compare`'s exit status should get the same treatment: every
+/// `SweepCompareOutcome` other than `Ready` - insufficient history, an
+/// unknown sweep id, a same-sweep or reversed-order request - is a caller
+/// error and returns `ExitCode::FAILURE` from the command dispatcher, not
+/// `SUCCESS` with the failure buried in the printed body.
+fn sweep_compare_succeeded(path: &std::path::Path, from: Option<&str>, to: Option<&str>) -> bool {
+    matches!(
+        resolve_sweep_compare(path, from, to),
+        SweepCompareOutcome::Ready { .. }
+    )
+}
+
+/// Render the compare output for an explicit history path as human-readable
+/// text. Testable seam: takes the path so a test needs no data_dir.
+///
+/// Two behaviours here are the point of the command, not decoration: fewer
+/// than two sweeps says so in words rather than printing an empty diff that
+/// reads as "nothing changed", and the unknown count gets its own called-out
+/// line with the reminder that those findings are NOT resolved rather than
+/// being left to blend into the list above it.
+fn render_sweep_compare_at(path: &std::path::Path, from: Option<&str>, to: Option<&str>) -> String {
+    use belayd::skills::compare::Status;
+    match resolve_sweep_compare(path, from, to) {
+        SweepCompareOutcome::InsufficientHistory { found, bad_lines } => format!(
+            "{}sweep-compare: need at least two sweeps to compare, found {found}.\n",
+            bad_lines_note(bad_lines)
+        ),
+        SweepCompareOutcome::UnknownSweepId { flag, id, bad_lines } => format!(
+            "{}sweep-compare: no sweep with id {id:?} for --{flag}\n",
+            bad_lines_note(bad_lines)
+        ),
+        SweepCompareOutcome::SameSweep { id, bad_lines } => format!(
+            "{}sweep-compare: --from and --to both name sweep {id:?}; nothing to compare.\n",
+            bad_lines_note(bad_lines)
+        ),
+        SweepCompareOutcome::ReversedOrder {
+            from_id,
+            to_id,
+            bad_lines,
+        } => format!(
+            "{}sweep-compare: --from {from_id:?} is chronologically after --to {to_id:?}. \
+             --from must precede --to; the order was not swapped for you.\n",
+            bad_lines_note(bad_lines)
+        ),
+        SweepCompareOutcome::Ready {
+            bad_lines,
+            from_id,
+            to_id,
+            classified,
+        } => {
+            let mut s = bad_lines_note(bad_lines);
+            s.push_str(&format!("comparing {from_id} -> {to_id}\n"));
+            for c in &classified {
+                s.push_str(&format!(
+                    "  {:<11} {} ({})\n",
+                    c.status.as_str(),
+                    c.name,
+                    c.agent
+                ));
+            }
+            let unknown = classified
+                .iter()
+                .filter(|c| c.status == Status::Unknown)
+                .count();
+            if unknown > 0 {
+                s.push_str(&format!(
+                    "\n{unknown} finding(s) could not be re-checked this sweep. \
+                     These are NOT resolved.\n"
+                ));
+            }
+            s
+        }
+    }
+}
+
+/// Render the compare output for an explicit history path as JSON. Always a
+/// single object, never a bare array: a bare `[]` would be exactly the
+/// "empty diff that reads as no change" problem `render_sweep_compare_at`
+/// exists to avoid, just moved into a machine-readable shape instead of a
+/// human one. `"ok": false` plus an `"error"` string covers every failure
+/// mode (insufficient history, unknown sweep id, same sweep on both sides,
+/// reversed order); `"bad_lines"` is present on EVERY branch, error or not,
+/// so a corrupt history file is never invisible just because a request also
+/// hit one of the other error paths. `"ok": true` carries
+/// `"from"`/`"to"`/`"bad_lines"`/`"unknown_count"`/`"changes"`, where
+/// `unknown_count` is pulled out of `changes` explicitly so a caller does not
+/// have to recompute it (and cannot silently drop it) just to notice that
+/// some findings were not re-checked.
+fn sweep_compare_json_at(
+    path: &std::path::Path,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> serde_json::Value {
+    use belayd::skills::compare::Status;
+    match resolve_sweep_compare(path, from, to) {
+        SweepCompareOutcome::InsufficientHistory { found, bad_lines } => serde_json::json!({
+            "ok": false,
+            "error": format!("need at least two sweeps to compare, found {found}"),
+            "found": found,
+            "bad_lines": bad_lines,
+        }),
+        SweepCompareOutcome::UnknownSweepId { flag, id, bad_lines } => serde_json::json!({
+            "ok": false,
+            "error": format!("no sweep with id {id:?} for --{flag}"),
+            "bad_lines": bad_lines,
+        }),
+        SweepCompareOutcome::SameSweep { id, bad_lines } => serde_json::json!({
+            "ok": false,
+            "error": format!("--from and --to both name sweep {id:?}; nothing to compare"),
+            "bad_lines": bad_lines,
+        }),
+        SweepCompareOutcome::ReversedOrder {
+            from_id,
+            to_id,
+            bad_lines,
+        } => serde_json::json!({
+            "ok": false,
+            "error": format!(
+                "--from {from_id:?} is chronologically after --to {to_id:?}; --from must precede --to"
+            ),
+            "bad_lines": bad_lines,
+        }),
+        SweepCompareOutcome::Ready {
+            bad_lines,
+            from_id,
+            to_id,
+            classified,
+        } => {
+            let unknown_count = classified
+                .iter()
+                .filter(|c| c.status == Status::Unknown)
+                .count();
+            let changes: Vec<serde_json::Value> = classified
+                .iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "status": c.status.as_str(),
+                        "kind": c.kind,
+                        "agent": c.agent,
+                        "name": c.name,
+                        "path": c.path,
+                        "content_hash": c.content_hash,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "ok": true,
+                "bad_lines": bad_lines,
+                "from": from_id,
+                "to": to_id,
+                "unknown_count": unknown_count,
+                "changes": changes,
+            })
+        }
+    }
+}
+
+/// Render recent sweeps for an explicit history path as human-readable text.
+fn render_sweep_history_at(path: &std::path::Path, limit: Option<usize>) -> String {
+    let (recs, bad) = belayd::skills::sweep::read_all_from(path);
+    let start = limit.map(|n| recs.len().saturating_sub(n)).unwrap_or(0);
+    let mut s = String::new();
+    if bad > 0 {
+        s.push_str(&format!(
+            "note: {bad} unreadable line(s) in the history were skipped\n"
+        ));
+    }
+    if recs.is_empty() {
+        s.push_str("no sweeps recorded yet\n");
+        return s;
+    }
+    for r in &recs[start..] {
+        s.push_str(&format!(
+            "{}  {:<12} examined {:<4} skipped {}\n",
+            r.sweep_id,
+            r.trigger,
+            r.examined.len(),
+            r.skipped.len()
+        ));
+        for sk in &r.skipped {
+            s.push_str(&format!(
+                "    could not read {} ({})\n",
+                sk.path,
+                sk.reason.as_str()
+            ));
+        }
+    }
+    s
+}
+
+/// Render recent sweeps for an explicit history path as JSON: the raw
+/// records plus the count of unreadable lines, so a script gets the same
+/// "some history was unparseable" signal the text renderer prints as a note.
+fn sweep_history_json_at(path: &std::path::Path, limit: Option<usize>) -> serde_json::Value {
+    let (recs, bad) = belayd::skills::sweep::read_all_from(path);
+    let start = limit.map(|n| recs.len().saturating_sub(n)).unwrap_or(0);
+    serde_json::json!({
+        "bad_lines": bad,
+        "sweeps": recs[start..],
+    })
 }
 
 /// A command run during `--enable`. `required` commands abort the install on
@@ -2973,6 +3561,86 @@ mod win_service;
 
 #[cfg(test)]
 mod tests {
+
+    /// `--set-admin` is the only supported way to create the first account, and
+    /// the account it creates must be able to LOG IN. It could not.
+    ///
+    /// the enterprise login resolver refuses a login that names no org when the user has
+    /// zero memberships (403 "no org membership"). The single escape is
+    /// `org absent + platform_admin`, which exists so a fresh platform admin can
+    /// create the first org. This function hardcoded `platform_admin: false`,
+    /// and no flag anywhere set it true, so that escape was unreachable: the
+    /// console had a sign-in form that no provisionable user could get through.
+    #[test]
+    fn the_provisioned_admin_can_actually_reach_the_bootstrap_login_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("BELAY_ADMIN_PASSWORD", "pw-for-test");
+        super::provision_admin(dir.path(), "admin").expect("provisioning must succeed");
+        std::env::remove_var("BELAY_ADMIN_PASSWORD");
+
+        let raw = std::fs::read_to_string(dir.path().join("users.json")).unwrap();
+        let users: Vec<belay_server::User> = serde_json::from_str(&raw).unwrap();
+        let admin = users.iter().find(|u| u.username == "admin").expect("admin written");
+
+        assert!(
+            admin.platform_admin,
+            "the bootstrap admin must be a platform admin, or resolve_login 403s it              with no org to join and no way to create one"
+        );
+        assert_eq!(admin.role, "admin");
+        assert!(
+            admin.org.is_empty(),
+            "the bootstrap admin belongs to no org yet; that is the whole point"
+        );
+        assert!(
+            belay_auth::verify_password("pw-for-test", &admin.password_hash).unwrap(),
+            "the stored hash must verify against the supplied password"
+        );
+    }
+
+    /// The old message printed the word "fatal" twice, the path twice, and the
+    /// actual reason zero times, because `{e}` on an anyhow error shows only the
+    /// outermost context. The chain is what an operator needs.
+    #[test]
+    fn a_serve_failure_shows_the_whole_cause_chain() {
+        let root = std::io::Error::new(std::io::ErrorKind::WouldBlock, "resource busy");
+        let e = anyhow::Error::new(root).context("open fleet store at /home/u/.belay/fleet.redb");
+        let msg = super::serve_failure_message(&e);
+
+        assert!(msg.contains("resource busy"), "root cause missing from: {msg}");
+        assert!(msg.contains("fleet.redb"), "path missing from: {msg}");
+        assert_eq!(msg.matches("fatal").count(), 1, "'fatal' repeated in: {msg}");
+        assert_eq!(
+            msg.matches("fleet.redb").count(),
+            1,
+            "path repeated in: {msg}"
+        );
+    }
+
+    /// A store-open failure is nearly always a second instance, and that has a
+    /// concrete fix, so the message must say so rather than dead-ending.
+    #[test]
+    fn a_store_failure_names_the_single_writer_cause_and_a_way_to_find_it() {
+        let root = std::io::Error::new(std::io::ErrorKind::WouldBlock, "resource busy");
+        let e = anyhow::Error::new(root).context("open fleet store at /home/u/.belay/fleet.redb");
+        let msg = super::serve_failure_message(&e);
+
+        assert!(msg.contains("single writer"), "no cause named in: {msg}");
+        assert!(msg.contains("belay serve"), "no way to find it in: {msg}");
+    }
+
+    /// The hint is specific to store contention. An unrelated failure, such as a
+    /// port already bound, must not be given a misleading explanation.
+    #[test]
+    fn an_unrelated_failure_gets_no_single_writer_hint() {
+        let e = anyhow::anyhow!("address already in use (127.0.0.1:8787)");
+        let msg = super::serve_failure_message(&e);
+
+        assert!(msg.contains("address already in use"));
+        assert!(
+            !msg.contains("single writer"),
+            "hint wrongly applied to: {msg}"
+        );
+    }
     use super::{Cli, Cmd, OnOff};
 
     #[test]
@@ -3665,6 +4333,370 @@ mod tests {
     }
 
     // ─── end setup wizard ai_key backup tests ──────────────────────────────────
+
+    /// `belay sweep-history` parses, with an optional limit.
+    #[test]
+    fn sweep_history_parses() {
+        let c = Cli::parse_from(["belay", "sweep-history"]);
+        assert!(matches!(c.cmd, Cmd::SweepHistory { limit: None, .. }));
+        let c = Cli::parse_from(["belay", "sweep-history", "--limit", "5"]);
+        assert!(matches!(c.cmd, Cmd::SweepHistory { limit: Some(5), .. }));
+    }
+
+    /// `belay sweep-compare` parses and defaults to the two most recent sweeps.
+    #[test]
+    fn sweep_compare_parses() {
+        let c = Cli::parse_from(["belay", "sweep-compare"]);
+        assert!(matches!(c.cmd, Cmd::SweepCompare { from: None, to: None, .. }));
+        let c = Cli::parse_from(["belay", "sweep-compare", "--from", "a", "--to", "b"]);
+        match c.cmd {
+            Cmd::SweepCompare { from, to, .. } => {
+                assert_eq!(from.as_deref(), Some("a"));
+                assert_eq!(to.as_deref(), Some("b"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    /// `belay sweep-now` parses, with and without `--format json`.
+    #[test]
+    fn sweep_now_parses() {
+        let c = Cli::parse_from(["belay", "sweep-now"]);
+        match c.cmd {
+            Cmd::SweepNow { format } => assert_eq!(format, "text"),
+            _ => panic!("wrong variant"),
+        }
+        let c = Cli::parse_from(["belay", "sweep-now", "--format", "json"]);
+        match c.cmd {
+            Cmd::SweepNow { format } => assert_eq!(format, "json"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    /// The text output must name the sweep id on its own line, and spell out
+    /// exactly how to feed it into `sweep-compare --from` -- that hand-off is
+    /// the whole point of printing it (see `render_sweep_now`'s doc comment).
+    #[test]
+    fn sweep_now_text_names_the_sweep_id_for_compare() {
+        let rec = sweep_rec("1753900000000-0004", vec![examined_item("a", "h1", belayd::skills::sweep::Verdict::Clean)]);
+        let out = super::render_sweep_now(&rec, true, 21_600);
+        assert!(
+            out.contains("1753900000000-0004"),
+            "sweep id must appear in the output: {out}"
+        );
+        assert!(
+            out.contains("sweep-compare --from 1753900000000-0004"),
+            "must spell out how to feed the id into sweep-compare: {out}"
+        );
+    }
+
+    /// `sweep-now` must report exactly how many items were examined and
+    /// skipped, and break the skipped count down by reason -- a human acting
+    /// on "3 skipped" needs to know whether that's permission trouble or a
+    /// missing root before deciding what to do next.
+    #[test]
+    fn sweep_now_reports_examined_and_skipped_counts_by_reason() {
+        use belayd::skills::sweep::{ItemKind, SkipReason, Skipped, Verdict};
+        let mut rec = sweep_rec(
+            "sid-1",
+            vec![
+                examined_item("a", "h1", Verdict::Clean),
+                examined_item("b", "h2", Verdict::Flagged),
+            ],
+        );
+        rec.skipped = vec![
+            Skipped { kind: ItemKind::Skill, agent: "claude".into(), path: "/p1".into(), reason: SkipReason::PermissionDenied, detail: String::new() },
+            Skipped { kind: ItemKind::Skill, agent: "codex".into(), path: "/p2".into(), reason: SkipReason::PermissionDenied, detail: String::new() },
+            Skipped { kind: ItemKind::Skill, agent: "cursor".into(), path: "/p3".into(), reason: SkipReason::RootMissing, detail: String::new() },
+        ];
+
+        let out = super::render_sweep_now(&rec, true, 21_600);
+        assert!(out.contains("examined 2"), "expected examined count: {out}");
+        assert!(out.contains("skipped 3"), "expected skipped total: {out}");
+        assert!(out.contains("permission_denied"), "expected reason breakdown: {out}");
+        assert!(out.contains("root_missing"), "expected reason breakdown: {out}");
+
+        let v = super::sweep_now_json(&rec, true, 21_600);
+        assert_eq!(v["examined"], 2);
+        assert_eq!(v["skipped"], 3);
+        assert_eq!(v["skipped_by_reason"]["permission_denied"], 2);
+        assert_eq!(v["skipped_by_reason"]["root_missing"], 1);
+        assert_eq!(v["sweep_id"], "sid-1");
+        assert_eq!(v["trigger"], "periodic"); // sweep_rec's fixture default; sweep-now itself always passes "manual"
+        assert_eq!(v["ok"], true);
+    }
+
+    /// If the periodic sweep loop is disabled by config (either the master
+    /// `skill-watch` switch, or the rescan interval set to 0), `sweep-now`
+    /// must say so plainly -- that is exactly the situation where a user
+    /// most needs to know their scheduled sweeps are not running. Discriminating
+    /// test: the enabled case must NOT print a note at all, so a change that
+    /// always prints the note (or never does) fails one arm or the other.
+    #[test]
+    fn sweep_now_disabled_loop_notice_appears_when_config_says_off() {
+        let rec = sweep_rec("sid-2", vec![]);
+
+        let off = super::render_sweep_now(&rec, false, 21_600);
+        assert!(off.contains("skill-watch off"), "watch-disabled case must say so: {off}");
+
+        let zero_interval = super::render_sweep_now(&rec, true, 0);
+        assert!(
+            zero_interval.contains("interval is set to 0"),
+            "zero-interval case must say so: {zero_interval}"
+        );
+
+        let enabled = super::render_sweep_now(&rec, true, 21_600);
+        assert!(
+            !enabled.contains("note:"),
+            "the enabled/default case must print no disabled-loop note: {enabled}"
+        );
+
+        let v_off = super::sweep_now_json(&rec, false, 21_600);
+        assert_eq!(v_off["periodic_loop_disabled"], true);
+        assert!(v_off["periodic_loop_note"].as_str().unwrap().contains("skill-watch off"));
+
+        let v_on = super::sweep_now_json(&rec, true, 21_600);
+        assert_eq!(v_on["periodic_loop_disabled"], false);
+        assert!(v_on["periodic_loop_note"].is_null());
+    }
+
+    /// A history with fewer than two sweeps must say so plainly rather than
+    /// printing an empty comparison that reads like "nothing changed".
+    #[test]
+    fn comparing_a_single_sweep_reports_insufficient_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("sweeps.ndjson");
+        std::fs::write(
+            &p,
+            "{\"sweep_id\":\"1\",\"started_at_ms\":0,\"finished_at_ms\":1,\"trigger\":\"periodic\",\"examined\":[],\"skipped\":[]}\n",
+        )
+        .unwrap();
+        let out = super::render_sweep_compare_at(&p, None, None);
+        assert!(
+            out.contains("need at least two"),
+            "must not print an empty diff that reads as no change: {out}"
+        );
+    }
+
+    // ─── sweep-compare fix-round-1 regression tests ────────────────────────
+
+    fn write_sweep_line(path: &std::path::Path, rec: &belayd::skills::sweep::SweepRecord) {
+        use std::io::Write as _;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        let line = serde_json::to_string(rec).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        writeln!(f, "{line}").unwrap();
+    }
+
+    fn sweep_rec(id: &str, examined: Vec<belayd::skills::sweep::Examined>) -> belayd::skills::sweep::SweepRecord {
+        belayd::skills::sweep::SweepRecord {
+            sweep_id: id.to_string(),
+            started_at_ms: 0,
+            finished_at_ms: 1,
+            trigger: "periodic".to_string(),
+            examined,
+            skipped: vec![],
+        }
+    }
+
+    fn examined_item(
+        name: &str,
+        hash: &str,
+        verdict: belayd::skills::sweep::Verdict,
+    ) -> belayd::skills::sweep::Examined {
+        belayd::skills::sweep::Examined {
+            kind: belayd::skills::sweep::ItemKind::Skill,
+            agent: "claude".into(),
+            name: name.into(),
+            path: format!("/h/.claude/skills/{name}/SKILL.md"),
+            content_hash: hash.into(),
+            verdict,
+            rule_ids: vec![],
+        }
+    }
+
+    /// A history where sweep "1" flags item `a` and sweep "2" clears it is a
+    /// genuine `Resolved`. Asking for `--from 2 --to 1` (backwards) must be
+    /// rejected outright, and specifically must NEVER print `reopened` for
+    /// `a` - that would claim a fixed finding came back when the opposite
+    /// happened. This is the discriminating test for the `from_idx > to_idx`
+    /// guard: see the sibling test below that proves it actually fails
+    /// without the guard.
+    #[test]
+    fn reversed_from_to_is_rejected_not_silently_swapped() {
+        use belayd::skills::sweep::Verdict;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("sweeps.ndjson");
+        write_sweep_line(&p, &sweep_rec("1", vec![examined_item("a", "h1", Verdict::Flagged)]));
+        write_sweep_line(&p, &sweep_rec("2", vec![examined_item("a", "h1", Verdict::Clean)]));
+
+        let out = super::render_sweep_compare_at(&p, Some("2"), Some("1"));
+        assert!(
+            !out.to_lowercase().contains("reopened"),
+            "a reversed --from/--to must never report reopened: {out}"
+        );
+        assert!(
+            out.contains("must precede"),
+            "reversed order must be rejected with a clear message: {out}"
+        );
+
+        let v = super::sweep_compare_json_at(&p, Some("2"), Some("1"));
+        assert_eq!(v["ok"], serde_json::json!(false));
+        assert!(
+            !v.to_string().to_lowercase().contains("reopened"),
+            "JSON output for a reversed pair must never mention reopened: {v}"
+        );
+    }
+
+    /// Same setup as `reversed_from_to_is_rejected_not_silently_swapped`, but
+    /// forward: `--from 1 --to 2` is the correct chronological order, and
+    /// must classify `a` as `resolved`, never `reopened`. Kept side by side
+    /// with the reversed test so the pair proves the guard discriminates
+    /// direction rather than just refusing to print anything.
+    #[test]
+    fn forward_from_to_reports_resolved_not_reopened() {
+        use belayd::skills::sweep::Verdict;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("sweeps.ndjson");
+        write_sweep_line(&p, &sweep_rec("1", vec![examined_item("a", "h1", Verdict::Flagged)]));
+        write_sweep_line(&p, &sweep_rec("2", vec![examined_item("a", "h1", Verdict::Clean)]));
+
+        let out = super::render_sweep_compare_at(&p, Some("1"), Some("2"));
+        assert!(
+            out.contains("resolved"),
+            "the forward direction must classify a as resolved: {out}"
+        );
+        assert!(
+            !out.to_lowercase().contains("reopened"),
+            "the forward direction must never say reopened: {out}"
+        );
+    }
+
+    /// `bad_lines` must survive onto BOTH `sweep-compare` error paths, in
+    /// both output formats. A history of nothing but corrupt lines must not
+    /// read as "haven't swept twice yet" - it must say the history itself is
+    /// damaged.
+    #[test]
+    fn insufficient_history_surfaces_bad_lines_in_both_formats() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("sweeps.ndjson");
+        std::fs::write(&p, "not json\nalso not json\n").unwrap();
+
+        let out = super::render_sweep_compare_at(&p, None, None);
+        assert!(
+            out.contains("need at least two"),
+            "still must report insufficient history: {out}"
+        );
+        assert!(
+            out.contains("2 unreadable line"),
+            "must not hide that the history is corrupt behind the count-of-0 message: {out}"
+        );
+
+        let v = super::sweep_compare_json_at(&p, None, None);
+        assert_eq!(v["ok"], serde_json::json!(false));
+        assert_eq!(
+            v["bad_lines"],
+            serde_json::json!(2),
+            "bad_lines must appear on the JSON insufficient-history path: {v}"
+        );
+    }
+
+    /// An unknown `--from` or `--to` id is rejected in both formats, and the
+    /// rejection still carries `bad_lines` when the history also has corrupt
+    /// lines alongside the two valid sweeps.
+    #[test]
+    fn unknown_sweep_id_is_rejected_in_both_formats() {
+        use belayd::skills::sweep::Verdict;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("sweeps.ndjson");
+        write_sweep_line(&p, &sweep_rec("1", vec![examined_item("a", "h1", Verdict::Flagged)]));
+        write_sweep_line(&p, &sweep_rec("2", vec![examined_item("a", "h1", Verdict::Clean)]));
+        // A corrupt line alongside two valid ones: bad_lines must still show
+        // up on the unknown-id error path, not just the insufficient-history
+        // one.
+        use std::io::Write as _;
+        writeln!(std::fs::OpenOptions::new().append(true).open(&p).unwrap(), "not json").unwrap();
+
+        let out = super::render_sweep_compare_at(&p, Some("nope"), None);
+        assert!(
+            out.contains("no sweep with id"),
+            "unknown --from must be rejected: {out}"
+        );
+        assert!(out.contains("--from"), "must name which flag was wrong: {out}");
+        assert!(out.contains("1 unreadable line"), "must still surface bad_lines: {out}");
+
+        let v = super::sweep_compare_json_at(&p, None, Some("nope"));
+        assert_eq!(v["ok"], serde_json::json!(false));
+        assert_eq!(v["bad_lines"], serde_json::json!(1));
+        assert!(v["error"].as_str().unwrap().contains("--to"));
+    }
+
+    /// `--from` equal to `--to` is a degenerate self-comparison (everything
+    /// would classify as `persisting`) and must be rejected, not rendered as
+    /// though it were a real diff.
+    #[test]
+    fn from_equal_to_to_is_rejected() {
+        use belayd::skills::sweep::Verdict;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("sweeps.ndjson");
+        write_sweep_line(&p, &sweep_rec("1", vec![examined_item("a", "h1", Verdict::Flagged)]));
+        write_sweep_line(&p, &sweep_rec("2", vec![examined_item("a", "h1", Verdict::Clean)]));
+
+        let out = super::render_sweep_compare_at(&p, Some("1"), Some("1"));
+        assert!(
+            out.contains("nothing to compare"),
+            "self-comparison must be rejected with a clear message: {out}"
+        );
+
+        let v = super::sweep_compare_json_at(&p, Some("1"), Some("1"));
+        assert_eq!(v["ok"], serde_json::json!(false));
+    }
+
+    /// The JSON path of both `sweep-history` and `sweep-compare` must
+    /// actually be exercised: nothing in the original three tests called
+    /// either JSON renderer at all.
+    #[test]
+    fn json_path_is_exercised_for_both_commands() {
+        use belayd::skills::sweep::Verdict;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("sweeps.ndjson");
+        write_sweep_line(&p, &sweep_rec("1", vec![examined_item("a", "h1", Verdict::Flagged)]));
+        write_sweep_line(&p, &sweep_rec("2", vec![examined_item("a", "h1", Verdict::Clean)]));
+
+        let hist = super::sweep_history_json_at(&p, None);
+        assert_eq!(hist["bad_lines"], serde_json::json!(0));
+        assert_eq!(hist["sweeps"].as_array().unwrap().len(), 2);
+
+        let cmp = super::sweep_compare_json_at(&p, None, None);
+        assert_eq!(cmp["ok"], serde_json::json!(true));
+        assert_eq!(cmp["from"], serde_json::json!("1"));
+        assert_eq!(cmp["to"], serde_json::json!("2"));
+        let changes = cmp["changes"].as_array().unwrap();
+        assert!(changes.iter().any(|c| c["status"] == "resolved"));
+    }
+
+    /// `sweep-compare`'s exit code must reflect `ok`, matching how `belay
+    /// scan` already maps result content to a nonzero exit rather than
+    /// always returning SUCCESS with the failure buried in the printed body.
+    #[test]
+    fn exit_code_reflects_ok() {
+        use belayd::skills::sweep::Verdict;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("sweeps.ndjson");
+        write_sweep_line(&p, &sweep_rec("1", vec![examined_item("a", "h1", Verdict::Flagged)]));
+        write_sweep_line(&p, &sweep_rec("2", vec![examined_item("a", "h1", Verdict::Clean)]));
+
+        assert!(super::sweep_compare_succeeded(&p, None, None));
+        assert!(!super::sweep_compare_succeeded(&p, Some("2"), Some("1")));
+        assert!(!super::sweep_compare_succeeded(&p, Some("1"), Some("1")));
+        assert!(!super::sweep_compare_succeeded(&p, Some("nope"), None));
+    }
 }
 
 #[cfg(all(test, feature = "ai"))]

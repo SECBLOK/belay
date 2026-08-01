@@ -1,10 +1,13 @@
 //! Tamper-evident evidence packs with a SHA-256 manifest (Phase 13 Task 3).
 //!
 //! Port of the deleted Python predecessor's `evidence/pack.py`. A pack directory holds exactly
-//! three files:
-//!   - `findings.json`  — JSON array of AuditRow dicts.
-//!   - `report.sarif`   — literal `{"version": "2.1.0", "runs": []}`.
-//!   - `manifest.json`  — `{"findings.json": <sha256hex>, "report.sarif": <sha256hex>}`.
+//! four files:
+//!   - `findings.json`  - JSON array of AuditRow dicts.
+//!   - `report.sarif`   - literal `{"version": "2.1.0", "runs": []}`.
+//!   - `sweeps.json`    - agent-surface sweep history (Task 6), an opaque
+//!     `serde_json::Value` this crate does not interpret.
+//!   - `manifest.json`  - `{"findings.json": <sha256hex>, "report.sarif": <sha256hex>,
+//!     "sweeps.json": <sha256hex>}`.
 //!
 //! **Byte-parity with Python `json.dump(obj, f, indent=2)` is mandatory** because
 //! the manifest hashes the RAW FILE BYTES. Any byte difference between the Rust
@@ -24,6 +27,7 @@ use std::path::Path;
 pub const MANIFEST: &str = "manifest.json";
 pub const FINDINGS: &str = "findings.json";
 pub const SARIF: &str = "report.sarif";
+pub const SWEEPS: &str = "sweeps.json";
 
 /// SHA-256 of a file's RAW BYTES (read in 64KiB chunks), lowercase hex.
 /// Mirrors Python `_sha256_file`.
@@ -73,29 +77,38 @@ fn ensure_ascii(s: &str) -> String {
     out
 }
 
-/// Write `findings` + `sarif` to `out_dir` and create a SHA-256 manifest over
-/// both files (the manifest excludes itself). Returns `out_dir`.
+/// Write `findings` + `sarif` + `sweeps` to `out_dir` and create a SHA-256
+/// manifest over all three files (the manifest excludes itself). Returns
+/// `out_dir`.
 ///
 /// `findings` is expected to be a JSON array (the output of
 /// `audit_reader::to_findings`); `sarif` the literal
-/// `{"version":"2.1.0","runs":[]}`. Mirrors Python `build_pack`.
+/// `{"version":"2.1.0","runs":[]}`; `sweeps` the agent-surface sweep history
+/// (this crate takes it as an opaque `serde_json::Value` so `manage` does not
+/// need a dependency on `belayd`, where the sweep types live). Mirrors Python
+/// `build_pack`, extended with sweep history (Task 6).
 pub fn build_pack(
     out_dir: &str,
     findings: &serde_json::Value,
     sarif: &serde_json::Value,
+    sweeps: &serde_json::Value,
 ) -> std::io::Result<String> {
     std::fs::create_dir_all(out_dir)?;
 
     let dir = Path::new(out_dir);
     let findings_path = dir.join(FINDINGS);
     let sarif_path = dir.join(SARIF);
+    let sweeps_path = dir.join(SWEEPS);
     let manifest_path = dir.join(MANIFEST);
 
     // NO trailing newline — std::fs::write writes exactly these bytes.
     std::fs::write(&findings_path, to_py_json(findings))?;
     std::fs::write(&sarif_path, to_py_json(sarif))?;
+    std::fs::write(&sweeps_path, to_py_json(sweeps))?;
 
-    // Manifest key order: findings.json then report.sarif (preserve_order on).
+    // Manifest key order: findings.json, report.sarif, then sweeps.json
+    // (preserve_order is on). Appending rather than inserting keeps the first
+    // two entries byte-identical to a pre-sweeps manifest.
     let mut manifest = serde_json::Map::new();
     manifest.insert(
         FINDINGS.to_string(),
@@ -104,6 +117,10 @@ pub fn build_pack(
     manifest.insert(
         SARIF.to_string(),
         serde_json::Value::String(sha256_file(&sarif_path)?),
+    );
+    manifest.insert(
+        SWEEPS.to_string(),
+        serde_json::Value::String(sha256_file(&sweeps_path)?),
     );
     let manifest = serde_json::Value::Object(manifest);
 
@@ -195,7 +212,7 @@ mod tests {
         let out = tmp.path().join("pack");
         let findings = json!([{"ts": "t", "reason": "café 日本", "rules": []}]);
         let sarif = json!({"version": "2.1.0", "runs": []});
-        let p = build_pack(out.to_str().unwrap(), &findings, &sarif).unwrap();
+        let p = build_pack(out.to_str().unwrap(), &findings, &sarif, &json!([])).unwrap();
         assert!(verify_pack(&p));
     }
 
@@ -205,7 +222,7 @@ mod tests {
         let out = tmp.path().join("pack");
         let findings = json!([{"ts": "t"}]);
         let sarif = json!({"version": "2.1.0", "runs": []});
-        let p = build_pack(out.to_str().unwrap(), &findings, &sarif).unwrap();
+        let p = build_pack(out.to_str().unwrap(), &findings, &sarif, &json!([])).unwrap();
         // Append a byte to findings.json.
         let fp = std::path::Path::new(&p).join(FINDINGS);
         let mut content = std::fs::read(&fp).unwrap();
@@ -220,7 +237,7 @@ mod tests {
         let out = tmp.path().join("pack");
         let findings = json!([]);
         let sarif = json!({"version": "2.1.0", "runs": []});
-        let p = build_pack(out.to_str().unwrap(), &findings, &sarif).unwrap();
+        let p = build_pack(out.to_str().unwrap(), &findings, &sarif, &json!([])).unwrap();
         std::fs::remove_file(std::path::Path::new(&p).join(FINDINGS)).unwrap();
         assert!(!verify_pack(&p));
     }
@@ -231,7 +248,7 @@ mod tests {
         let out = tmp.path().join("pack");
         let findings = json!([]);
         let sarif = json!({"version": "2.1.0", "runs": []});
-        let p = build_pack(out.to_str().unwrap(), &findings, &sarif).unwrap();
+        let p = build_pack(out.to_str().unwrap(), &findings, &sarif, &json!([])).unwrap();
         std::fs::remove_file(std::path::Path::new(&p).join(MANIFEST)).unwrap();
         assert!(!verify_pack(&p));
     }

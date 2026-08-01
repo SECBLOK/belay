@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
-import { getPosture, getPending } from "../lib/api";
+import { getPosture, getPending, streamAudit } from "../lib/api";
 import type { PostureSummary } from "../lib/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
@@ -7,8 +7,7 @@ import type { MessageDescriptor } from "@lingui/core";
 import LanguagePicker from "./LanguagePicker";
 
 type Tab =
-  | "posture" | "findings" | "timeline" | "alerts" | "scan" | "agents" | "host" | "ai" | "messaging"
- ;
+  | "posture" | "findings" | "timeline" | "alerts" | "scan" | "agents" | "host" | "ai" | "messaging";
 
 interface SidebarProps {
   tab: Tab;
@@ -122,7 +121,6 @@ function IconAi({ active }: { active: boolean }) {
   );
 }
 
-
 function BrandLogo() {
   return (
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
@@ -152,10 +150,19 @@ function BrandLogo() {
 
 // ─── status helpers (mirrors TrayPopover logic) ───────────────────────────────
 
-type StatusState = "protected" | "monitoring" | "action" | "blocked";
+type StatusState = "unknown" | "protected" | "monitoring" | "action" | "blocked";
 
+// A failed posture fetch must not collapse into a confident "Protected" claim.
+// This used to return "protected" for null, so the one render before the
+// fetch settled - and, if `getPosture()` was outright rejected, EVERY render
+// for the rest of the session, since the Sidebar mounts once at app root and
+// never remounts - showed a green "Protected" badge with no idea what the
+// real posture was: a security surface saying "fine" when it does not know.
+// TrayPopover hit this exact shape of bug for its status label and fixed it
+// by giving "don't know yet" its own state instead of folding it into the
+// healthy one (see postureState in TrayPopover.tsx); this mirrors that fix.
 function deriveStatus(posture: PostureSummary | null): StatusState {
-  if (!posture) return "protected";
+  if (!posture) return "unknown";
   const score = posture.score ?? 100;
   const deny = posture.deny ?? 0;
   const ask = posture.ask ?? 0;
@@ -166,8 +173,10 @@ function deriveStatus(posture: PostureSummary | null): StatusState {
 
 // Label is a MessageDescriptor, not a string, and the COLOUR is keyed by the
 // state - never by the label - so this stays correct under any locale. (See
-// TrayPopover for the bug that motivates keying on state.)
+// TrayPopover for the bug that motivates keying on state.) `unknown` is
+// deliberately neutral grey, not green: it must never read as a positive claim.
 const STATUS_META: Record<StatusState, { color: string; label: MessageDescriptor }> = {
+  unknown:    { color: "var(--text-tertiary)",  label: msg`Loading…`      },
   protected:  { color: "var(--semantic-allow)", label: msg`Protected`     },
   monitoring: { color: "var(--semantic-info)",  label: msg`Monitoring`    },
   action:     { color: "var(--semantic-ask)",   label: msg`Action needed` },
@@ -204,7 +213,6 @@ const PROTECTION_NAV: NavItem[] = [
   { tab: "messaging", label: msg`Messaging`, Icon: IconMessaging },
 ];
 
-
 // ─── main component ───────────────────────────────────────────────────────────
 
 export default function Sidebar({ tab, onNavigate }: SidebarProps) {
@@ -223,16 +231,29 @@ export default function Sidebar({ tab, onNavigate }: SidebarProps) {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  // fetch posture + pending (resilient, never throws — mirrors TrayPopover)
+  // Fetch posture and subscribe to the audit stream so a failed initial fetch
+  // recovers instead of leaving `posture` null - and therefore the status
+  // badge stuck on "unknown" - for the rest of the session. The Sidebar
+  // mounts once at app root and never remounts, so without a retry path a
+  // single rejected `getPosture()` would never resolve until app restart.
+  // Mirrors how Posture.tsx and Fleet.tsx re-load on every new audit row.
+  useEffect(() => {
+    let live = true;
+    const load = () => getPosture()
+      .then((p) => { if (live) setPosture(p); })
+      .catch(() => {
+        // non-fatal: leave posture null so deriveStatus renders "unknown",
+        // never "protected"; the next audit event retries the load.
+      });
+    load();
+    const stop = streamAudit(() => load());
+    return () => { live = false; stop(); };
+  }, []);
+
+  // Pending-approval count (resilient, never throws - mirrors TrayPopover).
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const p = await getPosture();
-        if (!cancelled) setPosture(p);
-      } catch {
-        // non-fatal
-      }
       try {
         const pending = await getPending();
         if (!cancelled) setPendingCount(Array.isArray(pending) ? pending.length : 0);

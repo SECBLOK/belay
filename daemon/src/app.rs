@@ -155,6 +155,29 @@ pub fn run_daemon_with_shutdown(shutdown: Arc<AtomicBool>) {
         }
     }
 
+    // Continuous rules-integrity check. The startup check above runs once, so a
+    // rules file edited while the daemon is up went unnoticed until the next
+    // restart. This is the only mechanism that sees a write whose target was
+    // computed at runtime (`parent.parent / "rules" / "catalog.yaml"` inside a
+    // script), because hashing does not care how the write happened.
+    // Alert-only and deduplicated on the drifted digest — see
+    // `engine::integrity::run_periodic_integrity_check` for why it must not
+    // fail closed. Its own thread so a slow skill rescan cannot delay it.
+    {
+        const INTEGRITY_INTERVAL_SECS: u64 = 300;
+        // Say plainly whether this is watching anything. It previously probed
+        // only the cwd, which is `/` under a service manager, so it monitored
+        // nothing while appearing to be on.
+        eprintln!(
+            "[belayd] {}",
+            crate::engine::integrity::describe_monitoring()
+        );
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(INTEGRITY_INTERVAL_SECS));
+            crate::engine::integrity::run_periodic_integrity_check();
+        });
+    }
+
     // Phase-1 Windows honeytoken canary (Tier 1 — no admin, no driver). The
     // Windows counterpart of the eBPF block above: same shape (plant honeypot →
     // observe → classify_access → react), but the *source* is a last-access poll

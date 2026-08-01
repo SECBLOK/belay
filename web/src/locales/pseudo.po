@@ -50,6 +50,11 @@ msgstr ""
 msgid "{0, plural, one {# file in quarantine} other {# files in quarantine}}"
 msgstr ""
 
+#. placeholder {0}: mute.hits
+#: src/components/MutedRulesPanel.tsx
+msgid "{0, plural, one {# hit} other {# hits}}"
+msgstr ""
+
 #. placeholder {0}: data.bannedIpCount
 #: src/views/host/HostOverview.tsx
 msgid "{0, plural, one {# IP currently banned} other {# IPs currently banned}}"
@@ -68,6 +73,11 @@ msgstr ""
 #. placeholder {0}: pendings.length
 #: src/components/BatchDigest.tsx
 msgid "{0, plural, one {# pending approval} other {# pending approvals}}"
+msgstr ""
+
+#. placeholder {0}: mutes.length
+#: src/components/MutedRulesPanel.tsx
+msgid "{0, plural, one {# rule muted} other {# rules muted}}"
 msgstr ""
 
 #. placeholder {0}: ruleset.rules.length
@@ -163,6 +173,11 @@ msgstr ""
 msgid "{0}m ago"
 msgstr ""
 
+#. placeholder {0}: minutesLeft(mute.expires_ms, nowMs)
+#: src/components/MutedRulesPanel.tsx
+msgid "{0}m left"
+msgstr ""
+
 #. placeholder {0}: Math.floor(s)
 #: src/components/dash.tsx
 #: src/views/Alerts.tsx
@@ -209,6 +224,10 @@ msgstr ""
 
 #: src/components/Sidebar.tsx
 msgid "{pendingCount} pending"
+msgstr ""
+
+#: src/views/host/FilesScan.tsx
+msgid "{scanned, plural, =0 {Scan complete — no files to scan.} one {Scan complete — scanned # file, no threats found.} other {Scan complete — scanned # files, no threats found.}}"
 msgstr ""
 
 #: src/components/host/DeadMansSwitchPanel.tsx
@@ -393,6 +412,10 @@ msgstr ""
 
 #: src/components/host/AllowlistManager.tsx
 msgid "Add rule"
+msgstr ""
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Adding…"
 msgstr ""
 
 #: src/views/console/OrgAdmin.tsx
@@ -640,6 +663,10 @@ msgstr ""
 msgid "Auth token"
 msgstr ""
 
+#: src/components/MutedRulesPanel.tsx
+msgid "Auto — flood detected"
+msgstr ""
+
 #: src/views/host/FirewallSetup.tsx
 msgid "Auto setup — detect this system and pre-fill a least-privilege ruleset"
 msgstr ""
@@ -703,6 +730,10 @@ msgstr ""
 #. placeholder {0}: u.version
 #: src/components/UpdateControl.tsx
 msgid "Belay {0} is available."
+msgstr ""
+
+#: src/views/console/Login.tsx
+msgid "Belay Console"
 msgstr ""
 
 #: src/lib/explain.ts
@@ -917,6 +948,14 @@ msgstr ""
 msgid "Confirm remove?"
 msgstr ""
 
+#: src/components/MutedRulesPanel.tsx
+msgid "Confirm revoke all?"
+msgstr ""
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Confirm revoke?"
+msgstr ""
+
 #: src/views/Messaging.tsx
 msgid "Connectors"
 msgstr ""
@@ -937,8 +976,8 @@ msgstr ""
 msgid "correlation"
 msgstr ""
 
-#: src/components/Sidebar.tsx
 #: src/views/Alerts.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/Correlation.tsx
 msgid "Correlation"
 msgstr ""
@@ -955,16 +994,88 @@ msgstr ""
 msgid "Correlation window"
 msgstr ""
 
+#: src/components/host/AllowlistManager.tsx
+msgid "Could not add rule: {addError}"
+msgstr ""
+
+#: src/views/host/HostSkills.tsx
+msgid "Could not approve: {error}"
+msgstr ""
+
+#: src/views/host/EgressControl.tsx
+msgid "Could not change egress mode: {error}"
+msgstr ""
+
+#: src/views/host/EgressControl.tsx
+msgid "Could not change inline enforcement: {error}"
+msgstr ""
+
+#: src/components/TrayPopover.tsx
+msgid "Could not change protection: {pauseError}"
+msgstr ""
+
+#. placeholder {0}: state.error
+#: src/components/host/QuarantineList.tsx
+msgid "Could not complete that: {0}"
+msgstr ""
+
 #: src/views/console/shared.tsx
 msgid "Could not load {what}."
 msgstr ""
 
+#: src/views/Findings.tsx
+msgid "Could not load findings"
+msgstr ""
+
+#: src/views/Fleet.tsx
+msgid "Could not load your machines"
+msgstr ""
+
+#: src/views/Posture.tsx
+msgid "Could not load your protection status"
+msgstr ""
+
+#: src/components/ApprovalSurface.tsx
+msgid "Could not mute this rule right now."
+msgstr ""
+
+#: src/views/host/EgressControl.tsx
 #: src/views/Messaging.tsx
 msgid "Could not reach the daemon."
 msgstr ""
 
+#: src/components/host/AllowlistManager.tsx
+msgid "Could not remove rule: {removeError}"
+msgstr ""
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Could not revoke all: {revokeAllError}"
+msgstr ""
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Could not revoke: {error}"
+msgstr ""
+
+#: src/views/host/EgressControl.tsx
+msgid "Could not save your enrich-destinations setting: {error}"
+msgstr ""
+
+#: src/views/host/FilesScan.tsx
+#: src/views/host/SshHardening.tsx
+msgid "Could not save: {error}"
+msgstr ""
+
+#: src/components/ApprovalCard.tsx
+#: src/components/BatchDigest.tsx
+msgid "Could not send your response: {error}"
+msgstr ""
+
 #: src/views/Messaging.tsx
 msgid "Could not start pairing"
+msgstr ""
+
+#: src/components/host/BanList.tsx
+msgid "Could not unban: {error}"
 msgstr ""
 
 #: src/views/Messaging.tsx
@@ -1001,6 +1112,10 @@ msgstr ""
 
 #: src/components/host/SeverityDot.tsx
 msgid "CRITICAL"
+msgstr ""
+
+#: src/components/ApprovalSurface.tsx
+msgid "Critical-severity findings can't be muted."
 msgstr ""
 
 #: src/views/console/Correlation.tsx
@@ -1071,6 +1186,10 @@ msgstr ""
 #: src/components/ApprovalCard.tsx
 #: src/components/host/AllowlistManager.tsx
 msgid "Deny"
+msgstr ""
+
+#: src/components/ApprovalCard.tsx
+msgid "Deny & mute this rule"
 msgstr ""
 
 #: src/components/ApprovalCard.tsx
@@ -1172,7 +1291,7 @@ msgstr ""
 msgid "devices"
 msgstr ""
 
-#: src/components/Sidebar.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/Correlation.tsx
 #: src/views/console/Devices.tsx
 #: src/views/console/FleetCommands.tsx
@@ -1516,7 +1635,7 @@ msgstr ""
 msgid "Fleet Activity"
 msgstr ""
 
-#: src/components/Sidebar.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/FleetCommands.tsx
 msgid "Fleet Commands"
 msgstr ""
@@ -1543,6 +1662,10 @@ msgstr ""
 
 #: src/views/Agents.tsx
 msgid "Full system access enabled"
+msgstr ""
+
+#: src/components/ApprovalSurface.tsx
+msgid "Further matches will auto-deny for a while. Manage active mutes from Overview."
 msgstr ""
 
 #: src/components/host/FindingFixRow.tsx
@@ -1693,7 +1816,7 @@ msgstr ""
 msgid "I understand this sends the flagged action (redacted) to {0}."
 msgstr ""
 
-#: src/components/Sidebar.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/Settings.tsx
 msgid "Identity & Feed"
 msgstr ""
@@ -1861,6 +1984,10 @@ msgstr ""
 msgid "leave blank to keep current"
 msgstr ""
 
+#: src/views/console/Login.tsx
+msgid "Leave blank unless you belong to several"
+msgstr ""
+
 #: src/lib/humanize.ts
 msgid "Listed files"
 msgstr ""
@@ -1926,6 +2053,11 @@ msgstr ""
 msgid "Loading vulnerability posture…"
 msgstr ""
 
+#: src/views/console/ConsoleApp.tsx
+msgid "Loading..."
+msgstr ""
+
+#: src/components/Sidebar.tsx
 #: src/components/TrayPopover.tsx
 #: src/components/TrustPanel.tsx
 #: src/views/host/FilesScan.tsx
@@ -1970,6 +2102,10 @@ msgstr ""
 #: src/views/console/OrgAdmin.tsx
 #: src/views/console/Settings.tsx
 msgid "Manage"
+msgstr ""
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Manual"
 msgstr ""
 
 #: src/components/host/FindingFixRow.tsx
@@ -2207,8 +2343,8 @@ msgid "No rules triggered"
 msgstr ""
 
 #: src/views/host/FilesScan.tsx
-msgid "No scan findings."
-msgstr ""
+#~ msgid "No scan findings."
+#~ msgstr ""
 
 #: src/views/console/Settings.tsx
 msgid "No SSO configuration found. Fill in the fields below to configure."
@@ -2292,6 +2428,14 @@ msgstr ""
 msgid "Only this computer is connected"
 msgstr ""
 
+#: src/views/Posture.tsx
+msgid "Only this page failed to load. Belay keeps protecting this computer either way."
+msgstr ""
+
+#: src/views/Fleet.tsx
+msgid "Only this page failed to load. Your protection is unchanged and this computer is still being monitored."
+msgstr ""
+
 #: src/components/TrayPopover.tsx
 msgid "Open dashboard"
 msgstr ""
@@ -2308,10 +2452,14 @@ msgstr ""
 msgid "Optional: turn on AI explanations & the <0>Skill Judge</0> (off by default, bring your own key) any time in <1>Settings → AI</1>."
 msgstr ""
 
-#: src/components/Sidebar.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/OrgAdmin.tsx
 #: src/views/console/shared.tsx
 msgid "Organization"
+msgstr ""
+
+#: src/views/console/Login.tsx
+msgid "Organization (optional)"
 msgstr ""
 
 #: src/views/console/Devices.tsx
@@ -2365,6 +2513,10 @@ msgstr ""
 
 #: src/components/host/FindingFixRow.tsx
 msgid "Pass"
+msgstr ""
+
+#: src/views/console/Login.tsx
+msgid "Password"
 msgstr ""
 
 #: src/components/host/FindingFixRow.tsx
@@ -2561,7 +2713,9 @@ msgstr ""
 msgid "Reading docs or data you pointed it at is normal; unexpected sources are not."
 msgstr ""
 
+#: src/views/Fleet.tsx
 #: src/views/host/FilesScan.tsx
+#: src/views/Posture.tsx
 msgid "Reason"
 msgstr ""
 
@@ -2584,6 +2738,10 @@ msgstr ""
 
 #: src/components/Welcome.tsx
 msgid "Red"
+msgstr ""
+
+#: src/components/ApprovalSurface.tsx
+msgid "Refused: this looks like the agent tried to approve its own request."
 msgstr ""
 
 #: src/views/console/FleetCommands.tsx
@@ -2626,6 +2784,10 @@ msgstr ""
 msgid "Removed {principal} from {0}"
 msgstr ""
 
+#: src/components/host/AllowlistManager.tsx
+msgid "Removing…"
+msgstr ""
+
 #: src/views/Messaging.tsx
 msgid "Required"
 msgstr ""
@@ -2663,6 +2825,7 @@ msgstr ""
 msgid "Review individually"
 msgstr ""
 
+#: src/components/MutedRulesPanel.tsx
 #: src/views/console/Devices.tsx
 #: src/views/console/Settings.tsx
 msgid "Revoke"
@@ -2670,6 +2833,10 @@ msgstr ""
 
 #: src/views/console/Devices.tsx
 msgid "Revoke <0>{confirmDevice}</0>? This device will lose access."
+msgstr ""
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Revoke all"
 msgstr ""
 
 #: src/views/console/Devices.tsx
@@ -2699,6 +2866,10 @@ msgstr ""
 
 #: src/views/console/Devices.tsx
 msgid "Revoke token <0>{confirmToken}</0>? This token will no longer work."
+msgstr ""
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Revoking…"
 msgstr ""
 
 #: src/views/Fleet.tsx
@@ -2736,6 +2907,14 @@ msgstr ""
 
 #: src/views/Posture.tsx
 msgid "rule hits"
+msgstr ""
+
+#: src/components/ApprovalSurface.tsx
+msgid "Rule muted"
+msgstr ""
+
+#: src/components/ApprovalSurface.tsx
+msgid "Rule not muted"
 msgstr ""
 
 #: src/views/host/FirewallSetup.tsx
@@ -2938,6 +3117,10 @@ msgstr ""
 msgid "self-service enrollment"
 msgstr ""
 
+#: src/components/ApprovalCard.tsx
+msgid "Sending your response…"
+msgstr ""
+
 #: src/views/Messaging.tsx
 msgid "Server URL"
 msgstr ""
@@ -3000,7 +3183,7 @@ msgid "Show details"
 msgstr ""
 
 #: src/views/host/EgressControl.tsx
-msgid "Show owner/ASN/country next to egress hosts. Display-only — never affects allow/deny."
+msgid "Show owner/ASN/country next to egress hosts. Display-only, and never affects allow/deny."
 msgstr ""
 
 #. placeholder {0}: filtered.length
@@ -3008,8 +3191,28 @@ msgstr ""
 msgid "Showing newest {RENDER_CAP} of {0} matches — narrow the filter to see more"
 msgstr ""
 
+#: src/views/console/Login.tsx
+msgid "Sign in"
+msgstr ""
+
 #: src/views/console/shared.tsx
 msgid "Sign in with an operator account to view this."
+msgstr ""
+
+#: src/views/console/Login.tsx
+msgid "Sign in with an operator account."
+msgstr ""
+
+#: src/views/console/ConsoleApp.tsx
+msgid "Sign out"
+msgstr ""
+
+#: src/views/console/ConsoleApp.tsx
+msgid "Sign out failed. You are still signed in."
+msgstr ""
+
+#: src/views/console/Login.tsx
+msgid "Signing in..."
 msgstr ""
 
 #: src/views/Messaging.tsx
@@ -3156,6 +3359,15 @@ msgstr ""
 msgid "Synchronous check at install time (~1–5s)."
 msgstr ""
 
+#: src/components/host/QuarantineList.tsx
+msgid "Tap a button above to try again."
+msgstr ""
+
+#: src/components/ApprovalCard.tsx
+#: src/components/BatchDigest.tsx
+msgid "Tap a button below to try again."
+msgstr ""
+
 #: src/views/console/FleetCommands.tsx
 msgid "Target devices"
 msgstr ""
@@ -3252,6 +3464,10 @@ msgstr ""
 msgid "This mapping is often the first step before something sensitive gets taken."
 msgstr ""
 
+#: src/components/ApprovalSurface.tsx
+msgid "This type of finding always requires review and can't be muted."
+msgstr ""
+
 #. placeholder {0}: t(meta.label)
 #. placeholder {1}: targets.length
 #: src/views/console/FleetCommands.tsx
@@ -3280,6 +3496,10 @@ msgstr ""
 
 #: src/views/console/Devices.tsx
 msgid "Token id"
+msgstr ""
+
+#: src/components/ApprovalSurface.tsx
+msgid "Too many rules are already muted — revoke one from Overview first."
 msgstr ""
 
 #: src/views/Findings.tsx
@@ -3468,6 +3688,7 @@ msgstr ""
 msgid "User"
 msgstr ""
 
+#: src/views/console/Login.tsx
 #: src/views/console/OrgAdmin.tsx
 msgid "Username"
 msgstr ""

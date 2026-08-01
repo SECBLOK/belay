@@ -13,6 +13,7 @@ vi.mock("@lingui/react", async (o) => await o<typeof import("@lingui/react")>())
 vi.mock("../lib/api", () => ({
   getPosture: () => Promise.resolve({ score: 40, deny: 2, ask: 1 }),
   getPending: () => Promise.resolve([{ id: "a" }, { id: "b" }, { id: "c" }]),
+  streamAudit: () => () => {},
   getLocale: () => Promise.resolve({ locale: "zh-Hans", supported: ["en", "zh-Hans"] }),
   setLocale: () => Promise.resolve({ ok: true }),
 }));

@@ -144,6 +144,60 @@ pub async fn respond_approval(id: String, decision: String, scope: String) -> Re
     crate::uds::request(&frame).await.map_err(|e| e.to_string())
 }
 
+/// Active rule-scoped deny mutes — `{"mutes":[{rule,installed_ms,expires_ms,
+/// origin,hits}...]}`. Daemon-unreachable ⇒ `{"mutes":[]}` so the Overview
+/// panel reads as "nothing muted" rather than erroring.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn get_deny_mutes() -> Value {
+    let frame = serde_json::json!({"type":"command","name":"get_deny_mutes","args":{}});
+    match crate::uds::request(&frame).await {
+        Ok(v) => v,
+        Err(_) => serde_json::json!({"mutes": []}),
+    }
+}
+
+/// Revoke one rule's mute early. Returns `{"ok":true,"removed":bool}`.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn revoke_deny_mute(rule: String) -> Result<Value, String> {
+    let frame = serde_json::json!({
+        "type":"command","name":"revoke_deny_mute","args":{"rule":rule}
+    });
+    crate::uds::request(&frame).await.map_err(|e| e.to_string())
+}
+
+/// Revoke every active mute. Returns `{"ok":true,"removed":N}`.
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn revoke_all_deny_mutes() -> Result<Value, String> {
+    let frame = serde_json::json!({
+        "type":"command","name":"revoke_all_deny_mutes","args":{}
+    });
+    crate::uds::request(&frame).await.map_err(|e| e.to_string())
+}
+
+/// Read the daemon's REAL, live protection flag - `{"protection":"on"|"off"}`.
+/// Distinct from `get_posture` above: that one reads the local audit summary
+/// and has no idea whether protection is paused. This one round-trips to the
+/// daemon's in-memory `Approvals::protection_on()` (see the `get_protection_status`
+/// arm in `daemon/src/ipc.rs`), the same flag `set_protection` below writes.
+///
+/// Daemon-unreachable ⇒ `{"protection":"unknown"}`, never a guessed "on" - a
+/// caller that cannot confirm the state must not render a confident label
+/// (see `TrayPopover.tsx`'s `protection` state).
+#[cfg(all(feature = "tauri", feature = "tokio"))]
+#[tauri::command]
+pub async fn get_protection_status() -> Value {
+    let frame = serde_json::json!({
+        "type":"command","name":"get_protection_status","args":{}
+    });
+    match crate::uds::request(&frame).await {
+        Ok(v) => v,
+        Err(_) => serde_json::json!({"protection": "unknown"}),
+    }
+}
+
 /// Toggle daemon protection (`on:false` = observe mode). Returns `{"ok":true,"protection":on}`.
 #[cfg(all(feature = "tauri", feature = "tokio"))]
 #[tauri::command]

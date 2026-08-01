@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { explainFor, type Explanation } from "../lib/explain";
 import SeverityBadge, { severityMeta } from "./SeverityBadge";
 import ExplanationPanel from "./ExplanationPanel";
@@ -9,7 +9,11 @@ import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 
 type Decision = "allow" | "deny";
-type Scope = "once" | "always";
+// "rule": deny this call AND temporarily mute the rule that fired it — every
+// future Ask on the same rule id auto-denies until the mute expires or is
+// revoked (see MutedRulesPanel). Deny-only; the daemon refuses it outright if
+// sent with an "allow" decision.
+type Scope = "once" | "always" | "rule";
 export type Risk = "low" | "medium" | "high";
 
 /** Original tool-approval variant (kind absent or "tool") */
@@ -58,6 +62,37 @@ const targetLabel = (p: Pending): MessageDescriptor => {
   return msg`Details:`;
 };
 
+// Extract a short human string from an IPC rejection. Tauri usually rejects
+// with a plain string (the Rust command's Err payload), but stay defensive
+// about Error-shaped values too (e.g. a transport-level failure).
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
+}
+
+// Shared in-flight / failure indicator for the action-button zone. A silent
+// failure on this control is the defect this exists to close: the operator
+// must see that a click is being sent, and if it fails, see why and that the
+// buttons are usable again (the parent leaves `armed`/`done` alone on
+// failure - see ApprovalCard's `act`).
+function ApprovalStatus({ busy, error }: { busy: boolean; error: string | null }) {
+  if (error) {
+    return (
+      <p role="alert" data-testid="approval-error" className="text-xs" style={{ color: "var(--semantic-deny)" }}>
+        <Trans>Could not send your response: {error}</Trans>{" "}
+        <Trans>Tap a button below to try again.</Trans>
+      </p>
+    );
+  }
+  if (busy) {
+    return (
+      <p role="status" data-testid="approval-busy" className="text-text-secondary text-xs">
+        <Trans>Sending your response…</Trans>
+      </p>
+    );
+  }
+  return null;
+}
+
 // ── Shared countdown ring ─────────────────────────────────────────────────────
 // A calm circular progress ring with the remaining seconds in the centre.
 // Time-aware tint: info/muted → amber under ~15s → red under ~5s. No flashing.
@@ -97,13 +132,15 @@ function Countdown({ left, total }: { left: number; total: number }) {
 // ── Egress card body ─────────────────────────────────────────────────────────
 
 function EgressBody({
-  pending, armed, left, total, act,
+  pending, armed, left, total, act, busy, error,
 }: {
   pending: EgressPending;
   armed: boolean;
   left: number;
   total: number;
   act: (d: Decision, s: Scope) => void;
+  busy: boolean;
+  error: string | null;
 }) {
   // High-risk egress → Deny leads: Allow once recedes to a ghost button while
   // Deny keeps the filled emphasis (same button order/positions either way).
@@ -137,10 +174,13 @@ function EgressBody({
       {/* Countdown */}
       <Countdown left={left} total={total} />
 
+      {/* In-flight / failure indicator - see ApprovalStatus */}
+      <ApprovalStatus busy={busy} error={error} />
+
       {/* Little-Snitch triad */}
       <div className="space-y-2">
         <button
-          disabled={!armed}
+          disabled={!armed || busy}
           className={denyLeads
             ? "w-full py-2 rounded-pill border border-[var(--separator)] text-text-primary"
             : "w-full py-2 rounded-pill font-medium text-white"}
@@ -150,14 +190,14 @@ function EgressBody({
           <Trans>Allow once</Trans>
         </button>
         <button
-          disabled={!armed}
+          disabled={!armed || busy}
           className="w-full py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
           onClick={() => act("allow", "always")}
         >
           <Trans>Always</Trans>
         </button>
         <button
-          disabled={!armed}
+          disabled={!armed || busy}
           className="w-full py-2 rounded-pill text-white font-medium"
           style={{ background: "var(--semantic-deny)" }}
           onClick={() => act("deny", "once")}
@@ -172,7 +212,7 @@ function EgressBody({
 // ── Tool card body ────────────────────────────────────────────────────────────
 
 function ToolBody({
-  pending, armed, left, total, act, ex,
+  pending, armed, left, total, act, ex, busy, error,
 }: {
   pending: Pending;
   armed: boolean;
@@ -182,6 +222,8 @@ function ToolBody({
   // Curated explanation resolved once by the parent (daemon `explain` → per-rule
   // KB → category fallback → generic). Passed in so it isn't recomputed here.
   ex: Explanation;
+  busy: boolean;
+  error: string | null;
 }) {
   const { t } = useLingui();
   const [alwaysConfirm, setAlwaysConfirm] = useState(false);
@@ -397,12 +439,15 @@ function ToolBody({
       {/* Calm countdown ring */}
       <Countdown left={left} total={total} />
 
+      {/* In-flight / failure indicator - see ApprovalStatus */}
+      <ApprovalStatus busy={busy} error={error} />
+
       {/* Action buttons — Deny leads on high/critical; Allow once recedes to a
           ghost. Button order/positions stay constant across tiers. */}
       <div className="space-y-2">
         {/* Allow once: filled when calm, ghost when Deny leads */}
         <button
-          disabled={!armed}
+          disabled={!armed || busy}
           className={denyLeads
             ? "w-full py-2 rounded-pill border border-[var(--separator)] text-text-primary"
             : "w-full py-2 rounded-pill font-medium text-white"}
@@ -415,7 +460,7 @@ function ToolBody({
         {/* Always allow (outline/ghost, de-emphasized; high-risk needs confirm) */}
         {alwaysConfirm && confirmAlwaysAllow ? (
           <button
-            disabled={!armed}
+            disabled={!armed || busy}
             className="w-full py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
             onClick={handleAlwaysAllow}
           >
@@ -423,7 +468,7 @@ function ToolBody({
           </button>
         ) : (
           <button
-            disabled={!armed}
+            disabled={!armed || busy}
             className="w-full py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
             onClick={handleAlwaysAllow}
           >
@@ -434,7 +479,7 @@ function ToolBody({
         {/* Deny — always the filled/primary emphasis */}
         <div className="grid grid-cols-2 gap-2 pt-1">
           <button
-            disabled={!armed}
+            disabled={!armed || busy}
             className="py-2 rounded-pill text-white font-medium"
             style={{ background: "var(--semantic-deny)" }}
             onClick={() => act("deny", "once")}
@@ -442,13 +487,30 @@ function ToolBody({
             <Trans>Deny</Trans>
           </button>
           <button
-            disabled={!armed}
+            disabled={!armed || busy}
             className="py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-sm"
             onClick={() => act("deny", "always")}
           >
             <Trans>Deny &amp; stop agent</Trans>
           </button>
         </div>
+
+        {/* Rule-scoped deny mute: a flood of near-identical Asks for the same
+            rule (e.g. an agent probing which credential paths are gated) is
+            itself an attack shape — this lets the operator deny once and stop
+            being asked about that rule for a while, instead of clicking Deny
+            one at a time. Strictly more restrictive than doing nothing, never
+            less; the daemon may still refuse (critical severity, an
+            unmutable rule, a detected self-approval, or the 8-mute cap) —
+            see ApprovalSurface's mute notice for why. No confirm step: a
+            second click would defeat the reason this button exists. */}
+        <button
+          disabled={!armed || busy}
+          className="w-full py-2 rounded-pill border border-[var(--separator)] text-text-secondary text-xs"
+          onClick={() => act("deny", "rule")}
+        >
+          <Trans>Deny &amp; mute this rule</Trans>
+        </button>
       </div>
 
       {/* Rule-id footnote (demoted, for the curious / support) */}
@@ -461,20 +523,61 @@ function ToolBody({
 
 export default function ApprovalCard({
   pending, onResolve, timeoutMs = 45000,
-}: { pending: AnyPending; onResolve: (id: string, d: Decision, s: Scope) => void; timeoutMs?: number }) {
+}: { pending: AnyPending; onResolve: (id: string, d: Decision, s: Scope) => Promise<void>; timeoutMs?: number }) {
   const { t } = useLingui();
   const [armed, setArmed] = useState(false);          // ~1s keystroke guard
+  // `armed` (state, for rendering) is mirrored into a ref so the guard inside
+  // `act` always reads the CURRENT value, even when `act` is invoked from the
+  // long-lived auto-deny timeout closure below (a plain state-closured read
+  // there would be stuck at the value captured when the effect first ran,
+  // i.e. permanently `false` - the timeout would silently never fire).
+  const armedRef = useRef(false);
   const [left, setLeft] = useState(Math.ceil(timeoutMs / 1000));
+  // `busy`: a request is in flight - guards against a second submit WHILE
+  // one is outstanding. Deliberately separate from `done`: a failed request
+  // must clear `busy` (buttons work again) without ever having set `done`.
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  // Set only when the in-flight request actually failed; cleared on retry.
+  const [error, setError] = useState<string | null>(null);
+  // `done`: the request has actually SUCCEEDED. Only this - never the start
+  // of a request - may permanently retire the card. This is the crux of the
+  // fix: the old code set `done.current = true` before the result was known,
+  // so a rejected respond_approval left the card clickable-looking but
+  // permanently inert, and the same flag disarmed the auto-deny timeout below.
   const done = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const total = Math.ceil(timeoutMs / 1000);
 
+  // Stable identity (memoized on the things it actually reads from props/refs)
+  // so it can be safely captured once by the timeout effect below without a
+  // stale-closure risk, and so a rerender doesn't tear down/recreate that timer.
+  const act = useCallback((d: Decision, s: Scope) => {
+    if (!armedRef.current || done.current || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    Promise.resolve(onResolve(pending.id, d, s)).then(
+      () => {
+        done.current = true;
+      },
+      (err: unknown) => {
+        // Failure: leave `done` false. Buttons re-enable (busy -> false) and
+        // the auto-deny timeout below - untouched by this path - is still
+        // armed to fire at its original deadline.
+        busyRef.current = false;
+        setBusy(false);
+        setError(errorMessage(err));
+      },
+    );
+  }, [onResolve, pending.id]);
+
   useEffect(() => {
-    const g = setTimeout(() => setArmed(true), 1000);
+    const g = setTimeout(() => { armedRef.current = true; setArmed(true); }, 1000);
     const tick = setInterval(() => setLeft((n) => Math.max(0, n - 1)), 1000);
-    const to = setTimeout(() => { if (!done.current) { done.current = true; onResolve(pending.id, "deny", "once"); } }, timeoutMs);
+    const to = setTimeout(() => act("deny", "once"), timeoutMs);
     return () => { clearTimeout(g); clearInterval(tick); clearTimeout(to); };
-  }, [pending.id, timeoutMs, onResolve]);
+  }, [pending.id, timeoutMs, act]);
 
   // Focus the dialog on mount so keyboard/screen-reader users land inside it;
   // restore focus to the previously-focused element when it unmounts.
@@ -483,8 +586,6 @@ export default function ApprovalCard({
     dialogRef.current?.focus();
     return () => { prev?.focus?.(); };
   }, [pending.id]);
-
-  const act = (d: Decision, s: Scope) => { if (!armed || done.current) return; done.current = true; onResolve(pending.id, d, s); };
 
   // Resolve the curated explanation ONCE for tool cards (memoized on the pending
   // identity), then reuse it for both the accent gate and the ToolBody render.
@@ -529,9 +630,9 @@ export default function ApprovalCard({
         aria-label={t`Approval required`}
       >
         {isEgress(pending) ? (
-          <EgressBody pending={pending} armed={armed} left={left} total={total} act={act} />
+          <EgressBody pending={pending} armed={armed} left={left} total={total} act={act} busy={busy} error={error} />
         ) : (
-          <ToolBody pending={pending} armed={armed} left={left} total={total} act={act} ex={toolEx!} />
+          <ToolBody pending={pending} armed={armed} left={left} total={total} act={act} ex={toolEx!} busy={busy} error={error} />
         )}
       </div>
     </div>

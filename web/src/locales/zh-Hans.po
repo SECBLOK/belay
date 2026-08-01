@@ -35,9 +35,6 @@ msgstr "（或设置 BELAY_AI_KEY 环境变量）"
 msgid "{0, plural, =0 {No findings} one {# finding} other {# findings}}"
 msgstr "{0, plural, =0 {无发现项} one {# 个发现项} other {# 个发现项}}"
 
-#. placeholder {0}: names.length
-#: src/components/DetectionBanner.tsx
-
 #. placeholder {0}: feed.ecosystems.length
 #: src/views/console/Settings.tsx
 msgid "{0, plural, one {# ecosystem} other {# ecosystems}}"
@@ -47,6 +44,11 @@ msgstr "{0, plural, one {# 个生态系统} other {# 个生态系统}}"
 #: src/views/host/HostOverview.tsx
 msgid "{0, plural, one {# file in quarantine} other {# files in quarantine}}"
 msgstr "{0, plural, one {# 个文件已隔离} other {# 个文件已隔离}}"
+
+#. placeholder {0}: mute.hits
+#: src/components/MutedRulesPanel.tsx
+msgid "{0, plural, one {# hit} other {# hits}}"
+msgstr "{0, plural, one {# 次命中} other {# 次命中}}"
 
 #. placeholder {0}: data.bannedIpCount
 #: src/views/host/HostOverview.tsx
@@ -67,6 +69,11 @@ msgstr "{0, plural, one {# 个新事件 — 跳至顶部} other {# 个新事件 
 #: src/components/BatchDigest.tsx
 msgid "{0, plural, one {# pending approval} other {# pending approvals}}"
 msgstr "{0, plural, one {# 个待处理审批} other {# 个待处理审批}}"
+
+#. placeholder {0}: mutes.length
+#: src/components/MutedRulesPanel.tsx
+msgid "{0, plural, one {# rule muted} other {# rules muted}}"
+msgstr "{0, plural, one {已静音 # 条规则} other {已静音 # 条规则}}"
 
 #. placeholder {0}: ruleset.rules.length
 #: src/components/host/ProposedRuleTable.tsx
@@ -161,6 +168,11 @@ msgstr "{0} 小时前"
 msgid "{0}m ago"
 msgstr "{0} 分钟前"
 
+#. placeholder {0}: minutesLeft(mute.expires_ms, nowMs)
+#: src/components/MutedRulesPanel.tsx
+msgid "{0}m left"
+msgstr "剩余 {0} 分钟"
+
 #. placeholder {0}: Math.floor(s)
 #: src/components/dash.tsx
 #: src/views/Alerts.tsx
@@ -208,6 +220,10 @@ msgstr "{pendingCount, plural, =0 {0 项待处理} one {# 项待处理操作} ot
 #: src/components/Sidebar.tsx
 msgid "{pendingCount} pending"
 msgstr "{pendingCount} 项待处理"
+
+#: src/views/host/FilesScan.tsx
+msgid "{scanned, plural, =0 {Scan complete — no files to scan.} one {Scan complete — scanned # file, no threats found.} other {Scan complete — scanned # files, no threats found.}}"
+msgstr "{scanned, plural, =0 {扫描完成 — 没有可扫描的文件。} one {扫描完成 — 已扫描 # 个文件，未发现威胁。} other {扫描完成 — 已扫描 # 个文件，未发现威胁。}}"
 
 #: src/components/host/DeadMansSwitchPanel.tsx
 msgid "{timeStr} remaining"
@@ -392,6 +408,10 @@ msgstr "添加成员"
 #: src/components/host/AllowlistManager.tsx
 msgid "Add rule"
 msgstr "添加规则"
+
+#: src/components/host/AllowlistManager.tsx
+msgid "Adding…"
+msgstr "正在添加…"
 
 #: src/views/console/OrgAdmin.tsx
 msgid "Admins"
@@ -638,6 +658,10 @@ msgstr "审计日志已就绪"
 msgid "Auth token"
 msgstr "认证令牌"
 
+#: src/components/MutedRulesPanel.tsx
+msgid "Auto — flood detected"
+msgstr "自动 — 检测到高频重复请求"
+
 #: src/views/host/FirewallSetup.tsx
 msgid "Auto setup — detect this system and pre-fill a least-privilege ruleset"
 msgstr "自动设置 —— 检测此系统并预填充一份最小权限规则集"
@@ -702,6 +726,10 @@ msgstr "开始之前："
 #: src/components/UpdateControl.tsx
 msgid "Belay {0} is available."
 msgstr "Belay {0} 现已可用。"
+
+#: src/views/console/Login.tsx
+msgid "Belay Console"
+msgstr "Belay 控制台"
 
 #: src/lib/explain.ts
 #: src/lib/ruleCopy.ts
@@ -915,6 +943,14 @@ msgstr "确认推送"
 msgid "Confirm remove?"
 msgstr "确认移除？"
 
+#: src/components/MutedRulesPanel.tsx
+msgid "Confirm revoke all?"
+msgstr "确认全部吊销？"
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Confirm revoke?"
+msgstr "确认吊销？"
+
 #: src/views/Messaging.tsx
 msgid "Connectors"
 msgstr "连接器"
@@ -935,8 +971,8 @@ msgstr "请立即复制。它将不再显示。"
 msgid "correlation"
 msgstr "关联"
 
-#: src/components/Sidebar.tsx
 #: src/views/Alerts.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/Correlation.tsx
 msgid "Correlation"
 msgstr "关联分析"
@@ -953,17 +989,89 @@ msgstr "关联告警"
 msgid "Correlation window"
 msgstr "关联窗口"
 
+#: src/components/host/AllowlistManager.tsx
+msgid "Could not add rule: {addError}"
+msgstr "无法添加规则：{addError}"
+
+#: src/views/host/HostSkills.tsx
+msgid "Could not approve: {error}"
+msgstr "无法批准：{error}"
+
+#: src/views/host/EgressControl.tsx
+msgid "Could not change egress mode: {error}"
+msgstr "无法更改出站模式：{error}"
+
+#: src/views/host/EgressControl.tsx
+msgid "Could not change inline enforcement: {error}"
+msgstr "无法更改内联强制执行：{error}"
+
+#: src/components/TrayPopover.tsx
+msgid "Could not change protection: {pauseError}"
+msgstr "无法更改防护状态：{pauseError}"
+
+#. placeholder {0}: state.error
+#: src/components/host/QuarantineList.tsx
+msgid "Could not complete that: {0}"
+msgstr "未能完成操作：{0}"
+
 #: src/views/console/shared.tsx
 msgid "Could not load {what}."
 msgstr "无法加载 {what}。"
 
+#: src/views/Findings.tsx
+msgid "Could not load findings"
+msgstr "无法加载发现项"
+
+#: src/views/Fleet.tsx
+msgid "Could not load your machines"
+msgstr "无法加载你的计算机"
+
+#: src/views/Posture.tsx
+msgid "Could not load your protection status"
+msgstr "无法加载你的防护状态"
+
+#: src/components/ApprovalSurface.tsx
+msgid "Could not mute this rule right now."
+msgstr "暂时无法静音此规则。"
+
+#: src/views/host/EgressControl.tsx
 #: src/views/Messaging.tsx
 msgid "Could not reach the daemon."
 msgstr "无法连接到守护进程。"
 
+#: src/components/host/AllowlistManager.tsx
+msgid "Could not remove rule: {removeError}"
+msgstr "无法移除规则：{removeError}"
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Could not revoke all: {revokeAllError}"
+msgstr "无法全部吊销：{revokeAllError}"
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Could not revoke: {error}"
+msgstr "无法吊销：{error}"
+
+#: src/views/host/EgressControl.tsx
+msgid "Could not save your enrich-destinations setting: {error}"
+msgstr "无法保存你的丰富目标信息设置：{error}"
+
+#: src/views/host/FilesScan.tsx
+#: src/views/host/SshHardening.tsx
+msgid "Could not save: {error}"
+msgstr "无法保存：{error}"
+
+#: src/components/ApprovalCard.tsx
+#: src/components/BatchDigest.tsx
+msgid "Could not send your response: {error}"
+msgstr "未能发送你的响应：{error}"
+
 #: src/views/Messaging.tsx
 msgid "Could not start pairing"
 msgstr "无法开始配对"
+
+#: src/components/host/BanList.tsx
+msgid "Could not unban: {error}"
+msgstr "无法解除封禁：{error}"
 
 #: src/views/Messaging.tsx
 msgid "Could not update"
@@ -1000,6 +1108,10 @@ msgstr "严重"
 #: src/components/host/SeverityDot.tsx
 msgid "CRITICAL"
 msgstr "严重"
+
+#: src/components/ApprovalSurface.tsx
+msgid "Critical-severity findings can't be muted."
+msgstr "严重级别的发现项无法被静音。"
 
 #: src/views/console/Correlation.tsx
 msgid "Cross-device Correlation"
@@ -1070,6 +1182,10 @@ msgstr "拒绝"
 #: src/components/host/AllowlistManager.tsx
 msgid "Deny"
 msgstr "拒绝"
+
+#: src/components/ApprovalCard.tsx
+msgid "Deny & mute this rule"
+msgstr "拒绝并静音此规则"
 
 #: src/components/ApprovalCard.tsx
 msgid "Deny & stop agent"
@@ -1170,7 +1286,7 @@ msgstr "{0} 的设备令牌"
 msgid "devices"
 msgstr "设备"
 
-#: src/components/Sidebar.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/Correlation.tsx
 #: src/views/console/Devices.tsx
 #: src/views/console/FleetCommands.tsx
@@ -1514,7 +1630,7 @@ msgstr "修复版本"
 msgid "Fleet Activity"
 msgstr "设备群活动"
 
-#: src/components/Sidebar.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/FleetCommands.tsx
 msgid "Fleet Commands"
 msgstr "批量指令"
@@ -1542,6 +1658,10 @@ msgstr "完整扫描"
 #: src/views/Agents.tsx
 msgid "Full system access enabled"
 msgstr "已启用完整系统访问权限"
+
+#: src/components/ApprovalSurface.tsx
+msgid "Further matches will auto-deny for a while. Manage active mutes from Overview."
+msgstr "此后匹配的请求将在一段时间内自动拒绝。可在“总览”中管理已静音的规则。"
 
 #: src/components/host/FindingFixRow.tsx
 msgid "Gateway Ports"
@@ -1691,7 +1811,7 @@ msgstr "已由人工核实"
 msgid "I understand this sends the flagged action (redacted) to {0}."
 msgstr "我了解这会将被标记的操作（已脱敏）发送至 {0}。"
 
-#: src/components/Sidebar.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/Settings.tsx
 msgid "Identity & Feed"
 msgstr "身份与订阅源"
@@ -1859,6 +1979,10 @@ msgstr "最后在线"
 msgid "leave blank to keep current"
 msgstr "留空以保持当前值"
 
+#: src/views/console/Login.tsx
+msgid "Leave blank unless you belong to several"
+msgstr "除非你属于多个组织，否则请留空"
+
 #: src/lib/humanize.ts
 msgid "Listed files"
 msgstr "列出了文件"
@@ -1924,6 +2048,11 @@ msgstr "正在加载 SSH 防护…"
 msgid "Loading vulnerability posture…"
 msgstr "正在加载漏洞态势…"
 
+#: src/views/console/ConsoleApp.tsx
+msgid "Loading..."
+msgstr "加载中…"
+
+#: src/components/Sidebar.tsx
 #: src/components/TrayPopover.tsx
 #: src/components/TrustPanel.tsx
 #: src/views/host/FilesScan.tsx
@@ -1969,6 +2098,10 @@ msgstr "恶意软件扫描（按需）"
 #: src/views/console/Settings.tsx
 msgid "Manage"
 msgstr "管理"
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Manual"
+msgstr "手动"
 
 #: src/components/host/FindingFixRow.tsx
 msgid "Max Auth Tries"
@@ -2205,8 +2338,8 @@ msgid "No rules triggered"
 msgstr "未触发任何规则"
 
 #: src/views/host/FilesScan.tsx
-msgid "No scan findings."
-msgstr "无扫描发现项。"
+#~ msgid "No scan findings."
+#~ msgstr "无扫描发现项。"
 
 #: src/views/console/Settings.tsx
 msgid "No SSO configuration found. Fill in the fields below to configure."
@@ -2290,6 +2423,14 @@ msgstr "当前在线"
 msgid "Only this computer is connected"
 msgstr "仅连接了此计算机"
 
+#: src/views/Posture.tsx
+msgid "Only this page failed to load. Belay keeps protecting this computer either way."
+msgstr "仅此页面加载失败。无论如何，Belay 都会继续防护此计算机。"
+
+#: src/views/Fleet.tsx
+msgid "Only this page failed to load. Your protection is unchanged and this computer is still being monitored."
+msgstr "仅此页面加载失败。你的防护未发生变化，此计算机仍在被监控。"
+
 #: src/components/TrayPopover.tsx
 msgid "Open dashboard"
 msgstr "打开控制台"
@@ -2306,11 +2447,15 @@ msgstr "打开桌面应用以配置 AI"
 msgid "Optional: turn on AI explanations & the <0>Skill Judge</0> (off by default, bring your own key) any time in <1>Settings → AI</1>."
 msgstr "可选：可随时在<1>设置 → AI</1> 中开启 AI 解释和<0>技能评判</0>（默认关闭，需自带密钥）。"
 
-#: src/components/Sidebar.tsx
+#: src/views/console/ConsoleApp.tsx
 #: src/views/console/OrgAdmin.tsx
 #: src/views/console/shared.tsx
 msgid "Organization"
 msgstr "组织"
+
+#: src/views/console/Login.tsx
+msgid "Organization (optional)"
+msgstr "组织（可选）"
 
 #: src/views/console/Devices.tsx
 #: src/views/console/FleetCommands.tsx
@@ -2364,6 +2509,10 @@ msgstr "PAM 认证"
 #: src/components/host/FindingFixRow.tsx
 msgid "Pass"
 msgstr "通过"
+
+#: src/views/console/Login.tsx
+msgid "Password"
+msgstr "密码"
 
 #: src/components/host/FindingFixRow.tsx
 msgid "Password Authentication"
@@ -2559,7 +2708,9 @@ msgstr "只读：推送设备群命令需要操作员角色。"
 msgid "Reading docs or data you pointed it at is normal; unexpected sources are not."
 msgstr "读取你指定的文档或数据是正常的；意外的来源则不正常。"
 
+#: src/views/Fleet.tsx
 #: src/views/host/FilesScan.tsx
+#: src/views/Posture.tsx
 msgid "Reason"
 msgstr "原因"
 
@@ -2583,6 +2734,10 @@ msgstr "重新连接中…"
 #: src/components/Welcome.tsx
 msgid "Red"
 msgstr "红色"
+
+#: src/components/ApprovalSurface.tsx
+msgid "Refused: this looks like the agent tried to approve its own request."
+msgstr "已拒绝：该操作疑似由代理自行批准其自身请求。"
 
 #: src/views/console/FleetCommands.tsx
 msgid "Rejected devices"
@@ -2624,6 +2779,10 @@ msgstr "已移除 {0} —— 守护进程正在重启…"
 msgid "Removed {principal} from {0}"
 msgstr "已从 {0} 移除 {principal}"
 
+#: src/components/host/AllowlistManager.tsx
+msgid "Removing…"
+msgstr "正在移除…"
+
 #: src/views/Messaging.tsx
 msgid "Required"
 msgstr "必填"
@@ -2661,6 +2820,7 @@ msgstr "审查并开启防护"
 msgid "Review individually"
 msgstr "逐个审查"
 
+#: src/components/MutedRulesPanel.tsx
 #: src/views/console/Devices.tsx
 #: src/views/console/Settings.tsx
 msgid "Revoke"
@@ -2669,6 +2829,10 @@ msgstr "吊销"
 #: src/views/console/Devices.tsx
 msgid "Revoke <0>{confirmDevice}</0>? This device will lose access."
 msgstr "吊销 <0>{confirmDevice}</0>？此设备将失去访问权限。"
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Revoke all"
+msgstr "全部吊销"
 
 #: src/views/console/Devices.tsx
 msgid "Revoke device"
@@ -2698,6 +2862,10 @@ msgstr "吊销 <0>{org}</0> 的 SCIM bearer 令牌？你的 IdP 将失去预配�
 #: src/views/console/Devices.tsx
 msgid "Revoke token <0>{confirmToken}</0>? This token will no longer work."
 msgstr "吊销令牌 <0>{confirmToken}</0>？此令牌将不再有效。"
+
+#: src/components/MutedRulesPanel.tsx
+msgid "Revoking…"
+msgstr "正在吊销…"
 
 #: src/views/Fleet.tsx
 msgid "Risk"
@@ -2735,6 +2903,14 @@ msgstr "规则 · {0}"
 #: src/views/Posture.tsx
 msgid "rule hits"
 msgstr "规则命中"
+
+#: src/components/ApprovalSurface.tsx
+msgid "Rule muted"
+msgstr "规则已静音"
+
+#: src/components/ApprovalSurface.tsx
+msgid "Rule not muted"
+msgstr "规则未静音"
 
 #: src/views/host/FirewallSetup.tsx
 msgid "Rules applied — confirm or revert using the panel above."
@@ -2936,6 +3112,10 @@ msgstr "已阻止自我审批"
 msgid "self-service enrollment"
 msgstr "自助注册"
 
+#: src/components/ApprovalCard.tsx
+msgid "Sending your response…"
+msgstr "正在发送你的响应…"
+
 #: src/views/Messaging.tsx
 msgid "Server URL"
 msgstr "服务器 URL"
@@ -2998,7 +3178,7 @@ msgid "Show details"
 msgstr "显示详情"
 
 #: src/views/host/EgressControl.tsx
-msgid "Show owner/ASN/country next to egress hosts. Display-only — never affects allow/deny."
+msgid "Show owner/ASN/country next to egress hosts. Display-only, and never affects allow/deny."
 msgstr "在出站主机旁显示所有者 / ASN / 国家。仅用于显示 —— 绝不影响允许 / 拒绝。"
 
 #. placeholder {0}: filtered.length
@@ -3006,9 +3186,29 @@ msgstr "在出站主机旁显示所有者 / ASN / 国家。仅用于显示 —�
 msgid "Showing newest {RENDER_CAP} of {0} matches — narrow the filter to see more"
 msgstr "正在显示 {0} 条匹配中最新的 {RENDER_CAP} 条 —— 缩小筛选范围以查看更多"
 
+#: src/views/console/Login.tsx
+msgid "Sign in"
+msgstr "登录"
+
 #: src/views/console/shared.tsx
 msgid "Sign in with an operator account to view this."
 msgstr "请使用操作员账户登录以查看此内容。"
+
+#: src/views/console/Login.tsx
+msgid "Sign in with an operator account."
+msgstr "使用操作员账户登录。"
+
+#: src/views/console/ConsoleApp.tsx
+msgid "Sign out"
+msgstr "退出登录"
+
+#: src/views/console/ConsoleApp.tsx
+msgid "Sign out failed. You are still signed in."
+msgstr "退出登录失败。你仍处于登录状态。"
+
+#: src/views/console/Login.tsx
+msgid "Signing in..."
+msgstr "正在登录…"
 
 #: src/views/Messaging.tsx
 msgid "Signing secret"
@@ -3154,6 +3354,15 @@ msgstr "可疑的 AI 工具描述"
 msgid "Synchronous check at install time (~1–5s)."
 msgstr "安装时进行同步检查（约 1–5 秒）。"
 
+#: src/components/host/QuarantineList.tsx
+msgid "Tap a button above to try again."
+msgstr "点击上方按钮重试。"
+
+#: src/components/ApprovalCard.tsx
+#: src/components/BatchDigest.tsx
+msgid "Tap a button below to try again."
+msgstr "点击下方按钮重试。"
+
 #: src/views/console/FleetCommands.tsx
 msgid "Target devices"
 msgstr "目标设备"
@@ -3250,6 +3459,10 @@ msgstr "这是一项需自带密钥的功能，<0>默认关闭</0>。正在运�
 msgid "This mapping is often the first step before something sensitive gets taken."
 msgstr "这种摸底通常是窃取敏感内容之前的第一步。"
 
+#: src/components/ApprovalSurface.tsx
+msgid "This type of finding always requires review and can't be muted."
+msgstr "此类发现项始终需要人工审查，无法静音。"
+
 #. placeholder {0}: t(meta.label)
 #. placeholder {1}: targets.length
 #: src/views/console/FleetCommands.tsx
@@ -3279,6 +3492,10 @@ msgstr "令牌"
 #: src/views/console/Devices.tsx
 msgid "Token id"
 msgstr "令牌 id"
+
+#: src/components/ApprovalSurface.tsx
+msgid "Too many rules are already muted — revoke one from Overview first."
+msgstr "已静音的规则过多 —— 请先在“总览”中吊销一条。"
 
 #: src/views/Findings.tsx
 msgid "Tool"
@@ -3466,6 +3683,7 @@ msgstr "使用了 {name} 技能"
 msgid "User"
 msgstr "用户"
 
+#: src/views/console/Login.tsx
 #: src/views/console/OrgAdmin.tsx
 msgid "Username"
 msgstr "用户名"

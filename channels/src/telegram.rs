@@ -7,12 +7,18 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 /// A sent approval prompt we may need to "expire": its message id (to edit it),
-/// when it was sent, and the short summary line (kept so the expired message
-/// still shows which request died).
+/// when it was sent, and the full rendered body.
+///
+/// `body` is the whole original text, not just the summary line. Expiring a
+/// prompt EDITS the message in place, so anything not kept here is destroyed:
+/// keeping only the summary left the operator with "HIGH RISK — expired" and
+/// no rule, no command and no session, which is alarming and un-actionable.
+/// Observed live on 2026-07-27, and it is the reason an expired prompt could
+/// not be told apart from a real attack.
 struct SentPrompt {
     message_id: i64,
     at: Instant,
-    summary: String,
+    body: String,
 }
 
 pub struct TelegramChannel {
@@ -161,7 +167,7 @@ impl ChannelAdapter for TelegramChannel {
                             SentPrompt {
                                 message_id: mid,
                                 at: Instant::now(),
-                                summary: req.summary.clone(),
+                                body: text.clone(),
                             },
                         );
                     }
@@ -205,9 +211,11 @@ impl ChannelAdapter for TelegramChannel {
                 Err(_) => Vec::new(),
             };
             for p in stale {
+                // Append, never replace: the operator needs to know WHAT
+                // expired to decide whether to re-run it.
                 let text = format!(
-                    "🛡️ Belay approval\n{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
-                    p.summary
+                    "{}\n\n⏱️ Expired (auto-denied). Re-run the action to get a fresh prompt.",
+                    p.body
                 );
                 let _ = self
                     .http

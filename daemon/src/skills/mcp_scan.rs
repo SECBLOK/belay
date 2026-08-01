@@ -107,6 +107,7 @@ fn allow_verdict() -> Verdict {
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: Vec::new(),
     }
 }
 
@@ -122,6 +123,7 @@ fn remote_verdict(e: &McpServerEntry) -> Verdict {
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: vec!["mcp.install.review".into()],
     }
 }
 
@@ -136,6 +138,7 @@ fn insecure_verdict() -> Verdict {
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: vec!["mcp.install.review".into()],
     }
 }
 
@@ -150,6 +153,7 @@ fn dangerous_flag_verdict() -> Verdict {
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: vec!["mcp.install.review".into()],
     }
 }
 
@@ -164,6 +168,7 @@ fn secret_remote_deny_verdict() -> Verdict {
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: Vec::new(),
     }
 }
 
@@ -178,6 +183,7 @@ fn secret_stdio_ask_verdict() -> Verdict {
         owasp: None,
         atlas: None,
         explain: None,
+        ask_rules: vec!["mcp.install.review".into()],
     }
 }
 

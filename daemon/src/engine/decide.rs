@@ -40,6 +40,13 @@ pub fn decide(rs: &RuleSet, tc: &ToolCall, state: &mut SessionState) -> Verdict 
     // allowlist below (Deny always wins). Kept out of the catalog because the
     // file-identity correlation needs real code, not a regex.
     hits.extend(crate::engine::dropper::dropper_hits(tc, state));
+    // Compiled-in interactive-shell-spawn detector. Unlike the two above this
+    // is an ordinary Ask, deliberately left subject to the dev allowlist below:
+    // it is a broad behavioural signal, not a self-protection backstop, and a
+    // shell spawn inside an already-allowlisted dev command is the operator's
+    // own toolchain doing its job. Kept out of the catalog because a catalog
+    // rule cannot be relied on to survive the catalog.
+    hits.extend(crate::engine::shell_spawn::shell_spawn_hits(tc));
     let decision = resolve(&hits);
     apply_arming(&hits, state);
     // Allowlist may ONLY downgrade a non-deny decision — DENY always wins (defense in depth).
@@ -71,6 +78,7 @@ pub fn decide(rs: &RuleSet, tc: &ToolCall, state: &mut SessionState) -> Verdict 
                 owasp: None,
                 atlas: None,
                 explain: None,
+                ask_rules: Vec::new(),
             };
         }
         return Verdict {
@@ -83,6 +91,7 @@ pub fn decide(rs: &RuleSet, tc: &ToolCall, state: &mut SessionState) -> Verdict 
             owasp: None,
             atlas: None,
             explain: None,
+            ask_rules: Vec::new(),
         };
     }
     let severity = hits
@@ -115,10 +124,20 @@ pub fn decide(rs: &RuleSet, tc: &ToolCall, state: &mut SessionState) -> Verdict 
         ),
         None => (None, None, None, None, None),
     };
+    // The Ask-contributing subset, for rule-scoped deny mutes. Same filter the
+    // allowlist breadcrumb above uses; hoisted so the gate can require that
+    // EVERY Ask rule is muted before auto-denying, rather than matching on the
+    // winning rule alone and letting a muted noisy rule mask an un-muted one.
+    let ask_rules: Vec<String> = hits
+        .iter()
+        .filter(|h| h.decision == Decision::Ask)
+        .map(|h| h.id.clone())
+        .collect();
     Verdict {
         decision,
         reason,
         rules: hits.iter().map(|h| h.id.clone()).collect(),
+        ask_rules,
         severity,
         primary_rule,
         category,

@@ -4,12 +4,24 @@
 import { useState } from "react";
 import type { QuarantineEntry } from "../../lib/hostTypes";
 import SeverityDot from "./SeverityDot";
+import { Trans } from "@lingui/react/macro";
 
 type ConfirmKind = "restore" | "delete";
 
 interface RowState {
   busy: boolean;
   confirm: ConfirmKind | null;
+  // Set only when the in-flight restore/delete actually failed; cleared on
+  // the next attempt. A bare try/finally with no catch used to let this
+  // rejection go unhandled: the spinner ran, stopped, and the row looked
+  // untouched, which is indistinguishable from the click doing nothing.
+  error: string | null;
+}
+
+// Tauri usually rejects with a plain string (the Rust command's Err
+// payload); stay defensive about Error-shaped values too.
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
 }
 
 interface QuarantineRowProps {
@@ -20,26 +32,30 @@ interface QuarantineRowProps {
 }
 
 function QuarantineRow({ entry, noun, onRestore, onDelete }: QuarantineRowProps) {
-  const [state, setState] = useState<RowState>({ busy: false, confirm: null });
+  const [state, setState] = useState<RowState>({ busy: false, confirm: null, error: null });
 
   const filename = entry.original_path.split("/").pop() ?? entry.original_path;
   const quarantinedDate = new Date(entry.quarantined_at).toLocaleDateString();
 
   const doRestore = async () => {
-    setState((s) => ({ ...s, busy: true, confirm: null }));
+    setState((s) => ({ ...s, busy: true, confirm: null, error: null }));
     try {
       await onRestore(entry.id);
-    } finally {
       setState((s) => ({ ...s, busy: false }));
+    } catch (err) {
+      // Leave confirm/busy cleared but surface why: the Restore/Delete
+      // buttons below are still there, so this stays retryable.
+      setState((s) => ({ ...s, busy: false, error: errorMessage(err) }));
     }
   };
 
   const doDelete = async () => {
-    setState((s) => ({ ...s, busy: true, confirm: null }));
+    setState((s) => ({ ...s, busy: true, confirm: null, error: null }));
     try {
       await onDelete(entry.id);
-    } finally {
       setState((s) => ({ ...s, busy: false }));
+    } catch (err) {
+      setState((s) => ({ ...s, busy: false, error: errorMessage(err) }));
     }
   };
 
@@ -124,6 +140,13 @@ function QuarantineRow({ entry, noun, onRestore, onDelete }: QuarantineRowProps)
           </>
         )}
       </div>
+
+      {state.error && (
+        <p role="alert" data-testid="quarantine-row-error" className="text-xs" style={{ color: "#C8312A" }}>
+          <Trans>Could not complete that: {state.error}</Trans>{" "}
+          <Trans>Tap a button above to try again.</Trans>
+        </p>
+      )}
     </div>
   );
 }

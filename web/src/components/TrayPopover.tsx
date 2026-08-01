@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getPosture, getPending, getBootStart, setBootStart } from "../lib/api";
-import { setProtection } from "../lib/ipc";
+import { setProtection, getProtectionStatus } from "../lib/ipc";
 import type { PostureSummary } from "../lib/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
@@ -51,11 +51,36 @@ const STATUS_COLOR: Record<PostureState, string> = {
 // Belay brand accent (falls back if the CSS var is absent in the popover window).
 const ACCENT = "var(--accent, #0A66D6)";
 
+// Tauri usually rejects with a plain string (the Rust command's Err
+// payload); stay defensive about Error-shaped values too.
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
+}
+
 export default function TrayPopover() {
   const [posture, setPosture] = useState<PostureSummary | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
-  const [paused, setPaused] = useState(false);
+  // The daemon's REAL live protection flag, read on open via
+  // getProtectionStatus (desktop/src-tauri/src/commands.rs -> the daemon's
+  // `get_protection_status` command; NOT get_posture, which reads the local
+  // audit file and has no idea whether protection is paused).
+  //
+  // Starts "unknown", not "on". This used to start as a plain `paused`
+  // boolean hardcoded to `false`, so the button could show the WRONG label
+  // right up until - or even after - the first click, if protection had
+  // been paused in a previous session or from another surface: a security
+  // surface confidently saying "fine" when it does not actually know. That
+  // is the exact failure mode `postureState`'s "loading" state (below,
+  // for the score-derived posture) already exists to avoid; "unknown" here
+  // is the same idiom applied to the protection flag - its own rendered
+  // state rather than folded into a guessed "on".
+  const [protection, setProtectionState] = useState<"unknown" | "on" | "off">("unknown");
   const [toggling, setToggling] = useState(false);
+  // Set only when the last pause/resume attempt actually failed; cleared on
+  // the next attempt. The old `catch { /* keep current state */ }` reverted
+  // silently on failure - no message, so it looked like the button did
+  // nothing (or worse, that the click was simply ignored).
+  const [pauseError, setPauseError] = useState<string | null>(null);
   // Boot-start (autostart): null until loaded; `supported` is false in the web build.
   const [bootOn, setBootOn] = useState<boolean | null>(null);
   const [bootSupported, setBootSupported] = useState(true);
@@ -70,6 +95,15 @@ export default function TrayPopover() {
         if (!cancelled) setPosture(p);
       } catch {
         // non-fatal; keep null / "Loading…"
+      }
+      try {
+        const prot = await getProtectionStatus();
+        if (!cancelled) setProtectionState(prot);
+      } catch {
+        // getProtectionStatus never rejects (fails soft to "unknown"), but
+        // stay defensive - an unknown read must render as "unknown", never
+        // silently keep whatever was there before.
+        if (!cancelled) setProtectionState("unknown");
       }
       try {
         const pending = await getPending();
@@ -92,13 +126,22 @@ export default function TrayPopover() {
   }, []);
 
   async function handlePauseResume() {
-    if (toggling) return;
+    // While the real state is still unknown there is nothing safe to toggle
+    // TOWARDS - guessing a direction here is the exact bug this fixes for the
+    // label, just moved into the click handler instead. The button is also
+    // disabled in that state (see the JSX below); this guard covers any
+    // click that races ahead of that (e.g. a queued event).
+    if (toggling || protection === "unknown") return;
     setToggling(true);
+    setPauseError(null);
+    const turnOn = protection === "off"; // paused → resume (turn on); on → pause (turn off)
     try {
-      await setProtection(paused); // paused=true → turn back on (pass true); paused=false → turn off (pass false)
-      setPaused((p) => !p);
-    } catch {
-      // keep current state on error
+      await setProtection(turnOn);
+      setProtectionState(turnOn ? "on" : "off");
+    } catch (err) {
+      // Keep the current state on error - a silent revert would misreport
+      // the posture, so this must be visible instead.
+      setPauseError(errorMessage(err));
     } finally {
       setToggling(false);
     }
@@ -185,10 +228,19 @@ export default function TrayPopover() {
           style={{
             fontSize: "18px",
             fontWeight: 600,
-            color: paused ? "var(--semantic-ask, #916400)" : STATUS_COLOR[state],
+            color:
+              protection === "off" ? "var(--semantic-ask, #916400)" :
+              // Neutral grey, not the "loading" green STATUS_COLOR would give
+              // a score-derived state - "we don't know" must never render as
+              // a positive claim (mirrors Sidebar.tsx's `deriveStatus`/
+              // STATUS_META "unknown" note).
+              protection === "unknown" ? "var(--text-tertiary, #6C6C71)" :
+              STATUS_COLOR[state],
           }}
         >
-          {paused ? t`Paused` : t(STATUS_LABEL[state])}
+          {protection === "off" ? t`Paused` :
+           protection === "unknown" ? t(STATUS_LABEL.loading) :
+           t(STATUS_LABEL[state])}
         </div>
       </div>
 
@@ -292,7 +344,7 @@ export default function TrayPopover() {
         <button
           data-testid="btn-pause"
           onClick={handlePauseResume}
-          disabled={toggling}
+          disabled={toggling || protection === "unknown"}
           style={{
             background: "rgba(255,255,255,0.66)",
             color: "#1C1C1E",
@@ -301,13 +353,23 @@ export default function TrayPopover() {
             padding: "10px",
             fontSize: "14px",
             fontWeight: 500,
-            cursor: toggling ? "not-allowed" : "pointer",
-            opacity: toggling ? 0.7 : 1,
+            cursor: toggling || protection === "unknown" ? "not-allowed" : "pointer",
+            opacity: toggling || protection === "unknown" ? 0.7 : 1,
             transition: "background 0.15s",
           }}
         >
-          {paused ? t`Resume protection` : t`Pause protection`}
+          {protection === "unknown" ? t(STATUS_LABEL.loading) :
+           protection === "off" ? t`Resume protection` : t`Pause protection`}
         </button>
+        {pauseError && (
+          <p
+            role="alert"
+            data-testid="pause-error"
+            style={{ fontSize: "11px", color: "var(--semantic-deny, #C8312A)", margin: 0 }}
+          >
+            <Trans>Could not change protection: {pauseError}</Trans>
+          </p>
+        )}
 
         <button
           data-testid="btn-open-dashboard"

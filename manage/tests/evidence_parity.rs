@@ -81,7 +81,13 @@ fn ensure_ascii_golden_literal() {
 fn rust_self_round_trip() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("pack");
-    let p = build_pack(out.to_str().unwrap(), &fixture_findings(), &sarif_literal()).unwrap();
+    let p = build_pack(
+        out.to_str().unwrap(),
+        &fixture_findings(),
+        &sarif_literal(),
+        &json!([]),
+    )
+    .unwrap();
     assert!(verify_pack(&p));
 }
 
@@ -89,7 +95,13 @@ fn rust_self_round_trip() {
 fn tamper_breaks_rust_verify() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("pack");
-    let p = build_pack(out.to_str().unwrap(), &fixture_findings(), &sarif_literal()).unwrap();
+    let p = build_pack(
+        out.to_str().unwrap(),
+        &fixture_findings(),
+        &sarif_literal(),
+        &json!([]),
+    )
+    .unwrap();
     let fp = Path::new(&p).join(FINDINGS);
     let mut c = std::fs::read(&fp).unwrap();
     c.push(b'!');
@@ -102,7 +114,13 @@ fn missing_files_break_rust_verify() {
     // Missing findings.json → false.
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("p1");
-    let p = build_pack(out.to_str().unwrap(), &fixture_findings(), &sarif_literal()).unwrap();
+    let p = build_pack(
+        out.to_str().unwrap(),
+        &fixture_findings(),
+        &sarif_literal(),
+        &json!([]),
+    )
+    .unwrap();
     std::fs::remove_file(Path::new(&p).join(FINDINGS)).unwrap();
     assert!(!verify_pack(&p));
 
@@ -112,6 +130,7 @@ fn missing_files_break_rust_verify() {
         out2.to_str().unwrap(),
         &fixture_findings(),
         &sarif_literal(),
+        &json!([]),
     )
     .unwrap();
     std::fs::remove_file(Path::new(&p2).join(MANIFEST)).unwrap();
@@ -153,6 +172,7 @@ fn rust_pack_matches_python_golden_bytes() {
         pack.to_str().unwrap(),
         &fixture_findings(),
         &sarif_literal(),
+        &json!([]),
     )
     .unwrap();
 
@@ -214,6 +234,7 @@ fn tamper_breaks_verify_cross_language_invariant() {
         pack.to_str().unwrap(),
         &fixture_findings(),
         &sarif_literal(),
+        &json!([]),
     )
     .unwrap();
     assert!(verify_pack(&p));
@@ -223,4 +244,89 @@ fn tamper_breaks_verify_cross_language_invariant() {
     c.push(b'!');
     std::fs::write(&fp, c).unwrap();
     assert!(!verify_pack(&p), "tampered pack must fail verify");
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Task 6: sweeps.json joins the pack as a third manifest entry.
+// ─────────────────────────────────────────────────────────────────────────
+
+fn sha256_hex_of(path: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(path).unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
+}
+
+/// A pack now carries sweeps.json, and it verifies.
+#[test]
+fn a_pack_with_sweeps_verifies() {
+    let out = tempfile::tempdir().unwrap();
+    let sweeps = serde_json::json!([{"sweep_id": "1", "examined": [], "skipped": []}]);
+    let p = build_pack(
+        out.path().to_str().unwrap(),
+        &fixture_findings(),
+        &sarif_literal(),
+        &sweeps,
+    )
+    .unwrap();
+    assert!(verify_pack(&p));
+    assert!(std::path::Path::new(&p).join("sweeps.json").exists());
+}
+
+/// A pack built the OLD way, with a two-entry manifest, must still verify.
+/// verify_pack iterates the manifest's own keys, so this is confirming a
+/// property the code already has rather than guarding a change, and it stays
+/// so that a future refactor to literal filenames fails loudly here.
+#[test]
+fn a_pre_sweeps_pack_still_verifies() {
+    let out = tempfile::tempdir().unwrap();
+    let dir = out.path();
+    std::fs::write(dir.join("findings.json"), to_py_json(&fixture_findings())).unwrap();
+    std::fs::write(dir.join("report.sarif"), to_py_json(&sarif_literal())).unwrap();
+    let mut m = serde_json::Map::new();
+    m.insert(
+        "findings.json".into(),
+        serde_json::Value::String(sha256_hex_of(&dir.join("findings.json"))),
+    );
+    m.insert(
+        "report.sarif".into(),
+        serde_json::Value::String(sha256_hex_of(&dir.join("report.sarif"))),
+    );
+    std::fs::write(
+        dir.join("manifest.json"),
+        to_py_json(&serde_json::Value::Object(m)),
+    )
+    .unwrap();
+
+    assert!(
+        verify_pack(dir.to_str().unwrap()),
+        "an existing two-entry pack must keep verifying"
+    );
+}
+
+/// Byte parity: two builds from the same input produce identical bytes, or the
+/// manifest hash does not reproduce and the pack becomes unverifiable.
+#[test]
+fn sweeps_json_is_byte_identical_across_builds() {
+    let sweeps = serde_json::json!([{"sweep_id": "1", "name": "café"}]);
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    build_pack(a.path().to_str().unwrap(), &fixture_findings(), &sarif_literal(), &sweeps).unwrap();
+    build_pack(b.path().to_str().unwrap(), &fixture_findings(), &sarif_literal(), &sweeps).unwrap();
+    let ba = std::fs::read(a.path().join("sweeps.json")).unwrap();
+    let bb = std::fs::read(b.path().join("sweeps.json")).unwrap();
+    assert_eq!(ba, bb);
+    assert!(
+        !ba.ends_with(b"\n"),
+        "no trailing newline: the manifest hashes raw bytes"
+    );
+    assert!(
+        String::from_utf8_lossy(&ba).contains("\\u00e9"),
+        "non-ASCII must be escaped by the ensure_ascii pass"
+    );
 }

@@ -50,6 +50,14 @@ fn default_model() -> String {
     "qwen2.5".to_string()
 }
 
+/// Default for [`AiConfig::max_ai_calls_per_day`] -- see
+/// `crate::ai::budget`'s module doc for the full justification (call-count
+/// as the honestly-enforceable unit, daily calendar window, and why the
+/// default is a conservative non-zero value rather than unlimited).
+fn default_max_ai_calls_per_day() -> u32 {
+    crate::ai::budget::DEFAULT_MAX_CALLS_PER_DAY
+}
+
 /// AI explainer configuration, loaded from `~/.belay/ai.json`.
 ///
 /// All fields are `#[serde(default)]` so a partial (or empty `{}`) config
@@ -93,6 +101,15 @@ pub struct AiConfig {
     /// watcher path never does.
     #[serde(default)]
     pub skill_judge_gate_enabled: bool,
+    /// Daily cap on AI provider calls across the WHOLE BYOK layer (the
+    /// on-demand explainer and the skill judge share one budget, not one
+    /// each) -- the spend-ceiling kill switch. `0` means no cap (unlimited).
+    /// See `crate::ai::budget` for enforcement, persistence (a calendar-day
+    /// window persisted to `~/.belay/ai_budget.json`, since a process-local
+    /// counter would reset uselessly on every daemon restart), and the
+    /// default's justification.
+    #[serde(default = "default_max_ai_calls_per_day")]
+    pub max_ai_calls_per_day: u32,
 }
 
 impl Default for AiConfig {
@@ -107,6 +124,7 @@ impl Default for AiConfig {
             skill_judge_model: None,
             skill_judge_enabled: false,
             skill_judge_gate_enabled: false,
+            max_ai_calls_per_day: default_max_ai_calls_per_day(),
         }
     }
 }
@@ -246,6 +264,16 @@ impl AiConfig {
             .get("skill_judge_gate_enabled")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        // Any missing/negative/non-numeric/overflowing value falls back to
+        // the conservative default -- same fail-soft-on-partial-input shape
+        // as every other field here, not a hard validation error (unlike
+        // the cloud-consent/provider checks below, an operator-set spend
+        // ceiling has no equivalent privacy-surprise risk to guard against).
+        let max_ai_calls_per_day = args
+            .get("max_ai_calls_per_day")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or_else(default_max_ai_calls_per_day);
 
         if mode == AiMode::Cloud && !cloud_consent {
             return Err("cloud mode requires consent".to_string());
@@ -264,6 +292,7 @@ impl AiConfig {
             skill_judge_model,
             skill_judge_enabled,
             skill_judge_gate_enabled,
+            max_ai_calls_per_day,
         })
     }
 }
@@ -576,6 +605,66 @@ mod tests {
         assert!(result.unwrap_err().to_lowercase().contains("provider"));
     }
 
+    // ── Spend ceiling: `max_ai_calls_per_day` config wiring ─────────────────
+
+    #[test]
+    fn default_config_has_conservative_nonzero_call_budget() {
+        // Owner decision: conservative default, not off/unlimited -- see
+        // `crate::ai::budget`'s module doc for the justification.
+        assert_eq!(AiConfig::default().max_ai_calls_per_day, crate::ai::budget::DEFAULT_MAX_CALLS_PER_DAY);
+        assert_ne!(AiConfig::default().max_ai_calls_per_day, 0);
+    }
+
+    #[test]
+    fn load_missing_max_ai_calls_per_day_key_defaults_to_conservative_value() {
+        // An old ai.json written before this field existed must still parse,
+        // falling back to the default cap (additive/backward-compatible),
+        // not to 0/unlimited.
+        let tmp = TempJsonFile::new("no-budget-key");
+        tmp.write(r#"{"mode":"local","model":"qwen2.5"}"#);
+        let cfg = AiConfig::load(&tmp.path);
+        assert_eq!(cfg.max_ai_calls_per_day, crate::ai::budget::DEFAULT_MAX_CALLS_PER_DAY);
+    }
+
+    #[test]
+    fn load_explicit_max_ai_calls_per_day_round_trips() {
+        let tmp = TempJsonFile::new("budget-explicit");
+        tmp.write(r#"{"mode":"local","max_ai_calls_per_day":7}"#);
+        let cfg = AiConfig::load(&tmp.path);
+        assert_eq!(cfg.max_ai_calls_per_day, 7);
+    }
+
+    #[test]
+    fn load_zero_max_ai_calls_per_day_means_unlimited_and_round_trips() {
+        let tmp = TempJsonFile::new("budget-zero");
+        tmp.write(r#"{"mode":"local","max_ai_calls_per_day":0}"#);
+        let cfg = AiConfig::load(&tmp.path);
+        assert_eq!(cfg.max_ai_calls_per_day, 0);
+    }
+
+    #[test]
+    fn from_args_round_trips_max_ai_calls_per_day() {
+        let args = serde_json::json!({"mode": "local", "max_ai_calls_per_day": 50});
+        let cfg = AiConfig::from_args(&args).expect("valid args");
+        assert_eq!(cfg.max_ai_calls_per_day, 50);
+    }
+
+    #[test]
+    fn from_args_missing_max_ai_calls_per_day_defaults() {
+        let args = serde_json::json!({"mode": "local"});
+        let cfg = AiConfig::from_args(&args).expect("valid args");
+        assert_eq!(cfg.max_ai_calls_per_day, crate::ai::budget::DEFAULT_MAX_CALLS_PER_DAY);
+    }
+
+    #[test]
+    fn from_args_negative_max_ai_calls_per_day_falls_back_to_default() {
+        // A negative number fails `as_u64()`/`u32::try_from` -- fail-soft to
+        // the default rather than a hard validation error or a panic.
+        let args = serde_json::json!({"mode": "local", "max_ai_calls_per_day": -1});
+        let cfg = AiConfig::from_args(&args).expect("valid args, invalid budget falls back");
+        assert_eq!(cfg.max_ai_calls_per_day, crate::ai::budget::DEFAULT_MAX_CALLS_PER_DAY);
+    }
+
     // ── Task 7: `save`/`load` round-trip ───────────────────────────────────────
 
     #[test]
@@ -591,6 +680,7 @@ mod tests {
             skill_judge_model: Some("gemma4:27b".to_string()),
             skill_judge_enabled: true,
             skill_judge_gate_enabled: true,
+            max_ai_calls_per_day: 42,
         };
         cfg.save(&tmp.path).expect("save must succeed");
         let loaded = AiConfig::load(&tmp.path);

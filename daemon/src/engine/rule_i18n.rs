@@ -280,6 +280,7 @@ mod tests {
             owasp: None,
             atlas: None,
             explain: explain.cloned(),
+            ask_rules: Vec::new(),
         };
         for loc in ["en", "fr", "klingon"] {
             let mut v = base.clone();
@@ -308,6 +309,7 @@ mod tests {
             owasp: None,
             atlas: None,
             explain: explain.cloned(),
+            ask_rules: Vec::new(),
         };
         localize(&mut v, "zh-Hans");
         // The explain summary is now the (non-empty) Chinese one.

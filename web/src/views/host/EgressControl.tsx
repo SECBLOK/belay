@@ -14,6 +14,12 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 
+// Tauri usually rejects with a plain string (the Rust command's Err
+// payload); stay defensive about Error-shaped values too.
+function errorMessage(e: unknown): string {
+  return String((e as { message?: string } | undefined)?.message ?? e);
+}
+
 // ── Mode selector ─────────────────────────────────────────────────────────────
 
 type UiMode = { label: MessageDescriptor; value: EgressMode };
@@ -26,9 +32,13 @@ const MODES: UiMode[] = [
 function ModeSelector({
   current,
   onChange,
+  busy,
+  error,
 }: {
   current: EgressMode;
   onChange: (m: EgressMode) => void;
+  busy: boolean;
+  error: string | null;
 }) {
   const { t } = useLingui();
   return (
@@ -39,7 +49,9 @@ function ModeSelector({
           <button
             key={value}
             onClick={() => onChange(value)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+            disabled={busy}
+            aria-pressed={current === value}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors border disabled:opacity-60 ${
               current === value
                 ? "bg-[#1C1C1E] text-white border-[#1C1C1E]"
                 : "bg-white text-[#636366] border-black/10 hover:border-black/20"
@@ -49,6 +61,11 @@ function ModeSelector({
           </button>
         ))}
       </div>
+      {error && (
+        <p role="alert" data-testid="egress-mode-error" className="text-xs" style={{ color: "#C8312A" }}>
+          <Trans>Could not change egress mode: {error}</Trans>
+        </p>
+      )}
     </div>
   );
 }
@@ -58,36 +75,48 @@ function ModeSelector({
 function EnrichToggle({
   enabled,
   onToggle,
+  busy,
+  error,
 }: {
   enabled: boolean;
   onToggle: (v: boolean) => void;
+  busy: boolean;
+  error: string | null;
 }) {
   const { t } = useLingui();
   return (
-    <div className="flex items-center justify-between gap-4">
-      <div>
-        <p className="text-sm font-medium text-[#1C1C1E]"><Trans>Enrich destinations</Trans></p>
-        <p className="text-xs text-[#636366] mt-0.5">
-          <Trans>Show owner/ASN/country next to egress hosts. Display-only — never affects allow/deny.</Trans>
-        </p>
-      </div>
-      <button
-        role="switch"
-        aria-checked={enabled}
-        aria-label={t`Enrich destinations (show owner/ASN/country)`}
-        onClick={() => onToggle(!enabled)}
-        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-          enabled
-            ? "bg-[#34C759] border-[#34C759]"
-            : "bg-[#E5E5EA] border-[#E5E5EA]"
-        }`}
-      >
-        <span
-          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            enabled ? "translate-x-5" : "translate-x-0"
+    <div>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-[#1C1C1E]"><Trans>Enrich destinations</Trans></p>
+          <p className="text-xs text-[#636366] mt-0.5">
+            <Trans>Show owner/ASN/country next to egress hosts. Display-only, and never affects allow/deny.</Trans>
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={enabled}
+          aria-label={t`Enrich destinations (show owner/ASN/country)`}
+          onClick={() => onToggle(!enabled)}
+          disabled={busy}
+          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 ${
+            enabled
+              ? "bg-[#34C759] border-[#34C759]"
+              : "bg-[#E5E5EA] border-[#E5E5EA]"
           }`}
-        />
-      </button>
+        >
+          <span
+            className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+              enabled ? "translate-x-5" : "translate-x-0"
+            }`}
+          />
+        </button>
+      </div>
+      {error && (
+        <p role="alert" data-testid="enrich-toggle-error" className="text-xs mt-1" style={{ color: "#C8312A" }}>
+          <Trans>Could not save your enrich-destinations setting: {error}</Trans>
+        </p>
+      )}
     </div>
   );
 }
@@ -97,9 +126,13 @@ function EnrichToggle({
 function InlineToggle({
   enabled,
   onToggle,
+  busy,
+  error,
 }: {
   enabled: boolean;
   onToggle: (v: boolean) => void;
+  busy: boolean;
+  error: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -152,7 +185,8 @@ function InlineToggle({
               role="switch"
               aria-checked={enabled}
               onClick={handleToggle}
-              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              disabled={busy}
+              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 ${
                 enabled
                   ? "bg-[#34C759] border-[#34C759]"
                   : "bg-[#E5E5EA] border-[#E5E5EA]"
@@ -165,6 +199,12 @@ function InlineToggle({
               />
             </button>
           </div>
+
+          {error && (
+            <p role="alert" data-testid="inline-toggle-error" className="text-xs" style={{ color: "#C8312A" }}>
+              <Trans>Could not change inline enforcement: {error}</Trans>
+            </p>
+          )}
 
           {/* Inline confirm dialog */}
           {confirming && (
@@ -179,13 +219,15 @@ function InlineToggle({
               <div className="flex gap-2">
                 <button
                   onClick={handleConfirm}
-                  className="px-4 py-1.5 rounded-lg bg-[#1C1C1E] text-white text-sm font-medium hover:bg-black/80 transition-colors"
+                  disabled={busy}
+                  className="px-4 py-1.5 rounded-lg bg-[#1C1C1E] text-white text-sm font-medium hover:bg-black/80 transition-colors disabled:opacity-60"
                 >
                   <Trans>Enable</Trans>
                 </button>
                 <button
                   onClick={handleCancel}
-                  className="px-4 py-1.5 rounded-lg bg-[#E5E5EA] text-[#636366] text-sm font-medium hover:bg-[#D1D1D6] transition-colors"
+                  disabled={busy}
+                  className="px-4 py-1.5 rounded-lg bg-[#E5E5EA] text-[#636366] text-sm font-medium hover:bg-[#D1D1D6] transition-colors disabled:opacity-60"
                 >
                   <Trans>Cancel</Trans>
                 </button>
@@ -209,6 +251,18 @@ export default function EgressControl() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // These three used to flip the visible state BEFORE the daemon confirmed
+  // the change, then silently swallow a rejection - the control would show
+  // the new setting while the daemon never actually changed. Each is now
+  // await-first: the daemon's real answer decides what gets rendered, and a
+  // failure surfaces instead of being papered over.
+  const [modeBusy, setModeBusy] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
+  const [enrichBusy, setEnrichBusy] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [inlineBusy, setInlineBusy] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+
   // Fetch allowlist on mount
   const fetchRules = useCallback(async () => {
     try {
@@ -227,49 +281,64 @@ export default function EgressControl() {
     getNetEnrich().then(setEnrichEnabled);
   }, [fetchRules]);
 
+  // setNetEnrich never rejects (it fail-softs internally to {ok:false}), so
+  // the failure signal here is `result.ok`, not a thrown exception - the old
+  // `catch` was genuinely dead code, meaning this toggle always "succeeded"
+  // from the UI's point of view regardless of what the daemon actually did.
   const handleEnrichToggle = async (v: boolean) => {
-    setEnrichEnabled(v);
-    try {
-      await setNetEnrich(v);
-    } catch {
-      // desktop-only / daemon unreachable — silently ignore, matches the
-      // other toggles' fail-soft handling in this view.
+    if (enrichBusy) return;
+    setEnrichBusy(true);
+    setEnrichError(null);
+    const result = await setNetEnrich(v);
+    setEnrichBusy(false);
+    if (result.ok) {
+      setEnrichEnabled(v);
+    } else {
+      setEnrichError(result.error || t`Could not reach the daemon.`);
     }
   };
 
   const handleModeChange = async (m: EgressMode) => {
-    setMode(m);
+    if (modeBusy) return;
+    setModeBusy(true);
+    setModeError(null);
     try {
       await setEgressMode(m);
-    } catch {
-      // desktop-only — silently ignore in browser dashboard
+      setMode(m);
+    } catch (err) {
+      setModeError(errorMessage(err));
+    } finally {
+      setModeBusy(false);
     }
   };
 
   const handleAdd = async (rule: Omit<EgressRule, "id">) => {
-    try {
-      const added = await addEgressRule(rule);
-      setRules((prev) => [...prev, added]);
-    } catch {
-      // desktop-only
-    }
+    // No local try/catch: the rejection propagates to AllowlistManager's own
+    // add-rule form, which is what actually shows the failure and keeps the
+    // user's typed values instead of clearing them.
+    const added = await addEgressRule(rule);
+    setRules((prev) => [...prev, added]);
   };
 
   const handleRemove = async (id: string) => {
-    try {
-      await removeEgressRule(id);
-      setRules((prev) => prev.filter((r) => r.id !== id));
-    } catch {
-      // desktop-only
-    }
+    // No local try/catch: the rejection propagates to AllowlistManager's own
+    // row handling, which is what actually shows the failure and keeps the
+    // rule on screen instead of the click silently doing nothing.
+    await removeEgressRule(id);
+    setRules((prev) => prev.filter((r) => r.id !== id));
   };
 
   const handleInlineToggle = async (v: boolean) => {
-    setInlineEnabled(v);
+    if (inlineBusy) return;
+    setInlineBusy(true);
+    setInlineError(null);
     try {
       await setInlineEgress(v);
-    } catch {
-      // desktop-only
+      setInlineEnabled(v);
+    } catch (err) {
+      setInlineError(errorMessage(err));
+    } finally {
+      setInlineBusy(false);
     }
   };
 
@@ -311,12 +380,12 @@ export default function EgressControl() {
     <div className="space-y-4 max-w-3xl mx-auto">
       {/* Enrich destinations toggle */}
       <div className="rounded-xl px-5 py-3" style={cardStyle}>
-        <EnrichToggle enabled={enrichEnabled} onToggle={handleEnrichToggle} />
+        <EnrichToggle enabled={enrichEnabled} onToggle={handleEnrichToggle} busy={enrichBusy} error={enrichError} />
       </div>
 
       {/* Mode selector */}
       <div className="rounded-xl px-5 py-5 space-y-4" style={cardStyle}>
-        <ModeSelector current={mode} onChange={handleModeChange} />
+        <ModeSelector current={mode} onChange={handleModeChange} busy={modeBusy} error={modeError} />
       </div>
 
       {/* Allowlist */}
@@ -327,7 +396,7 @@ export default function EgressControl() {
 
       {/* Advanced (inline NFQUEUE) */}
       <div className="rounded-xl px-5 py-5" style={cardStyle}>
-        <InlineToggle enabled={inlineEnabled} onToggle={handleInlineToggle} />
+        <InlineToggle enabled={inlineEnabled} onToggle={handleInlineToggle} busy={inlineBusy} error={inlineError} />
       </div>
     </div>
   );

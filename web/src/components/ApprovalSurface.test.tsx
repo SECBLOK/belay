@@ -138,3 +138,114 @@ it("stays silent when the Allow was honored", async () => {
   await flush();
   expect(screen.queryByTestId("self-approval-blocked")).toBeNull();
 });
+
+// "Deny & mute this rule" — the daemon reports the outcome on the SAME
+// respond_approval reply (mute / mute_refused), it doesn't need a separate
+// round trip. The notice must survive the queue draining, same as the
+// self-approval banner above.
+it("tells the operator which rule got muted, and the notice survives the drained queue", async () => {
+  const one = [{ id: "ap-3", session: "claude", tool: "Bash", input: { command: "cat ~/.aws/credentials" }, reason: "r", rule: "secrets.aws", created_ms: 0 }];
+  let drained = false;
+  invoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_pending") return Promise.resolve(pendingResponse(drained ? [] : one));
+    if (cmd === "respond_approval") {
+      drained = true;
+      return Promise.resolve({ ok: true, decision: "deny", requested: "deny", mute: "secrets.aws", mute_refused: null });
+    }
+    return Promise.resolve({});
+  });
+
+  render(<ApprovalSurface />);
+  await flush();
+  await act(async () => { vi.advanceTimersByTime(1100); });
+  await act(async () => { screen.getByText("Deny & mute this rule").click(); });
+  await flush();
+
+  const notice = screen.getByTestId("deny-mute-notice");
+  expect(notice.textContent).toContain("Rule muted");
+  expect(notice.textContent).toContain("secrets.aws");
+
+  // Survives the now-empty queue rather than vanishing with the card.
+  await act(async () => { vi.advanceTimersByTime(1100); });
+  await flush();
+  expect(screen.getByTestId("deny-mute-notice")).toBeTruthy();
+});
+
+// resolveOne must propagate a respond_approval failure to the card instead of
+// swallowing it (see ApprovalCard's `act`, which is the thing that actually
+// shows the error and keeps the card usable). This exercises the REAL
+// component -> lib/api -> lib/ipc -> respond_approval path, not a mock of
+// ApprovalCard, so it proves the wiring end to end.
+it("propagates a failed respond_approval to the card instead of swallowing it", async () => {
+  const one = [{ id: "ap-5", session: "claude", tool: "Bash", input: { command: "cat ~/.aws/credentials" }, reason: "r", rule: "secrets.aws", created_ms: 0 }];
+  invoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_pending") return Promise.resolve(pendingResponse(one));
+    if (cmd === "respond_approval") return Promise.reject(new Error("daemon restarting"));
+    return Promise.resolve({});
+  });
+
+  render(<ApprovalSurface />);
+  await flush();
+  await act(async () => { vi.advanceTimersByTime(1100); });
+  await act(async () => { screen.getByText("Allow once").click(); });
+  await flush();
+
+  // The card is still here (a swallowed rejection would leave it looking
+  // "clicked" with no feedback, but the daemon never actually resolved it).
+  expect(screen.getByRole("alertdialog")).toBeTruthy();
+  expect(screen.getByTestId("approval-error").textContent).toMatch(/daemon restarting/);
+});
+
+// The BatchDigest onResolveAll path used to be
+// `void Promise.all(...).then(...)` with no catch: a rejected
+// respond_approval mid-batch vanished into an unhandled rejection and the
+// dialog just sat there with no feedback, buttons still looking clickable
+// but with nothing actually retried.
+it("a failed batch resolve shows an error and keeps the dialog usable", async () => {
+  const two = [
+    { id: "b1", session: "claude", tool: "Bash", input: { command: "npm i a" }, reason: "a", rule: "supply.install", created_ms: 1 },
+    { id: "b2", session: "claude", tool: "Bash", input: { command: "npm i b" }, reason: "b", rule: "supply.install", created_ms: 2 },
+  ];
+  invoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_pending") return Promise.resolve(pendingResponse(two));
+    if (cmd === "respond_approval") return Promise.reject(new Error("daemon restarting"));
+    return Promise.resolve({});
+  });
+
+  render(<ApprovalSurface />);
+  await flush();
+  expect(screen.getByText(/2 pending approvals/i)).toBeTruthy();
+
+  await act(async () => { screen.getByText("Deny all").click(); });
+  await flush();
+
+  const err = screen.getByTestId("batch-resolve-error");
+  expect(err.textContent).toMatch(/daemon restarting/);
+  // The dialog is still here (both items are still pending) and the batch
+  // buttons are clickable again, not stuck disabled.
+  expect(screen.getByText(/2 pending approvals/i)).toBeTruthy();
+  expect((screen.getByText("Deny all") as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("tells the operator why a mute was refused (e.g. critical severity)", async () => {
+  const one = [{ id: "ap-4", session: "claude", tool: "Bash", input: { command: "rm -rf /" }, reason: "r", rule: "destructive.rm_rf", created_ms: 0, severity: "critical" }];
+  let drained = false;
+  invoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_pending") return Promise.resolve(pendingResponse(drained ? [] : one));
+    if (cmd === "respond_approval") {
+      drained = true;
+      return Promise.resolve({ ok: true, decision: "deny", requested: "deny", mute: null, mute_refused: "severity_critical" });
+    }
+    return Promise.resolve({});
+  });
+
+  render(<ApprovalSurface />);
+  await flush();
+  await act(async () => { vi.advanceTimersByTime(1100); });
+  await act(async () => { screen.getByText("Deny & mute this rule").click(); });
+  await flush();
+
+  const notice = screen.getByTestId("deny-mute-notice");
+  expect(notice.textContent).toContain("Rule not muted");
+  expect(notice.textContent).toMatch(/critical/i);
+});

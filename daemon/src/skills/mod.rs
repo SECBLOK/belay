@@ -1,5 +1,6 @@
 use std::path::Path;
 
+pub mod compare;
 pub mod enumerate;
 pub mod gate;
 /// LLM meta-filter over borderline (Caution) skillscan verdicts. Opt-in via
@@ -10,6 +11,7 @@ pub mod judge;
 pub mod mcp_config;
 pub mod mcp_scan;
 pub mod summary;
+pub mod sweep;
 pub mod watch;
 
 pub use summary::{skills_summary, skills_summary_in, skills_summary_json, SkillSummary};

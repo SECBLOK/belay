@@ -42,6 +42,42 @@ jobs:
       - name: Test transport crate (unix impl)
         run: cargo test -p belay-transport
 
+      # The daemon step above is `--lib`, which runs ONLY the unit tests. Every
+      # file under daemon/tests/ therefore ran on developer machines and nowhere
+      # else. That is how the flood-defense feature broke approval.rs without a
+      # single red build: CI never executed it. Worse, it left eval_corpus.rs
+      # unenforced, and that is the rule/engine ratchet this project treats as a
+      # merge gate.
+      #
+      # Linux only, and deliberately not the full daemon/tests/ set: ebpf, etw
+      # and wfp are platform-gated and need privileges CI does not grant.
+      - name: Test daemon integration suites
+        if: runner.os == 'Linux'
+        run: >
+          cargo test -p belayd
+          --test approval --test hook_fallback --test e2e_uds
+          --test parity --test mcp_proxy
+
+      - name: Test the eval-corpus ratchet
+        if: runner.os == 'Linux'
+        run: cargo test -p belayd --test eval_corpus
+
+      # The enterprise server surface (fleet, org, device, command store,
+      # agent channel, correlation, SSO/OIDC, SCIM, advisory feed) compiles
+      # ONLY under `--features enterprise`, and nothing else in this workflow
+      # (nor any release job) enables it. Without this step ~199 tests across
+      # 19 modules ran on developer machines and nowhere else, so a regression
+      # could land on main unnoticed while every CI job stayed green.
+      - name: Test server (enterprise surface)
+        run: cargo test -p belay-server --features enterprise
+
+      # The same crate WITHOUT the feature: this is the shape the public mirror
+      # ships. It is a distinct compilation, not a subset: `server/tests/
+      # open_auth.rs` is `#![cfg(not(feature = "enterprise"))]`, so those cases
+      # execute in this configuration and in no other.
+      - name: Test server (open surface)
+        run: cargo test -p belay-server
+
   # Windows port: the transport crate, the `belayd` daemon library, AND the
   # unified `belay` binary (daemon+scanner+server+manage+channels) all compile
   # on real Windows (msvc). Transport = raw Win32 named-pipe impl (DACL + peer-SID,

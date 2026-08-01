@@ -127,10 +127,11 @@ fn user_prompt(tool: &str, input: &Value, rule: Option<&str>, curated: Option<&E
 /// Ask `client` to explain `tool`'s flagged `input` (optionally in the
 /// context of a matched `rule` id and a `curated` reference [`Explain`]).
 ///
-/// Returns `None` if the explainer is not enabled, the call times out, the
-/// client errors, or the response fails strict schema validation (missing
-/// field, extra/injected field, or non-clean-JSON prose). Never panics on
-/// untrusted client output.
+/// Returns `None` if the explainer is not enabled, the daily AI call budget
+/// (`crate::ai::budget`) is exhausted, the call times out, the client
+/// errors, or the response fails strict schema validation (missing field,
+/// extra/injected field, or non-clean-JSON prose). Never panics on untrusted
+/// client output.
 pub async fn ai_explain<C: AiClient>(
     client: &C,
     cfg: &AiConfig,
@@ -140,6 +141,12 @@ pub async fn ai_explain<C: AiClient>(
     curated: Option<&Explain>,
 ) -> Option<Explain> {
     if !cfg.enabled() {
+        return None;
+    }
+    // Spend-ceiling gate: `false` here degrades exactly like a timeout or a
+    // provider error below (`None`, never a gate decision) -- see
+    // `crate::ai::budget::allow_call`'s doc comment for the invariant.
+    if !crate::ai::budget::allow_call(cfg) {
         return None;
     }
 
@@ -391,5 +398,108 @@ mod tests {
             captured.contains("curated-summary"),
             "curated context missing from prompt: {captured}"
         );
+    }
+
+    // ── Spend ceiling (`crate::ai::budget`) wiring ──────────────────────────
+    //
+    // These tests exercise the PRODUCTION `crate::ai::budget::allow_call`
+    // seam through `crate::ai::budget::TestBudgetPathGuard`: a thread-local
+    // override that points `allow_call`/`status` at a private temp file for
+    // the lifetime of the guard, instead of the real
+    // `~/.belay/ai_budget.json`. This is NOT just a lock around the real
+    // file -- other, unrelated pre-existing tests in this crate exercise
+    // real production AI config on a machine where AI happens to be
+    // genuinely enabled (this crate has no path-injection seam on
+    // `AiConfig::load_default()` by design), and a lock only coordinates
+    // test code that opts into it. A `#[tokio::test]`'s whole body
+    // (default `current_thread` flavor) runs on one OS thread, so the
+    // thread-local override is invisible to any other concurrently-running
+    // test regardless of whether that test knows about budgets at all --
+    // true isolation. Deep coverage of the cap logic itself (day rollover,
+    // log-once, corrupt-file fail-soft, ...) lives in `crate::ai::budget`'s
+    // own tests; these prove the WIRING into `ai_explain`.
+
+    /// A client that panics if ever called -- proves a budget block happens
+    /// strictly BEFORE any network call, not after a failed one. Mirrors
+    /// `skills::judge::tests::StubClient::panics_if_called`.
+    struct NeverCalledClient;
+
+    impl AiClient for NeverCalledClient {
+        async fn complete(&self, _system: &str, _user: &str) -> Result<String, AiError> {
+            panic!("client.complete must not be called once the daily AI call budget is exhausted");
+        }
+    }
+
+    #[tokio::test]
+    async fn budget_under_cap_allows_the_call() {
+        let path = crate::ai::budget::unique_temp_path_for_test("explain-under-cap");
+        let _guard = crate::ai::budget::TestBudgetPathGuard::set(path.clone());
+
+        let cfg = AiConfig {
+            max_ai_calls_per_day: 5,
+            ..enabled_cfg()
+        };
+        let client = StubClient::ok(
+            r#"{"summary":"s","what":"w","why_risky":"wr","normal_use":"nu","suggested_action":"sa"}"#,
+        );
+        let input = json!({"command": "ls -la"});
+        let out = ai_explain(&client, &cfg, "Bash", &input, None, None).await;
+        assert!(out.is_some(), "a call well under the cap must succeed normally");
+
+        drop(_guard);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn budget_cap_reached_degrades_to_no_ai_without_hitting_the_client() {
+        let path = crate::ai::budget::unique_temp_path_for_test("explain-at-cap");
+        let _guard = crate::ai::budget::TestBudgetPathGuard::set(path.clone());
+
+        let cfg = AiConfig {
+            max_ai_calls_per_day: 1,
+            ..enabled_cfg()
+        };
+        let input = json!({"command": "ls -la"});
+
+        // First call: exactly at the cap, must succeed and consume the
+        // single slot for today.
+        let client1 = StubClient::ok(
+            r#"{"summary":"s","what":"w","why_risky":"wr","normal_use":"nu","suggested_action":"sa"}"#,
+        );
+        let out1 = ai_explain(&client1, &cfg, "Bash", &input, None, None).await;
+        assert!(out1.is_some(), "the first call, exactly at the cap, must still succeed");
+
+        // Second call, same day: budget exhausted. Must degrade to `None`
+        // (the identical no-AI path a timeout/provider-error/disabled-config
+        // takes) WITHOUT ever reaching the client -- never affects a gate
+        // decision, it only ever removes an explanation.
+        let client2 = NeverCalledClient;
+        let out2 = ai_explain(&client2, &cfg, "Bash", &input, None, None).await;
+        assert_eq!(
+            out2, None,
+            "a call at/over the daily budget must degrade to no-AI, not panic, hang, or allow"
+        );
+
+        drop(_guard);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn disabled_config_never_touches_budget_state() {
+        // The `cfg.enabled()` short-circuit must run BEFORE the budget
+        // check, so an operator with the explainer off never has the
+        // budget state file created/touched at all.
+        let path = crate::ai::budget::unique_temp_path_for_test("explain-disabled-no-touch");
+        let _guard = crate::ai::budget::TestBudgetPathGuard::set(path.clone());
+
+        let client = NeverCalledClient;
+        let cfg = AiConfig::default(); // mode: Off
+        let input = json!({"command": "ls -la"});
+        let out = ai_explain(&client, &cfg, "Bash", &input, None, None).await;
+        assert_eq!(out, None);
+        assert!(!path.exists(), "a disabled config must never create/touch the budget state file");
+
+        drop(_guard);
+        let _ = std::fs::remove_file(&path);
     }
 }
