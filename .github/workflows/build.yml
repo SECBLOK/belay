@@ -62,15 +62,6 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo test -p belayd --test eval_corpus
 
-      # The enterprise server surface (fleet, org, device, command store,
-      # agent channel, correlation, SSO/OIDC, SCIM, advisory feed) compiles
-      # ONLY under `--features enterprise`, and nothing else in this workflow
-      # (nor any release job) enables it. Without this step ~199 tests across
-      # 19 modules ran on developer machines and nowhere else, so a regression
-      # could land on main unnoticed while every CI job stayed green.
-      - name: Test server (enterprise surface)
-        run: cargo test -p belay-server --features enterprise
-
       # The same crate WITHOUT the feature: this is the shape the public mirror
       # ships. It is a distinct compilation, not a subset: `server/tests/
       # open_auth.rs` is `#![cfg(not(feature = "enterprise"))]`, so those cases

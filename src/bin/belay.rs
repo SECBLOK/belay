@@ -3584,7 +3584,7 @@ mod tests {
 
         assert!(
             admin.platform_admin,
-            "the bootstrap admin must be a platform admin, or resolve_login 403s it              with no org to join and no way to create one"
+            "the bootstrap admin must be a platform admin, or the enterprise login resolver 403s it              with no org to join and no way to create one"
         );
         assert_eq!(admin.role, "admin");
         assert!(

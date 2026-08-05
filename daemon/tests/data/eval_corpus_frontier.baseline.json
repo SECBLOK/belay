@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "corpus_id": "frontier",
-  "case_count": 30449,
-  "case_digest": "fnv1a64:131e84fb40f8886e",
+  "case_count": 30429,
+  "case_digest": "fnv1a64:a9cdbbb974309f6b",
   "headline": {
     "miss_rate_pct": 0.0,
     "hard_fp_rate_pct": 0.2,
@@ -16,10 +16,10 @@
       "total": 466
     },
     "benign": {
-      "allow": 27980,
+      "allow": 27960,
       "ask": 1952,
       "deny": 51,
-      "total": 29983
+      "total": 29963
     }
   },
   "buckets": {

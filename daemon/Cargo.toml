@@ -27,16 +27,6 @@ ebpf = ["dep:aya", "dep:aya-log", "dep:bytes"]
 vulndb = ["dep:redb"]
 firewall = ["dep:rustables"]
 inline-egress = ["dep:nfq", "dep:trippy-packet", "firewall"]
-# Paid-plane marker: gates the hosted-feed client seam in vuln/mod.rs.
-# Enables reqwest's blocking client for the TB-7 fail-safe hosted-feed client
-# (daemon/src/vuln/feed_client.rs). The `blocking` feature is pulled in ONLY by
-# `enterprise`, so the default (open) build's reqwest is byte-unchanged and the
-# daemon's dependency/attack surface is unchanged unless the paid plane is built.
-# Messaging-based approvals: wire the channels crate's NotificationChannel
-# fan-out into the daemon's ASK park (daemon/src/channels_bridge.rs). Optional +
-# OFF by default so the open/default build and the SECBLOK export are
-# byte-unchanged — no belay_channels / getrandom symbol enters the default
-# binary. `getrandom` supplies the CSPRNG approval-correlation nonce.
 channels = [
     "dep:belay-channels",
     "dep:getrandom",

@@ -1,5 +1,8 @@
 <div align="center">
 
+<img src=".github/readme-assets/banner.gif" width="900"
+     alt="Belay - runtime defense for AI coding agents. Every tool call is allowed, asked, or denied by a deterministic sub-100ms engine with no LLM in the hot path.">
+
 # Belay
 
 **Detect · Block · Notify — a defense and monitoring layer for AI coding agents.**

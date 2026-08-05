@@ -40,11 +40,6 @@ msgstr ""
 #~ msgid "{0, plural, one {{list} is installed. Review it to turn on protection.} other {{list} are installed. Review them to turn on protection.}}"
 #~ msgstr ""
 
-#. placeholder {0}: feed.ecosystems.length
-#: src/views/console/Settings.tsx
-msgid "{0, plural, one {# ecosystem} other {# ecosystems}}"
-msgstr ""
-
 #. placeholder {0}: data.quarantineCount
 #: src/views/host/HostOverview.tsx
 msgid "{0, plural, one {# file in quarantine} other {# files in quarantine}}"
@@ -100,12 +95,6 @@ msgstr ""
 msgid "{0, plural, one {We found # AI tool on this computer} other {We found # AI tools on this computer}}"
 msgstr ""
 
-#. placeholder {0}: devices.length
-#. placeholder {1}: summary.online_devices
-#: src/views/Fleet.tsx
-msgid "{0} agents · {1} online"
-msgstr ""
-
 #. placeholder {0}: labels[0]
 #. placeholder {1}: labels[1]
 #: src/components/DetectionBanner.tsx
@@ -118,32 +107,9 @@ msgstr ""
 msgid "{0} enrolled · max {1}/min each"
 msgstr ""
 
-#. placeholder {0}: devices.length
-#. placeholder {0}: members.length
-#. placeholder {1}: org || "—"
-#: src/views/console/Devices.tsx
-#: src/views/console/OrgAdmin.tsx
-msgid "{0} in {1}"
-msgstr ""
-
-#. placeholder {0}: meta.arg
-#: src/views/console/FleetCommands.tsx
-msgid "{0} json"
-msgstr ""
-
 #. placeholder {0}: Math.max(1, Math.round(s / 60))
 #: src/views/Timeline.tsx
 msgid "{0} min ago"
-msgstr ""
-
-#. placeholder {0}: rejected.length
-#: src/views/console/FleetCommands.tsx
-msgid "{0} out-of-scope"
-msgstr ""
-
-#. placeholder {0}: targets.length
-#: src/views/console/FleetCommands.tsx
-msgid "{0} selected"
 msgstr ""
 
 #. placeholder {0}: labels.slice(0, -1).join(", ")
@@ -197,10 +163,6 @@ msgstr ""
 msgid "{decided} via messaging channel"
 msgstr ""
 
-#: src/views/console/shared.tsx
-msgid "{label} — shown once"
-msgstr ""
-
 #: src/components/ModelPicker.tsx
 msgid "{label} custom id"
 msgstr ""
@@ -232,10 +194,6 @@ msgstr ""
 
 #: src/components/host/DeadMansSwitchPanel.tsx
 msgid "{timeStr} remaining"
-msgstr ""
-
-#: src/views/console/shared.tsx
-msgid "{what} is not available on this server yet."
 msgstr ""
 
 #: src/views/Messaging.tsx
@@ -304,10 +262,6 @@ msgstr ""
 msgid "5-min buckets"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "5-min buckets · all devices"
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "a 1:1 direct room"
 msgstr ""
@@ -351,7 +305,6 @@ msgstr ""
 #: src/components/host/AllowlistManager.tsx
 #: src/components/host/ProposedRuleTable.tsx
 #: src/lib/humanize.ts
-#: src/views/console/FleetCommands.tsx
 msgid "Action"
 msgstr ""
 
@@ -406,20 +359,12 @@ msgstr ""
 msgid "Add approver IDs"
 msgstr ""
 
-#: src/views/console/OrgAdmin.tsx
-msgid "Add member"
-msgstr ""
-
 #: src/components/host/AllowlistManager.tsx
 msgid "Add rule"
 msgstr ""
 
 #: src/components/host/AllowlistManager.tsx
 msgid "Adding…"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "Admins"
 msgstr ""
 
 #: src/views/host/EgressControl.tsx
@@ -429,14 +374,6 @@ msgstr ""
 #. placeholder {0}: connector.advanced.length
 #: src/views/Messaging.tsx
 msgid "Advanced ({0})"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Advanced: connect another computer"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Advisory feed"
 msgstr ""
 
 #: src/lib/alerts.ts
@@ -651,14 +588,6 @@ msgstr ""
 msgid "Approvers"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "At-Risk"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Audit log ready"
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "Auth token"
 msgstr ""
@@ -711,14 +640,6 @@ msgstr ""
 msgid "Baseline: {label}"
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
-msgid "batch {batch}"
-msgstr ""
-
-#: src/views/console/FleetCommands.tsx
-msgid "Batch status"
-msgstr ""
-
 #: src/views/Scan.tsx
 msgid "Be careful"
 msgstr ""
@@ -730,10 +651,6 @@ msgstr ""
 #. placeholder {0}: u.version
 #: src/components/UpdateControl.tsx
 msgid "Belay {0} is available."
-msgstr ""
-
-#: src/views/console/Login.tsx
-msgid "Belay Console"
 msgstr ""
 
 #: src/lib/explain.ts
@@ -781,17 +698,12 @@ msgstr ""
 msgid "Built a container image"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "by tier"
-msgstr ""
-
 #: src/views/host/EgressControl.tsx
 msgid "Can affect networking · fail-open if unattributable"
 msgstr ""
 
 #: src/components/host/BanList.tsx
 #: src/views/Agents.tsx
-#: src/views/console/shared.tsx
 #: src/views/host/EgressControl.tsx
 msgid "Cancel"
 msgstr ""
@@ -844,7 +756,6 @@ msgstr ""
 msgid "Checking…"
 msgstr ""
 
-#: src/views/Fleet.tsx
 #: src/views/host/FilesScan.tsx
 #: src/views/host/HostSkills.tsx
 msgid "Clean"
@@ -871,14 +782,6 @@ msgstr ""
 msgid "Client Alive Interval"
 msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "client secret (write-only, shown never)"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Client secret:"
-msgstr ""
-
 #: src/views/host/AiSettings.tsx
 msgid "Cloud"
 msgstr ""
@@ -899,14 +802,6 @@ msgstr ""
 msgid "Combined risky steps in one session"
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
-msgid "Command"
-msgstr ""
-
-#: src/views/console/FleetCommands.tsx
-msgid "Command action"
-msgstr ""
-
 #: src/components/ApprovalCard.tsx
 msgid "Command it wants to run:"
 msgstr ""
@@ -924,10 +819,6 @@ msgstr ""
 msgid "Configure a two-way connector first."
 msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "configured"
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "Configured"
 msgstr ""
@@ -938,10 +829,6 @@ msgstr ""
 
 #: src/components/host/DeadMansSwitchPanel.tsx
 msgid "Confirm or revert firewall rules"
-msgstr ""
-
-#: src/views/console/FleetCommands.tsx
-msgid "Confirm push"
 msgstr ""
 
 #: src/components/host/AllowlistManager.tsx
@@ -960,38 +847,8 @@ msgstr ""
 msgid "Connectors"
 msgstr ""
 
-#: src/views/console/shared.tsx
-msgid "Copied"
-msgstr ""
-
-#: src/views/console/shared.tsx
-msgid "Copy"
-msgstr ""
-
-#: src/views/console/shared.tsx
-msgid "Copy it now. It is never displayed again."
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "correlation"
-msgstr ""
-
 #: src/views/Alerts.tsx
-#: src/views/console/ConsoleApp.tsx
-#: src/views/console/Correlation.tsx
 msgid "Correlation"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "correlation alert"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Correlation Alerts"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Correlation window"
 msgstr ""
 
 #: src/components/host/AllowlistManager.tsx
@@ -1019,16 +876,8 @@ msgstr ""
 msgid "Could not complete that: {0}"
 msgstr ""
 
-#: src/views/console/shared.tsx
-msgid "Could not load {what}."
-msgstr ""
-
 #: src/views/Findings.tsx
 msgid "Could not load findings"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Could not load your machines"
 msgstr ""
 
 #: src/views/Posture.tsx
@@ -1082,18 +931,6 @@ msgstr ""
 msgid "Could not update"
 msgstr ""
 
-#: src/views/console/OrgAdmin.tsx
-msgid "Create"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Create enroll token"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "Create organization"
-msgstr ""
-
 #: src/lib/humanize.ts
 msgid "Created {file}"
 msgstr ""
@@ -1104,7 +941,6 @@ msgstr ""
 
 #: src/components/dash.tsx
 #: src/components/SeverityBadge.tsx
-#: src/views/Fleet.tsx
 #: src/views/host/VulnPosture.tsx
 #: src/views/Posture.tsx
 msgid "Critical"
@@ -1116,14 +952,6 @@ msgstr ""
 
 #: src/components/ApprovalSurface.tsx
 msgid "Critical-severity findings can't be muted."
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Cross-device Correlation"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Cross-device Indicators"
 msgstr ""
 
 #: src/views/host/AiSettings.tsx
@@ -1157,18 +985,6 @@ msgstr ""
 
 #: src/components/host/DeadMansSwitchPanel.tsx
 msgid "Default on timeout: <0>Revert</0> (safe). SSH exemption is always preserved."
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Delete"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Delete SSO configuration"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Delete the SSO/OIDC configuration for <0>{org}</0>? Users will no longer be able to sign in via SSO."
 msgstr ""
 
 #: src/components/TrustPanel.tsx
@@ -1266,38 +1082,6 @@ msgstr ""
 msgid "Detecting…"
 msgstr ""
 
-#: src/views/console/Devices.tsx
-#: src/views/console/FleetCommands.tsx
-#: src/views/Fleet.tsx
-msgid "Device"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Device id"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Device Inventory"
-msgstr ""
-
-#. placeholder {0}: r.device_id ?? id
-#: src/views/console/Devices.tsx
-msgid "Device token for {0}"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-#: src/views/console/FleetCommands.tsx
-#: src/views/Fleet.tsx
-msgid "devices"
-msgstr ""
-
-#: src/views/console/ConsoleApp.tsx
-#: src/views/console/Correlation.tsx
-#: src/views/console/Devices.tsx
-#: src/views/console/FleetCommands.tsx
-msgid "Devices"
-msgstr ""
-
 #. placeholder {0}: connector.label
 #: src/views/Messaging.tsx
 msgid "Disable {0}"
@@ -1318,7 +1102,6 @@ msgstr ""
 
 #: src/components/ApprovalSurface.tsx
 #: src/components/Toast.tsx
-#: src/views/console/shared.tsx
 #: src/views/host/FilesScan.tsx
 msgid "Dismiss"
 msgstr ""
@@ -1359,10 +1142,6 @@ msgstr ""
 msgid "e.g. OpenAI API"
 msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "Each section requires the corresponding server capability (TB-6 for identity, TB-7 for the feed)."
-msgstr ""
-
 #: src/views/Timeline.tsx
 msgid "earlier"
 msgstr ""
@@ -1384,7 +1163,6 @@ msgstr ""
 msgid "Edited a notebook ({0})"
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
 #: src/views/host/EgressControl.tsx
 msgid "Egress allowlist"
 msgstr ""
@@ -1414,7 +1192,6 @@ msgstr ""
 msgid "Enable it by running a daemon built with <0>--features channels</0> and adding a <1>~/.belay/channels.json</1> (0600) with your bot credentials."
 msgstr ""
 
-#: src/views/console/Settings.tsx
 #: src/views/Messaging.tsx
 msgid "Enabled"
 msgstr ""
@@ -1444,37 +1221,8 @@ msgstr ""
 msgid "Enrich destinations (show owner/ASN/country)"
 msgstr ""
 
-#: src/views/console/Devices.tsx
-msgid "Enroll device"
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "Enroll principals allowed to approve from this connector. This only adds; existing approvers are listed and removable under Approvers below."
-msgstr ""
-
-#. placeholder {0}: r.id ?? ""
-#: src/views/console/Devices.tsx
-msgid "Enroll token {0}"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Enroll tokens"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Enroll Tokens"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Enrolled"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Enrolled devices"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Enrolled Devices"
 msgstr ""
 
 #: src/views/Scan.tsx
@@ -1493,10 +1241,6 @@ msgstr ""
 msgid "Enter model id, e.g. llama3.3"
 msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "enter secret"
-msgstr ""
-
 #: src/components/host/CveTable.tsx
 msgid "EPSS"
 msgstr ""
@@ -1505,8 +1249,6 @@ msgstr ""
 msgid "EPSS — probability of exploitation within 30 days"
 msgstr ""
 
-#: src/views/console/Correlation.tsx
-#: src/views/Fleet.tsx
 #: src/views/Timeline.tsx
 msgid "Events"
 msgstr ""
@@ -1548,14 +1290,6 @@ msgstr ""
 msgid "Failed to save key."
 msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "Feed token"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Feed token id"
-msgstr ""
-
 #: src/views/Posture.tsx
 msgid "Fetching your protection status…"
 msgstr ""
@@ -1585,18 +1319,6 @@ msgstr ""
 #. placeholder {1}: status.rule_count
 #: src/views/host/FirewallSetup.tsx
 msgid "Firewall {stateWord}, mode: {0}, {1} rules"
-msgstr ""
-
-#: src/views/console/FleetCommands.tsx
-msgid "Firewall apply"
-msgstr ""
-
-#: src/views/console/FleetCommands.tsx
-msgid "Firewall changes can lock machines out of the network. Each device auto-reverts after<0> 120s</0> unless you send <1>Firewall confirm</1> — confirm only once you have verified connectivity."
-msgstr ""
-
-#: src/views/console/FleetCommands.tsx
-msgid "Firewall confirm"
 msgstr ""
 
 #: src/views/host/FirewallSetup.tsx
@@ -1631,19 +1353,6 @@ msgstr ""
 msgid "Fixed in"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "Fleet Activity"
-msgstr ""
-
-#: src/views/console/ConsoleApp.tsx
-#: src/views/console/FleetCommands.tsx
-msgid "Fleet Commands"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Fleet Denials"
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "From"
 msgstr ""
@@ -1670,18 +1379,6 @@ msgstr ""
 
 #: src/components/host/FindingFixRow.tsx
 msgid "Gateway Ports"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Generate a per-org SCIM bearer token for your IdP. It is shown once."
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Generate feed token"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Generate SCIM token"
 msgstr ""
 
 #: src/components/host/ProposedRuleTable.tsx
@@ -1816,11 +1513,6 @@ msgstr ""
 msgid "I understand this sends the flagged action (redacted) to {0}."
 msgstr ""
 
-#: src/views/console/ConsoleApp.tsx
-#: src/views/console/Settings.tsx
-msgid "Identity & Feed"
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "ids to enroll, comma-separated"
 msgstr ""
@@ -1847,14 +1539,6 @@ msgstr ""
 
 #: src/views/Messaging.tsx
 msgid "Inbound save failed"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Indicator"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Indicators"
 msgstr ""
 
 #: src/components/dash.tsx
@@ -1947,10 +1631,6 @@ msgstr ""
 msgid "Key saved."
 msgstr ""
 
-#: src/views/console/Correlation.tsx
-msgid "Kind"
-msgstr ""
-
 #: src/components/LanguagePicker.tsx
 msgid "Language"
 msgstr ""
@@ -1960,32 +1640,8 @@ msgstr ""
 msgid "Language: {0}"
 msgstr ""
 
-#: src/views/console/Correlation.tsx
-msgid "Last 24 hours"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Last 7 days"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Last hour"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "Last seen"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Last Seen"
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "leave blank to keep current"
-msgstr ""
-
-#: src/views/console/Login.tsx
-msgid "Leave blank unless you belong to several"
 msgstr ""
 
 #: src/lib/humanize.ts
@@ -2013,10 +1669,6 @@ msgstr ""
 msgid "Live Feed"
 msgstr ""
 
-#: src/views/console/shared.tsx
-msgid "Loading {what}…"
-msgstr ""
-
 #: src/views/Agents.tsx
 msgid "Loading agents…"
 msgstr ""
@@ -2033,10 +1685,6 @@ msgstr ""
 msgid "Loading firewall setup…"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "Loading fleet…"
-msgstr ""
-
 #: src/views/host/HostOverview.tsx
 msgid "Loading overview…"
 msgstr ""
@@ -2051,10 +1699,6 @@ msgstr ""
 
 #: src/views/host/VulnPosture.tsx
 msgid "Loading vulnerability posture…"
-msgstr ""
-
-#: src/views/console/ConsoleApp.tsx
-msgid "Loading..."
 msgstr ""
 
 #: src/components/Sidebar.tsx
@@ -2098,12 +1742,6 @@ msgstr ""
 msgid "Malware scan (on-demand)"
 msgstr ""
 
-#: src/views/console/Devices.tsx
-#: src/views/console/OrgAdmin.tsx
-#: src/views/console/Settings.tsx
-msgid "Manage"
-msgstr ""
-
 #: src/components/MutedRulesPanel.tsx
 msgid "Manual"
 msgstr ""
@@ -2132,14 +1770,6 @@ msgstr ""
 
 #: src/components/host/SeverityDot.tsx
 msgid "MEDIUM"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "members"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "Members"
 msgstr ""
 
 #: src/components/Sidebar.tsx
@@ -2177,10 +1807,6 @@ msgstr ""
 msgid "My Machines"
 msgstr ""
 
-#: src/views/console/OrgAdmin.tsx
-msgid "Name"
-msgstr ""
-
 #: src/views/host/HostOverview.tsx
 msgid "Needs attention"
 msgstr ""
@@ -2203,26 +1829,6 @@ msgstr ""
 
 #: src/components/Sidebar.tsx
 msgid "new deny events"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "New device id"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "New member role"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "New member username"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "New org name"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "New org slug"
 msgstr ""
 
 #: src/components/host/DeadMansSwitchPanel.tsx
@@ -2269,29 +1875,8 @@ msgstr ""
 msgid "No connectors match."
 msgstr ""
 
-#: src/views/console/Correlation.tsx
-msgid "No cross-device indicators in this window"
-msgstr ""
-
 #: src/components/host/CveTable.tsx
 msgid "No CVE findings."
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "No devices"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-#: src/views/console/FleetCommands.tsx
-msgid "No devices enrolled"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "No enroll tokens"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "No feed tokens"
 msgstr ""
 
 #: src/views/Findings.tsx
@@ -2306,20 +1891,8 @@ msgstr ""
 msgid "No fix"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "No fleet activity yet"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "No members"
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "No one is enrolled yet. Start a pairing below, then reply <0>pair <code></0> from the account you want to approve with."
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "No other computers connected yet"
 msgstr ""
 
 #: src/components/ApprovalCard.tsx
@@ -2346,10 +1919,6 @@ msgstr ""
 #~ msgid "No scan findings."
 #~ msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "No SSO configuration found. Fill in the fields below to configure."
-msgstr ""
-
 #: src/views/Posture.tsx
 msgid "No timeline activity yet"
 msgstr ""
@@ -2368,10 +1937,6 @@ msgstr ""
 
 #: src/views/Agents.tsx
 msgid "Not protected"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "not set"
 msgstr ""
 
 #: src/views/Messaging.tsx
@@ -2396,10 +1961,6 @@ msgstr ""
 msgid "Off"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "Offline"
-msgstr ""
-
 #: src/views/Timeline.tsx
 msgid "On watch…"
 msgstr ""
@@ -2416,24 +1977,8 @@ msgstr ""
 msgid "One of the agent's tools is hiding what it actually does behind a vague description."
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "Online"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Online Now"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Only this computer is connected"
-msgstr ""
-
 #: src/views/Posture.tsx
 msgid "Only this page failed to load. Belay keeps protecting this computer either way."
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Only this page failed to load. Your protection is unchanged and this computer is still being monitored."
 msgstr ""
 
 #: src/components/TrayPopover.tsx
@@ -2450,30 +1995,6 @@ msgstr ""
 
 #: src/components/Welcome.tsx
 msgid "Optional: turn on AI explanations & the <0>Skill Judge</0> (off by default, bring your own key) any time in <1>Settings → AI</1>."
-msgstr ""
-
-#: src/views/console/ConsoleApp.tsx
-#: src/views/console/OrgAdmin.tsx
-#: src/views/console/shared.tsx
-msgid "Organization"
-msgstr ""
-
-#: src/views/console/Login.tsx
-msgid "Organization (optional)"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-#: src/views/console/FleetCommands.tsx
-#: src/views/console/OrgAdmin.tsx
-#: src/views/console/Settings.tsx
-msgid "organizations"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-#: src/views/console/FleetCommands.tsx
-#: src/views/console/OrgAdmin.tsx
-#: src/views/console/Settings.tsx
-msgid "Organizations"
 msgstr ""
 
 #: src/lib/humanize.ts
@@ -2515,10 +2036,6 @@ msgstr ""
 msgid "Pass"
 msgstr ""
 
-#: src/views/console/Login.tsx
-msgid "Password"
-msgstr ""
-
 #: src/components/host/FindingFixRow.tsx
 msgid "Password Authentication"
 msgstr ""
@@ -2558,10 +2075,6 @@ msgstr ""
 
 #: src/views/host/AiSettings.tsx
 msgid "Plain-English second opinion on flagged actions — active."
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "platform admin"
 msgstr ""
 
 #: src/components/host/AllowlistManager.tsx
@@ -2617,15 +2130,6 @@ msgstr ""
 msgid "Pulls in outside content that the agent will then act on."
 msgstr ""
 
-#. placeholder {0}: t(meta.label)
-#: src/views/console/FleetCommands.tsx
-msgid "Push {0}"
-msgstr ""
-
-#: src/views/console/FleetCommands.tsx
-msgid "pushed per selected device"
-msgstr ""
-
 #: src/views/host/FilesScan.tsx
 #: src/views/host/HostSkills.tsx
 msgid "Quarantine"
@@ -2641,10 +2145,6 @@ msgstr ""
 
 #: src/views/host/FilesScan.tsx
 msgid "Quick"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Quick enroll"
 msgstr ""
 
 #: src/views/host/FilesScan.tsx
@@ -2670,10 +2170,6 @@ msgstr ""
 
 #: src/lib/humanize.ts
 msgid "Ran the tests"
-msgstr ""
-
-#: src/views/console/Correlation.tsx
-msgid "ranked by spread + severity"
 msgstr ""
 
 #: src/lib/explain.ts
@@ -2705,15 +2201,10 @@ msgstr ""
 msgid "Read a web page ({0})"
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
-msgid "Read-only: pushing fleet commands requires an operator role."
-msgstr ""
-
 #: src/lib/explain.ts
 msgid "Reading docs or data you pointed it at is normal; unexpected sources are not."
 msgstr ""
 
-#: src/views/Fleet.tsx
 #: src/views/host/FilesScan.tsx
 #: src/views/Posture.tsx
 msgid "Reason"
@@ -2744,18 +2235,9 @@ msgstr ""
 msgid "Refused: this looks like the agent tried to approve its own request."
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
-msgid "Rejected devices"
-msgstr ""
-
 #: src/components/host/AllowlistManager.tsx
-#: src/views/console/OrgAdmin.tsx
 #: src/views/Messaging.tsx
 msgid "Remove"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "Remove <0>{confirmTarget}</0> from <1>{org}</1>?"
 msgstr ""
 
 #: src/views/Agents.tsx
@@ -2768,10 +2250,6 @@ msgstr ""
 
 #: src/views/Messaging.tsx
 msgid "Remove failed"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "Remove member"
 msgstr ""
 
 #. placeholder {0}: connector.label
@@ -2826,58 +2304,15 @@ msgid "Review individually"
 msgstr ""
 
 #: src/components/MutedRulesPanel.tsx
-#: src/views/console/Devices.tsx
-#: src/views/console/Settings.tsx
 msgid "Revoke"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Revoke <0>{confirmDevice}</0>? This device will lose access."
 msgstr ""
 
 #: src/components/MutedRulesPanel.tsx
 msgid "Revoke all"
 msgstr ""
 
-#: src/views/console/Devices.tsx
-msgid "Revoke device"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Revoke enroll token"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Revoke feed token"
-msgstr ""
-
-#. placeholder {0}: confirm.id
-#: src/views/console/Settings.tsx
-msgid "Revoke feed token <0>{0}</0>? Any clients using it will lose advisory feed access."
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Revoke SCIM token"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Revoke the SCIM bearer token for <0>{org}</0>? Your IdP will lose provisioning access."
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Revoke token <0>{confirmToken}</0>? This token will no longer work."
-msgstr ""
-
 #: src/components/MutedRulesPanel.tsx
 msgid "Revoking…"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Risk"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Risk Distribution"
 msgstr ""
 
 #: src/views/Scan.tsx
@@ -2886,10 +2321,6 @@ msgstr ""
 
 #: src/lib/alerts.ts
 msgid "Risky action after untrusted ingest"
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "Role"
 msgstr ""
 
 #: src/views/Messaging.tsx
@@ -2952,10 +2383,6 @@ msgstr ""
 
 #: src/views/host/FilesScan.tsx
 msgid "Save schedule"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Save SSO"
 msgstr ""
 
 #: src/views/Messaging.tsx
@@ -3030,24 +2457,8 @@ msgstr ""
 msgid "Scheduled scan"
 msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "SCIM is not available on this server yet."
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "SCIM provisioning"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "SCIM token"
-msgstr ""
-
 #: src/views/host/FilesScan.tsx
 msgid "Scope:"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "score"
 msgstr ""
 
 #: src/views/Messaging.tsx
@@ -3092,15 +2503,6 @@ msgstr ""
 msgid "Security events recorded for awareness — injection markers, secret redactions, risky-action correlations, and how approvals resolved."
 msgstr ""
 
-#. placeholder {0}: d.device_id
-#: src/views/console/FleetCommands.tsx
-msgid "select {0}"
-msgstr ""
-
-#: src/views/console/FleetCommands.tsx
-msgid "Selected"
-msgstr ""
-
 #: src/views/Alerts.tsx
 msgid "Self-approval"
 msgstr ""
@@ -3111,10 +2513,6 @@ msgstr ""
 
 #: src/lib/alerts.ts
 msgid "Self-approval blocked"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "self-service enrollment"
 msgstr ""
 
 #: src/components/ApprovalCard.tsx
@@ -3133,14 +2531,6 @@ msgstr ""
 msgid "Session trust"
 msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "settings"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Settings"
-msgstr ""
-
 #: src/views/Agents.tsx
 msgid "Settings check"
 msgstr ""
@@ -3151,7 +2541,6 @@ msgid "Settings saved."
 msgstr ""
 
 #: src/components/host/CveTable.tsx
-#: src/views/console/Correlation.tsx
 #: src/views/Findings.tsx
 #: src/views/host/FilesScan.tsx
 msgid "Severity"
@@ -3191,36 +2580,8 @@ msgstr ""
 msgid "Showing newest {RENDER_CAP} of {0} matches — narrow the filter to see more"
 msgstr ""
 
-#: src/views/console/Login.tsx
-msgid "Sign in"
-msgstr ""
-
-#: src/views/console/shared.tsx
-msgid "Sign in with an operator account to view this."
-msgstr ""
-
-#: src/views/console/Login.tsx
-msgid "Sign in with an operator account."
-msgstr ""
-
-#: src/views/console/ConsoleApp.tsx
-msgid "Sign out"
-msgstr ""
-
-#: src/views/console/ConsoleApp.tsx
-msgid "Sign out failed. You are still signed in."
-msgstr ""
-
-#: src/views/console/Login.tsx
-msgid "Signing in..."
-msgstr ""
-
 #: src/views/Messaging.tsx
 msgid "Signing secret"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "Single sign-on (OIDC)"
 msgstr ""
 
 #: src/views/host/AiSettings.tsx
@@ -3238,10 +2599,6 @@ msgstr ""
 
 #: src/views/Messaging.tsx
 msgid "Slack app → Bot token + Signing Secret; add /hook/slack as the interactivity Request URL behind your TLS proxy."
-msgstr ""
-
-#: src/views/console/OrgAdmin.tsx
-msgid "Slug"
 msgstr ""
 
 #: src/lib/explain.ts
@@ -3271,10 +2628,6 @@ msgstr ""
 msgid "Source (AGPL)"
 msgstr ""
 
-#: src/views/console/Correlation.tsx
-msgid "Spread"
-msgstr ""
-
 #: src/components/host/SegmentedNav.tsx
 msgid "SSH"
 msgstr ""
@@ -3291,7 +2644,6 @@ msgstr ""
 msgid "SSH exemption pinned row"
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
 #: src/views/host/SshHardening.tsx
 msgid "SSH guard"
 msgstr ""
@@ -3308,10 +2660,6 @@ msgstr ""
 msgid "SSH Protocol Version"
 msgstr ""
 
-#: src/views/console/Settings.tsx
-msgid "SSO is not available on this server yet."
-msgstr ""
-
 #: src/components/TrayPopover.tsx
 msgid "Start on boot"
 msgstr ""
@@ -3324,13 +2672,8 @@ msgstr ""
 msgid "Starting…"
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
-msgid "State"
-msgstr ""
-
 #: src/components/host/CveTable.tsx
 #: src/components/TrayPopover.tsx
-#: src/views/Fleet.tsx
 #: src/views/host/FirewallSetup.tsx
 msgid "Status"
 msgstr ""
@@ -3341,10 +2684,6 @@ msgstr ""
 
 #: src/views/host/AiSettings.tsx
 msgid "Stored on this machine, owner-only."
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Stream audit rows from a remote host or VPS to <0>/api/ingest</0> with a <1>device_id</1>:"
 msgstr ""
 
 #: src/views/host/FilesScan.tsx
@@ -3368,10 +2707,6 @@ msgstr ""
 msgid "Tap a button below to try again."
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
-msgid "Target devices"
-msgstr ""
-
 #: src/components/host/AllowlistManager.tsx
 msgid "TCP"
 msgstr ""
@@ -3382,10 +2717,6 @@ msgstr ""
 
 #: src/components/ApprovalSurface.tsx
 msgid "That request was answered from the agent's own process, so Belay denied it instead of allowing it. An agent cannot approve its own action."
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "The advisory feed is not available on this server yet."
 msgstr ""
 
 #: src/lib/explain.ts
@@ -3440,16 +2771,8 @@ msgstr ""
 msgid "The tool could quietly do something different from what it claims."
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
-msgid "These devices were not queued (out of scope or unknown to this org):"
-msgstr ""
-
 #: src/components/ApprovalCard.tsx
 msgid "Thinking…"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "This computer is being monitored"
 msgstr ""
 
 #: src/views/host/EgressControl.tsx
@@ -3466,12 +2789,6 @@ msgstr ""
 
 #: src/components/ApprovalSurface.tsx
 msgid "This type of finding always requires review and can't be muted."
-msgstr ""
-
-#. placeholder {0}: t(meta.label)
-#. placeholder {1}: targets.length
-#: src/views/console/FleetCommands.tsx
-msgid "This will queue <0>{0}</0> on <1>{1, plural, one {# device} other {# devices}}</1>."
 msgstr ""
 
 #: src/components/StatusRing.tsx
@@ -3494,10 +2811,6 @@ msgstr ""
 msgid "Token"
 msgstr ""
 
-#: src/views/console/Devices.tsx
-msgid "Token id"
-msgstr ""
-
 #: src/components/ApprovalSurface.tsx
 msgid "Too many rules are already muted — revoke one from Overview first."
 msgstr ""
@@ -3506,28 +2819,12 @@ msgstr ""
 msgid "Tool"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "Top At-Risk"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Top Threat"
-msgstr ""
-
 #: src/views/Posture.tsx
 msgid "Top Triggered Rules"
 msgstr ""
 
 #: src/views/Messaging.tsx
 msgid "Topic"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Total Devices"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Trend"
 msgstr ""
 
 #: src/lib/humanize.ts
@@ -3618,10 +2915,6 @@ msgstr ""
 msgid "Unable to load egress configuration"
 msgstr ""
 
-#: src/views/console/shared.tsx
-msgid "Unavailable"
-msgstr ""
-
 #: src/components/host/BanList.tsx
 msgid "Unban"
 msgstr ""
@@ -3632,10 +2925,6 @@ msgstr ""
 
 #: src/views/host/HostSkills.tsx
 msgid "Unbaselined"
-msgstr ""
-
-#: src/views/console/Settings.tsx
-msgid "unchanged"
 msgstr ""
 
 #: src/lib/explain.ts
@@ -3684,17 +2973,7 @@ msgid "Used the {name} skill"
 msgstr ""
 
 #: src/components/host/BanList.tsx
-#: src/views/console/OrgAdmin.tsx
 msgid "User"
-msgstr ""
-
-#: src/views/console/Login.tsx
-#: src/views/console/OrgAdmin.tsx
-msgid "Username"
-msgstr ""
-
-#: src/views/console/Devices.tsx
-msgid "Uses"
 msgstr ""
 
 #: src/views/host/AiSettings.tsx
@@ -3707,10 +2986,6 @@ msgstr ""
 
 #: src/views/Posture.tsx
 msgid "Verdict Distribution"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Verdict Split"
 msgstr ""
 
 #: src/views/host/FilesScan.tsx
@@ -3759,20 +3034,12 @@ msgstr ""
 msgid "Waiting"
 msgstr ""
 
-#: src/views/console/FleetCommands.tsx
-msgid "Waiting for devices…"
-msgstr ""
-
 #: src/views/Posture.tsx
 msgid "Waiting for you"
 msgstr ""
 
 #: src/components/host/FindingFixRow.tsx
 msgid "Warning"
-msgstr ""
-
-#: src/views/Fleet.tsx
-msgid "Watched"
 msgstr ""
 
 #: src/views/Messaging.tsx
@@ -3815,10 +3082,6 @@ msgstr ""
 msgid "Yes, unprotect"
 msgstr ""
 
-#: src/views/Fleet.tsx
-msgid "You can connect more computers later to watch them all in one place."
-msgstr ""
-
 #: src/lib/explain.ts
 msgid "You could lose files, history, or a database with no way to get them back."
 msgstr ""
@@ -3838,8 +3101,4 @@ msgstr ""
 
 #: src/views/Timeline.tsx
 msgid "Your AI agents' actions will appear here in real time."
-msgstr ""
-
-#: src/views/console/shared.tsx
-msgid "Your role does not permit this."
 msgstr ""

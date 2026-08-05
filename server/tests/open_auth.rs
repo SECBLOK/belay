@@ -4,8 +4,12 @@
 //! runs without the fleet plane.
 //!
 //! Gated to the open build: under `enterprise`, login is org-scoped and resolves
-//! the caller against the OrgStore (which this single-user fixture does not
-//! attach). The org-aware login path is covered by `tests/org_login.rs`.
+//! the caller against the org directory (which this single-user fixture does not
+//! attach). That path has its own coverage in the enterprise test suite.
+//!
+//! Deliberately worded without naming the paid types or test files: this file
+//! SHIPS to the public mirror, so a reference here is a disclosure that the
+//! export cannot strip without editing an open test's prose in flight.
 #![cfg(not(feature = "enterprise"))]
 use belay_server::{create_app, load_users_and_secret, AppState};
 use axum::body::Body;
