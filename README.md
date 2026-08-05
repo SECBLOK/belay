@@ -1,7 +1,6 @@
 <div align="center">
 
-<img src=".github/readme-assets/banner.gif" width="900"
-     alt="Belay - runtime defense for AI coding agents. Every tool call is allowed, asked, or denied by a deterministic sub-100ms engine with no LLM in the hot path.">
+<img src=".github/readme-assets/lockup.png" width="360" alt="Belay">
 
 # Belay
 
