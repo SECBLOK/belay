@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src=".github/readme-assets/lockup.png" width="360" alt="Belay">
-
-# Belay
+<img src=".github/readme-assets/lockup.gif" width="380" alt="Belay">
 
 **Detect · Block · Notify — a defense and monitoring layer for AI coding agents.**
 
