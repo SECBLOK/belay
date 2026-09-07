@@ -26,6 +26,11 @@ export interface Pending {
   // verdict snapshot. All optional (absent on older rows / open build).
   severity?: Severity | string;
   category?: string;
+  // Standards mappings of the winning rule, from the same verdict snapshot.
+  // Absent on older daemons and on parks that came through `park()` (channel
+  // inbound paths), which have no verdict to carry them.
+  owasp?: string | null;
+  atlas?: string | null;
   explain?: Explain;
 }
 
@@ -273,6 +278,10 @@ function ToolBody({
           reason: pending.reason,
           severity: pending.severity,
           category: pending.category,
+          // From the daemon verdict, never from the model: the AI rewrites the
+          // prose, it does not get to invent a standards mapping.
+          owasp: pending.owasp,
+          atlas: pending.atlas,
         }),
       );
       setAiState("shown");
@@ -599,6 +608,8 @@ export default function ApprovalCard({
             reason: pending.reason,
             severity: pending.severity,
             category: pending.category,
+            owasp: pending.owasp,
+            atlas: pending.atlas,
           }),
     [pending],
   );

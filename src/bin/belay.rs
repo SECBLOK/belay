@@ -3635,6 +3635,23 @@ mod tests {
     /// approach genuinely fails here (otherwise it would silently stop
     /// exercising the bug), and that `stage_binary` succeeds on the same
     /// input.
+    ///
+    /// # Platform note
+    ///
+    /// The ETXTBSY half is LINUX-ONLY. Refusing to write to a running
+    /// executable is a Linux kernel behaviour; macOS permits the write, so
+    /// there `fs::copy` returns `Ok` and there is no failure to assert. That
+    /// difference is what broke macOS CI when this test was first written.
+    ///
+    /// The copy is therefore not merely unasserted off Linux, it is not run at
+    /// all: on macOS it would SUCCEED and leave the new bytes at `dest`, which
+    /// would make the `stage_binary` assertion below pass without proving
+    /// anything. Skipping it keeps the original bytes in place so that
+    /// assertion still has work to do on every platform.
+    ///
+    /// `stage_binary` itself is correct on both - `rename(2)` is atomic and
+    /// ETXTBSY-immune everywhere - so only the precondition is gated, never
+    /// the behaviour under test.
     #[cfg(unix)]
     #[test]
     fn staging_replaces_a_binary_that_is_currently_executing() {
@@ -3664,14 +3681,25 @@ mod tests {
         new_bytes.extend_from_slice(b"\0belay-upgrade-marker");
         std::fs::write(&src, &new_bytes).unwrap();
 
-        // Half one: the old approach must fail, and fail for THIS reason.
-        let old = std::fs::copy(&src, &dest);
-        let err = old.expect_err("fs::copy onto a running binary must fail");
-        assert_eq!(
-            err.raw_os_error(),
-            Some(26),
-            "expected ETXTBSY (26), got {err:?}"
-        );
+        // Half one (Linux only, see the platform note): the old approach must
+        // fail, and fail for THIS reason. Deliberately not run elsewhere - it
+        // would succeed and rob half two of its meaning.
+        #[cfg(target_os = "linux")]
+        {
+            let old = std::fs::copy(&src, &dest);
+            let err = old.expect_err("fs::copy onto a running binary must fail");
+            assert_eq!(
+                err.raw_os_error(),
+                Some(26),
+                "expected ETXTBSY (26), got {err:?}"
+            );
+            // The failed copy must not have damaged the destination either.
+            assert_eq!(
+                std::fs::read(&dest).unwrap(),
+                real,
+                "a refused copy must leave the running binary untouched"
+            );
+        }
 
         // Half two: staging succeeds against the very same live destination.
         super::stage_binary(&src, &dest).expect("stage_binary must replace a running binary");

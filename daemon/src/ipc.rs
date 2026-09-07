@@ -558,6 +558,8 @@ pub fn handle_request_approvals(
                     created,
                     &severity,
                     verdict.category.as_deref(),
+                    verdict.owasp.as_deref(),
+                    verdict.atlas.as_deref(),
                     explain,
                     gating_pid,
                 );

@@ -112,6 +112,12 @@ export interface Finding {
   // Additive Explain & Advise fields (optional: absent on older/open-build rows).
   severity?: Severity;
   category?: string;
+  // Standards mappings of the winning rule, recorded by the daemon at write
+  // time (not re-derived from the catalog here, so what renders is what the
+  // verdict actually recorded). Null when the winning rule authors no mapping,
+  // absent on rows written before the daemon carried the fields.
+  owasp?: string | null;
+  atlas?: string | null;
   explain?: Explain;
 }
 export const getFindings = (): Promise<Finding[]> =>

@@ -293,6 +293,12 @@ pub struct PendingEntry {
     pub severity: String,
     /// Winning-rule category (e.g. `secrets`); `None` for synthetic hits.
     pub category: Option<String>,
+    /// Standards mappings of the winning rule (OWASP ASI/LLM Top 10, MITRE
+    /// ATLAS), carried from the verdict so the ApprovalCard can show what the
+    /// rule that fired maps to. `None` when the rule authors no mapping, or
+    /// when the caller came through `park()` (which has no verdict to hand).
+    pub owasp: Option<String>,
+    pub atlas: Option<String>,
     /// Curated plain-English explanation of the winning rule, if authored.
     pub explain: Option<Value>,
     /// Producer halves of every gate thread blocked on THIS request. Normally one,
@@ -649,8 +655,12 @@ impl Approvals {
         category: Option<&str>,
         explain: Option<Value>,
     ) -> ParkOutcome {
+        // `None, None` for the standards mappings: this wrapper's callers
+        // (channel inbound paths, tests) have no Verdict in hand. The gate IPC
+        // path calls `park_with_source` directly and does supply them.
         self.park_with_source(
-            session, tool, input, reason, rule, created_ms, severity, category, explain, None,
+            session, tool, input, reason, rule, created_ms, severity, category, None, None,
+            explain, None,
         )
         .0
     }
@@ -678,6 +688,8 @@ impl Approvals {
         created_ms: u64,
         severity: &str,
         category: Option<&str>,
+        owasp: Option<&str>,
+        atlas: Option<&str>,
         explain: Option<Value>,
         gating_pid: Option<u32>,
     ) -> (ParkOutcome, ResolveSource, SelfApprovalInfo) {
@@ -743,6 +755,8 @@ impl Approvals {
                         created_ms,
                         severity: severity.to_string(),
                         category: category.map(str::to_string),
+                        owasp: owasp.map(str::to_string),
+                        atlas: atlas.map(str::to_string),
                         explain: explain.clone(),
                         resolvers: vec![tx],
                         #[cfg(feature = "channels")]
@@ -827,6 +841,8 @@ impl Approvals {
                     // Additive Explain & Advise fields for the ApprovalCard.
                     "severity": e.severity,
                     "category": e.category,
+                    "owasp": e.owasp,
+                    "atlas": e.atlas,
                     "explain": e.explain,
                 })
             })
@@ -1127,6 +1143,69 @@ mod tests {
         h.join().unwrap();
     }
 
+    /// The ApprovalCard's "Standards" footnote is built from these two fields,
+    /// so they have to survive the park -> snapshot round trip. Without this
+    /// the GUI silently renders nothing: the panel is present, the data never
+    /// arrives, and the failure looks identical to a rule that maps to nothing.
+    #[test]
+    fn snapshot_carries_the_standards_mappings() {
+        let a = fast();
+        let a2 = a.clone();
+        let h = thread::spawn(move || {
+            a2.park_with_source(
+                "sess",
+                "Bash",
+                &json!({}),
+                "reason",
+                "tamper.agent_config_write",
+                now_ms(),
+                "critical",
+                Some("tamper"),
+                Some("ASI04"),
+                Some("AML.ModifyAgentConfig"),
+                None,
+                None,
+            );
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                assert_eq!(first["owasp"], "ASI04");
+                assert_eq!(first["atlas"], "AML.ModifyAgentConfig");
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+        assert!(a.respond(&id, false, "once"));
+        h.join().unwrap();
+    }
+
+    /// A rule that authors no mapping must yield explicit nulls, not missing
+    /// keys: the card distinguishes "maps to nothing" from "field absent", and
+    /// `park()` (the channel inbound path) has no verdict to carry.
+    #[test]
+    fn parks_without_a_verdict_snapshot_null_mappings() {
+        let a = fast();
+        let a2 = a.clone();
+        let h = thread::spawn(move || {
+            a2.park(
+                "sess", "Bash", &json!({}), "reason", "rule.x", now_ms(), "info", None, None,
+            );
+        });
+        let id = loop {
+            let snap = a.snapshot();
+            if let Some(first) = snap["pending"].as_array().and_then(|v| v.first()) {
+                assert!(first.get("owasp").is_some(), "key must be present");
+                assert!(first["owasp"].is_null());
+                assert!(first["atlas"].is_null());
+                break first["id"].as_str().unwrap().to_string();
+            }
+            thread::sleep(Duration::from_millis(5));
+        };
+        assert!(a.respond(&id, false, "once"));
+        h.join().unwrap();
+    }
+
     #[test]
     fn park_then_allow_returns_allow() {
         let a = fast();
@@ -1165,7 +1244,7 @@ mod tests {
         let a = Approvals::with_timeout(Duration::from_millis(40));
         let (out, src, sa) = a.park_with_source(
             "s", "Bash", &json!({"command": "x"}), "r", "rule.x", now_ms(), "info", None, None,
-            None,
+            None, None, None,
         );
         assert_eq!(out, ParkOutcome::Deny);
         assert_eq!(src, ResolveSource::Timeout);
@@ -1187,7 +1266,7 @@ mod tests {
         });
         let (out, src, sa) = a2.park_with_source(
             "s", "Bash", &json!({"command": "y"}), "r", "rule.y", now_ms(), "info", None, None,
-            None,
+            None, None, None,
         );
         h.join().unwrap();
         assert_eq!(out, ParkOutcome::Allow);
@@ -1606,7 +1685,7 @@ mod tests {
         let h = thread::spawn(move || {
             a2.park_with_source(
                 "s", "Bash", &json!({"command": "x"}), "r", "rule.x", now_ms(), "info", None,
-                None, Some(4242),
+                None, None, None, Some(4242),
             )
         });
         let id = loop {
@@ -1636,7 +1715,7 @@ mod tests {
         let h1 = thread::spawn(move || {
             a1.park_with_source(
                 "s1", "Bash", &in1, "r", "secrets.sensitive_path", 1, "high", Some("secrets"),
-                None, Some(111),
+                None, None, None, Some(111),
             )
         });
         let id = loop {
@@ -1654,7 +1733,7 @@ mod tests {
         let h2 = thread::spawn(move || {
             a2.park_with_source(
                 "s1", "Bash", &in2, "r", "secrets.sensitive_path", 2, "high", Some("secrets"),
-                None, Some(999),
+                None, None, None, Some(999),
             )
         });
         loop {
@@ -1694,7 +1773,7 @@ mod tests {
             let h = thread::spawn(move || {
                 a2.park_with_source(
                     "s", "Bash", &json!({"c": 1}), "r", "rule.x", now_ms(), "info", None, None,
-                    gating_pid,
+                    None, None, gating_pid,
                 )
             });
             let id = loop {
@@ -1741,7 +1820,7 @@ mod tests {
         let h = thread::spawn(move || {
             a2.park_with_source(
                 "s", "Bash", &json!({"c": 1}), "r", "rule.x", now_ms(), "info", None, None,
-                Some(gating_pid),
+                None, None, Some(gating_pid),
             )
         });
         let id = loop {
@@ -1783,7 +1862,8 @@ mod tests {
         let in1 = input.clone();
         let h = thread::spawn(move || {
             a2.park_with_source(
-                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, Some(gating_pid),
+                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, None, None,
+                Some(gating_pid),
             )
         });
         let id = loop {
@@ -1842,7 +1922,8 @@ mod tests {
         let in1 = input.clone();
         let h = thread::spawn(move || {
             a2.park_with_source(
-                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, Some(pid),
+                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, None, None,
+                Some(pid),
             )
         });
         let id = loop {
@@ -1880,7 +1961,8 @@ mod tests {
         let in1 = json!({"c": 4});
         let h = thread::spawn(move || {
             a2.park_with_source(
-                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, Some(1),
+                "s", "Bash", &in1, "r", "rule.x", now_ms(), "info", None, None, None, None,
+                Some(1),
             )
         });
         let id = loop {
@@ -1925,6 +2007,8 @@ mod tests {
                     &rule,
                     now_ms(),
                     &severity,
+                    None,
+                    None,
                     None,
                     None,
                     None,
@@ -2053,6 +2137,8 @@ mod tests {
                     "secrets.sensitive_path",
                     now_ms(),
                     "high",
+                    None,
+                    None,
                     None,
                     None,
                     Some(gating_pid),

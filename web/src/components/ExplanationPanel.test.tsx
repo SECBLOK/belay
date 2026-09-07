@@ -28,6 +28,41 @@ it("places the suggested action last (the takeaway lands at the bottom)", () => 
   expect(headings[headings.length - 1]).toBe("Suggested action");
 });
 
+// The standards mappings render BELOW the suggested action, which refines the
+// invariant above rather than dropping it: the action stays the last piece of
+// ADVICE, and the mappings are provenance you consult afterwards. The test
+// pins both halves so a future change cannot quietly promote a footnote into
+// the takeaway slot.
+it("keeps the suggested action as the last advice, with standards as a footnote below", () => {
+  const { container } = render(
+    <ExplanationPanel ex={{ ...ex, owasp: "ASI04", atlas: "AML.ModifyAgentConfig" }} />,
+  );
+  const headings = [...container.querySelectorAll("h3")].map((h) => h.textContent);
+  expect(headings[headings.length - 2]).toBe("Suggested action");
+  expect(headings[headings.length - 1]).toBe("Standards");
+});
+
+it("renders both mappings, and neither competes with the action for emphasis", () => {
+  render(<ExplanationPanel ex={{ ...ex, owasp: "ASI04", atlas: "AML.ModifyAgentConfig" }} />);
+  const line = screen.getByText("ASI04 · AML.ModifyAgentConfig");
+  expect(line).toBeTruthy();
+  // Recessed: secondary colour and small type, unlike the action's font-medium
+  // primary text. Guards the "footnote, not takeaway" intent above.
+  expect(line.className).toContain("text-text-secondary");
+  expect(line.className).toContain("text-xs");
+});
+
+it("renders whichever mapping exists when a rule authors only one", () => {
+  render(<ExplanationPanel ex={{ ...ex, atlas: "AML.Exfiltration" }} />);
+  expect(screen.getByText("AML.Exfiltration")).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 3, name: "Standards" })).toBeTruthy();
+});
+
+it("omits the standards block entirely when the rule maps to nothing", () => {
+  render(<ExplanationPanel ex={ex} />);
+  expect(screen.queryByText("Standards")).toBeNull();
+});
+
 it("omits fields that are absent", () => {
   render(
     <ExplanationPanel

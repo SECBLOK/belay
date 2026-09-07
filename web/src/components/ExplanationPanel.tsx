@@ -72,6 +72,20 @@ export default function ExplanationPanel({ ex }: { ex: Explanation }) {
           <p className="font-medium text-text-primary">{ex.suggested_action}</p>
         </div>
       )}
+
+      {/* Standards mappings - provenance, not advice. Sits after the action
+          panel but is deliberately quiet (rule, secondary text, no emphasis)
+          so the eye still ENDS on what to do: the action above stays the
+          takeaway and this reads as a footnote you consult, not a step.
+          Rendered only when the winning rule actually authored a mapping. */}
+      {(ex.owasp || ex.atlas) && (
+        <div className="border-t border-[var(--border-hairline)] pt-2">
+          <h3 className="text-text-secondary text-xs uppercase tracking-wide font-normal">Standards</h3>
+          <p className="text-text-secondary text-xs">
+            {[ex.owasp, ex.atlas].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+      )}
     </>
   );
 }

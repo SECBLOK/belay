@@ -26,10 +26,17 @@ export interface Explanation {
   suggested_action?: string;
   severity: Severity;
   category: string;
+  // Standards mappings carried straight through from the row. Never derived
+  // here: the daemon records them at write time against the ruleset that
+  // actually fired, so re-deriving would risk showing today's catalog for
+  // yesterday's verdict.
+  owasp?: string;
+  atlas?: string;
 }
 
-// Five-field copy without the resolved severity/category (added by explainFor).
-type Copy = Omit<Explanation, "severity" | "category">;
+// Five-field copy without the resolved severity/category or the standards
+// mappings (all added by explainFor).
+type Copy = Omit<Explanation, "severity" | "category" | "owasp" | "atlas">;
 
 // Same shape as Copy but each field is a translation descriptor, resolved to
 // the active locale by resolveCopy at call time. This is the CLIENT-side
@@ -167,6 +174,8 @@ export interface ExplainRow {
   reason?: string;
   severity?: Severity | string;
   category?: string;
+  owasp?: string | null;
+  atlas?: string | null;
 }
 
 const isSeverity = (s: unknown): s is Severity =>
@@ -182,6 +191,10 @@ const isSeverity = (s: unknown): s is Severity =>
  */
 export function explainFor(row: ExplainRow): Explanation {
   const category = resolveCategory(row.category || row.rules?.[0] || "");
+  // Pass through unchanged, normalising only null/empty to undefined so the
+  // panel can test presence with a plain truthiness check.
+  const owasp = row.owasp || undefined;
+  const atlas = row.atlas || undefined;
   const severity: Severity = isSeverity(row.severity)
     ? row.severity
     : CATEGORY_SEVERITY[category] ?? "medium";
@@ -197,10 +210,12 @@ export function explainFor(row: ExplainRow): Explanation {
       suggested_action: e.suggested_action || undefined,
       severity,
       category,
+      owasp,
+      atlas,
     };
   }
 
   // 2/3/4. Per-rule-id override → category fallback → generic default.
   const copy = RULE_KB[row.rules?.[0] ?? ""] ?? CATEGORY_FALLBACK[category] ?? GENERIC;
-  return { ...resolveCopy(copy), severity, category };
+  return { ...resolveCopy(copy), severity, category, owasp, atlas };
 }
