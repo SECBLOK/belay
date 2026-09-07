@@ -356,6 +356,8 @@ struct CallMeta {
     reason: Option<String>,
     severity: Option<&'static str>,
     category: Option<String>,
+    owasp: Option<String>,
+    atlas: Option<String>,
     explain: Option<Value>,
 }
 
@@ -374,6 +376,8 @@ async fn decide_one(cfg: &GateConfig, tc: &ToolCall) -> (Decision, CallMeta) {
             reason: Some(v.reason).filter(|r| !r.is_empty()),
             severity: Some(v.severity.as_wire_str()),
             category: v.category,
+            owasp: v.owasp,
+            atlas: v.atlas,
             explain: v
                 .explain
                 .as_ref()
@@ -410,6 +414,8 @@ struct GateOutcome {
     reason: String,
     severity: &'static str,
     category: Option<String>,
+    owasp: Option<String>,
+    atlas: Option<String>,
     explain: Option<Value>,
 }
 
@@ -422,6 +428,8 @@ async fn gate_decision_and_reason(cfg: &GateConfig, params: &Value) -> GateOutco
             reason: "policy denied".to_string(),
             severity: "info",
             category: None,
+            owasp: None,
+            atlas: None,
             explain: None,
         };
     }
@@ -459,6 +467,8 @@ async fn gate_decision_and_reason(cfg: &GateConfig, params: &Value) -> GateOutco
             reason: m.reason.unwrap_or_default(),
             severity: m.severity.unwrap_or("info"),
             category: m.category,
+            owasp: m.owasp,
+            atlas: m.atlas,
             explain: m.explain,
         },
         None => GateOutcome {
@@ -469,6 +479,8 @@ async fn gate_decision_and_reason(cfg: &GateConfig, params: &Value) -> GateOutco
             },
             severity: "info",
             category: None,
+            owasp: None,
+            atlas: None,
             explain: None,
         },
     }
@@ -538,6 +550,8 @@ fn audit_tools_call(
     input: &Value,
     severity: &str,
     category: Option<&str>,
+    owasp: Option<&str>,
+    atlas: Option<&str>,
     explain: Option<Value>,
 ) {
     let verdict = match decision {
@@ -563,9 +577,15 @@ fn audit_tools_call(
             // Live Feed can describe what the tool was actually invoked with
             // (mirrors the hook gate's `input`).
             "input": input,
-            // Curated explanation metadata (mirrors the hook audit row).
+            // Curated explanation metadata (mirrors the hook audit row),
+            // including the winning rule's OWASP and MITRE ATLAS mappings -
+            // recorded here at write time so a downstream reader never has to
+            // join this row back against the rule catalog to learn what it
+            // maps to.
             "severity": severity,
             "category": category,
+            "owasp": owasp,
+            "atlas": atlas,
             "explain": explain,
         }));
     }
@@ -598,6 +618,11 @@ fn audit_mcp_response_alert(cfg: &GateConfig, reason: &str) {
             "input": Value::Null,
             "severity": "high",
             "category": "recon",
+            // Detection-only row: no catalog rule won it, so there are no
+            // authored standards mappings to record. The keys stay present
+            // (null) so every row in this log has the same shape.
+            "owasp": Value::Null,
+            "atlas": Value::Null,
             "explain": Value::Null,
         }));
     }
@@ -634,6 +659,9 @@ fn audit_mcp_secret_redaction(cfg: &GateConfig, ids: &[&str]) {
             "input": Value::Null,
             "severity": "high",
             "category": "secrets",
+            // Detection-only row - see `audit_mcp_response_alert`.
+            "owasp": Value::Null,
+            "atlas": Value::Null,
             "explain": Value::Null,
         }));
     }
@@ -821,6 +849,8 @@ pub async fn pump_streams<RI, WO, WCI, RCO>(
                 &call_input,
                 outcome.severity,
                 outcome.category.as_deref(),
+                outcome.owasp.as_deref(),
+                outcome.atlas.as_deref(),
                 outcome.explain.clone(),
             );
 

@@ -21,6 +21,15 @@ pub struct AuditRow {
     pub severity: Option<String>,
     #[serde(default)]
     pub category: Option<String>,
+    /// OWASP (ASI/LLM Top 10) and MITRE ATLAS mappings of the winning rule, as
+    /// recorded by the writer. `None` for rows written before the fields
+    /// existed and for detection-only rows no catalog rule produced - never
+    /// re-derived from the catalog here, so what renders is what the verdict
+    /// actually recorded.
+    #[serde(default)]
+    pub owasp: Option<String>,
+    #[serde(default)]
+    pub atlas: Option<String>,
     #[serde(default)]
     pub explain: Option<serde_json::Value>,
     #[serde(default)]

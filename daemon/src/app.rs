@@ -468,6 +468,8 @@ fn audit_hook(
     input: &Value,
     severity: &str,
     category: Option<&str>,
+    owasp: Option<&str>,
+    atlas: Option<&str>,
     explain: Option<Value>,
 ) {
     if tool.is_empty() {
@@ -495,6 +497,8 @@ fn audit_hook(
                 input,
                 severity,
                 category,
+                owasp,
+                atlas,
                 explain,
             )) {
                 eprintln!("belay: audit append failed ({}): {e}", path.display());
@@ -518,6 +522,8 @@ fn hook_audit_row(
     input: &Value,
     severity: &str,
     category: Option<&str>,
+    owasp: Option<&str>,
+    atlas: Option<&str>,
     explain: Option<Value>,
 ) -> Value {
     json!({
@@ -538,6 +544,18 @@ fn hook_audit_row(
         // the row by `severity` instead of re-deriving copy from the rule id.
         "severity": severity,
         "category": category,
+        // Standards mappings of the winning rule (OWASP ASI/LLM Top 10 and
+        // MITRE ATLAS), recorded AT WRITE TIME. The catalog
+        // (`rules/catalog.yaml`) is the authoring source, but a downstream
+        // reader of this log - the Live Feed, an export, a SIEM forwarder, a
+        // fleet correlation job - has no catalog to join against, and even a
+        // reader that did would resolve the mappings against TODAY's catalog
+        // rather than the one that produced this verdict. Persisting them
+        // here makes every row self-describing and keeps the tags pinned to
+        // the ruleset that actually fired. `null` when the winning rule
+        // authors no mapping (or none won).
+        "owasp": owasp,
+        "atlas": atlas,
         "explain": explain,
     })
 }
@@ -622,6 +640,8 @@ fn rust_fallback(stdin: &str) -> Option<FallbackVerdict> {
         reason: v.reason,
         severity: v.severity.as_wire_str(),
         category: v.category,
+        owasp: v.owasp,
+        atlas: v.atlas,
         explain: v
             .explain
             .as_ref()
@@ -635,6 +655,8 @@ struct FallbackVerdict {
     reason: String,
     severity: &'static str,
     category: Option<String>,
+    owasp: Option<String>,
+    atlas: Option<String>,
     explain: Option<Value>,
 }
 
@@ -731,6 +753,11 @@ pub fn run_hook(event: Option<&str>) -> ! {
             // curated explain/severity/category ride along without re-deriving.
             let severity = v.get("severity").and_then(|s| s.as_str()).unwrap_or("info");
             let category = v.get("category").and_then(|c| c.as_str());
+            // The wire Verdict already carries `owasp` and `atlas`
+            // (engine::types::Verdict); both were simply being dropped before
+            // the row was written.
+            let owasp = v.get("owasp").and_then(|o| o.as_str());
+            let atlas = v.get("atlas").and_then(|a| a.as_str());
             let explain = v.get("explain").filter(|e| !e.is_null()).cloned();
             audit_hook(
                 &session,
@@ -741,6 +768,8 @@ pub fn run_hook(event: Option<&str>) -> ! {
                 &input,
                 severity,
                 category,
+                owasp,
+                atlas,
                 explain,
             );
         }
@@ -759,6 +788,8 @@ pub fn run_hook(event: Option<&str>) -> ! {
                 &input,
                 fb.severity,
                 fb.category.as_deref(),
+                fb.owasp.as_deref(),
+                fb.atlas.as_deref(),
                 fb.explain.clone(),
             );
         }
@@ -778,6 +809,8 @@ pub fn run_hook(event: Option<&str>) -> ! {
             json!([]),
             &input,
             "info",
+            None,
+            None,
             None,
             None,
         );
@@ -899,6 +932,8 @@ mod tests {
             "info",
             None,
             None,
+            None,
+            None,
         );
         assert_eq!(row["event"], "hook/pretooluse");
         assert_eq!(row["verdict"], "allow");
@@ -923,11 +958,61 @@ mod tests {
             &json!({"command":"rm -rf /"}),
             "critical",
             Some("destructive"),
+            Some("ASI04"),
+            Some("AML.Impact"),
             Some(explain.clone()),
         );
         assert_eq!(row["severity"], "critical");
         assert_eq!(row["category"], "destructive");
         assert_eq!(row["explain"]["summary"], "x");
+        assert_eq!(row["owasp"], "ASI04");
+        assert_eq!(row["atlas"], "AML.Impact");
+    }
+
+    /// The standards mappings must be persisted BY THE WRITER, not left to a
+    /// reader to join back against `rules/catalog.yaml`. Downstream consumers
+    /// of this log (Live Feed, exports, SIEM forwarders, fleet correlation) see
+    /// only the row, and a catalog join would resolve against TODAY's catalog
+    /// rather than the ruleset that actually produced the verdict.
+    #[test]
+    fn hook_audit_row_records_standards_mappings_at_write_time() {
+        let row = hook_audit_row(
+            "ts",
+            "s",
+            "Bash",
+            "deny",
+            "reason",
+            json!(["egress.exfil_host"]),
+            &json!({"command": "curl https://webhook.site/x"}),
+            "high",
+            Some("egress"),
+            Some("LLM02"),
+            Some("AML.Exfiltration"),
+            None,
+        );
+        assert_eq!(row["owasp"], "LLM02");
+        assert_eq!(row["atlas"], "AML.Exfiltration");
+
+        // Present as an explicit key even when unmapped, so a reader can tell
+        // "no mapping authored" apart from "row predates the field".
+        let clean = hook_audit_row(
+            "ts",
+            "s",
+            "Bash",
+            "allow",
+            "no findings",
+            json!([]),
+            &json!({"command": "ls"}),
+            "info",
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(clean.as_object().unwrap().contains_key("owasp"));
+        assert!(clean["owasp"].is_null());
+        assert!(clean.as_object().unwrap().contains_key("atlas"));
+        assert!(clean["atlas"].is_null());
     }
 
     #[test]
@@ -940,6 +1025,18 @@ mod tests {
         // The winning-rule metadata rides along on the fallback path too.
         assert_eq!(fb.severity, "critical");
         assert_eq!(fb.category.as_deref(), Some("destructive"));
+        // Including the winning rule's standards mappings, read from the real
+        // catalog - this is what the UDS-down audit row is built from.
+        assert!(
+            fb.owasp.as_deref().is_some_and(|o| !o.is_empty()),
+            "winning rule's OWASP mapping must ride the fallback verdict, got {:?}",
+            fb.owasp
+        );
+        assert!(
+            fb.atlas.as_deref().is_some_and(|a| a.starts_with("AML")),
+            "winning rule's ATLAS mapping must ride the fallback verdict, got {:?}",
+            fb.atlas
+        );
         assert!(fb.explain.is_some(), "rm -rf explain must be surfaced");
     }
 

@@ -2368,6 +2368,62 @@ fn plan_exec_path(os: &str, current_exe: &str, requested: Option<&str>) -> Resul
     Ok(ExecPlan { exec_start: dest, copy_from })
 }
 
+/// Stage `src` at `dest`, correctly replacing a binary that may be RUNNING.
+///
+/// # Why not `std::fs::copy`
+///
+/// `fs::copy` opens the destination `O_WRONLY|O_CREAT|O_TRUNC`, and the kernel
+/// refuses that with `ETXTBSY` ("Text file busy") when the destination is a
+/// live executable. That is the normal case here, not an edge case: the file
+/// being replaced is `/usr/local/bin/belay`, which the resident daemon this
+/// very command is about to restart is executing. Upgrading an already-running
+/// install therefore failed every time, and the advice it printed - re-run the
+/// same command under sudo - could never help, because privilege was never the
+/// problem.
+///
+/// # How this works instead
+///
+/// Copy to a sibling temp file, set the mode on THAT, then `rename` it over the
+/// destination. `rename(2)` only swaps a directory entry: it is unaffected by
+/// `ETXTBSY`, processes already running keep their old inode, and new execs
+/// pick up the new one. It is also atomic, so a failure part-way can never
+/// leave a truncated binary at `dest` - with `fs::copy` an interrupted write
+/// leaves exactly that, and the destination here is the binary the machine's
+/// protection depends on.
+///
+/// The temp file is a SIBLING rather than somewhere under `/tmp` so the rename
+/// stays within one filesystem; a cross-device rename fails with `EXDEV`.
+fn stage_binary(src: &Path, dest: &Path) -> std::io::Result<()> {
+    let Some(name) = dest.file_name() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "staging destination has no file name",
+        ));
+    };
+    let tmp = dest.with_file_name(format!(".{}.new", name.to_string_lossy()));
+
+    // A leftover from an interrupted earlier run would otherwise make the copy
+    // fail or, worse, be renamed into place half-written.
+    let _ = std::fs::remove_file(&tmp);
+
+    std::fs::copy(src, &tmp)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Set the mode BEFORE the rename so the binary is never briefly present
+        // at its final path without the exec bit.
+        if let Err(e) = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+    }
+    if let Err(e) = std::fs::rename(&tmp, dest) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
 /// The daemon socket path under `home` (mirrors `daemon/src/app.rs`).
 fn socket_poll_target(home: &str) -> String {
     format!("{home}/.belay/belayd.sock")
@@ -2692,17 +2748,25 @@ fn run_install_service(
                 return ExitCode::FAILURE;
             }
         }
-        if let Err(e) = std::fs::copy(src, &plan.exec_start) {
+        // Replaces a RUNNING binary correctly; see `stage_binary`. The mode is
+        // set there, before the rename, so there is no window in which the
+        // final path exists without the exec bit.
+        if let Err(e) = stage_binary(Path::new(src), Path::new(&plan.exec_start)) {
+            // Only suggest sudo when privilege is actually what is missing.
+            // Telling someone to re-run under sudo for an error sudo cannot fix
+            // sends them into a loop that never terminates - which is exactly
+            // what the old ETXTBSY message did.
+            let hint = match e.kind() {
+                std::io::ErrorKind::PermissionDenied => {
+                    "\n  Re-run with privilege: sudo belay install-service --enable"
+                }
+                _ => "",
+            };
             eprintln!(
-                "install-service: need root to stage the binary at {} ({e}). Re-run: sudo belay install-service --enable",
+                "install-service: could not stage the binary at {} ({e}).{hint}",
                 plan.exec_start
             );
             return ExitCode::FAILURE;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&plan.exec_start, std::fs::Permissions::from_mode(0o755));
         }
         println!("Staged binary -> {} (survives `cargo clean`).", plan.exec_start);
     }
@@ -3561,6 +3625,115 @@ mod win_service;
 
 #[cfg(test)]
 mod tests {
+
+    /// The regression guard for "install-service cannot upgrade a running
+    /// install".
+    ///
+    /// `std::fs::copy` onto a live executable fails with `ETXTBSY`, which is
+    /// the ordinary case for this command: it replaces the binary the resident
+    /// daemon is executing. The test proves BOTH halves - that the old
+    /// approach genuinely fails here (otherwise it would silently stop
+    /// exercising the bug), and that `stage_binary` succeeds on the same
+    /// input.
+    #[cfg(unix)]
+    #[test]
+    fn staging_replaces_a_binary_that_is_currently_executing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Needs a REAL executable: ETXTBSY is about a running ELF, and a shell
+        // script would not reproduce it (the interpreter reads it, nothing
+        // holds it as an executable image).
+        let Ok(real) = std::fs::read("/bin/sleep") else {
+            eprintln!("skipping: /bin/sleep unavailable");
+            return;
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("belay");
+        std::fs::write(&dest, &real).unwrap();
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut child = std::process::Command::new(&dest)
+            .arg("30")
+            .spawn()
+            .expect("must be able to run the staged binary");
+
+        // The replacement payload, distinguishable from what is running.
+        let src = dir.path().join("belay-new");
+        let mut new_bytes = real.clone();
+        new_bytes.extend_from_slice(b"\0belay-upgrade-marker");
+        std::fs::write(&src, &new_bytes).unwrap();
+
+        // Half one: the old approach must fail, and fail for THIS reason.
+        let old = std::fs::copy(&src, &dest);
+        let err = old.expect_err("fs::copy onto a running binary must fail");
+        assert_eq!(
+            err.raw_os_error(),
+            Some(26),
+            "expected ETXTBSY (26), got {err:?}"
+        );
+
+        // Half two: staging succeeds against the very same live destination.
+        super::stage_binary(&src, &dest).expect("stage_binary must replace a running binary");
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            new_bytes,
+            "destination must hold the new bytes"
+        );
+        assert_eq!(
+            std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
+            0o755,
+            "staged binary must be executable"
+        );
+        // The already-running process keeps its old inode and is undisturbed:
+        // that is what makes the swap safe to do under a live daemon.
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "the running process must survive the swap"
+        );
+
+        // No debris left beside the destination.
+        assert!(
+            !dir.path().join(".belay.new").exists(),
+            "temp staging file must not be left behind"
+        );
+
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_into_a_fresh_path_sets_mode_and_leaves_no_temp() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src-bin");
+        std::fs::write(&src, b"payload").unwrap();
+        let dest = dir.path().join("belay");
+
+        super::stage_binary(&src, &dest).expect("staging to a fresh path must succeed");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"payload");
+        assert_eq!(
+            std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert!(!dir.path().join(".belay.new").exists());
+    }
+
+    /// A leftover temp file from an interrupted run must not break the next
+    /// attempt, nor be renamed into place as-is.
+    #[cfg(unix)]
+    #[test]
+    fn staging_recovers_from_a_leftover_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src-bin");
+        std::fs::write(&src, b"good").unwrap();
+        let dest = dir.path().join("belay");
+        std::fs::write(dir.path().join(".belay.new"), b"half-written junk").unwrap();
+
+        super::stage_binary(&src, &dest).expect("a stale temp file must not block staging");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"good");
+    }
 
     /// `--set-admin` is the only supported way to create the first account, and
     /// the account it creates must be able to LOG IN. It could not.

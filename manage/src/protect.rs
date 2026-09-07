@@ -61,6 +61,57 @@ fn strip_verbatim_prefix(p: &str) -> String {
     p.to_string()
 }
 
+/// True when `path` is a Cargo-built **test harness** rather than a real
+/// `belay` executable.
+///
+/// # Why this exists
+///
+/// [`belay_exe`] falls back to `std::env::current_exe()`. Under `cargo test`
+/// that is the libtest harness for the crate being tested, not `belay`. The
+/// post-install probe in [`self_test_hook`] then runs the command it just
+/// built - `sh -c '"<harness>" hook pretooluse'` - and libtest reads `hook`
+/// and `pretooluse` as test-name filters, so the harness RE-RUNS THE TEST
+/// SUITE. Those tests reach `protect()` again and each spawns another probe.
+///
+/// The branching factor is greater than one and every generation lives until
+/// [`SELF_TEST_TIMEOUT`], so the process count grows without bound: an
+/// observed `cargo test --workspace` on this repo reached ~2000 live
+/// processes spawning at ~220/sec and had to be broken by removing the exec
+/// bit from the harness binary. Killing generations does not work, because
+/// each one forks its successors before it dies.
+///
+/// # The tell
+///
+/// Cargo names test binaries `<crate>-<hash>` and puts them in
+/// `target/<profile>/deps/`. Requiring BOTH signals keeps this precise:
+/// neither fires on a shipped `/usr/local/bin/belay`, nor on
+/// `cargo run --bin belay` (`target/<profile>/belay` - no hash, not in
+/// `deps/`), so a real install is never skipped.
+fn looks_like_cargo_test_binary(path: &str) -> bool {
+    let p = Path::new(path);
+    let in_deps = p
+        .parent()
+        .and_then(|d| d.file_name())
+        .is_some_and(|n| n == "deps");
+    let hash_suffixed = p
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| s.rsplit_once('-'))
+        .is_some_and(|(_, suffix)| {
+            (8..=32).contains(&suffix.len()) && suffix.chars().all(|c| c.is_ascii_hexdigit())
+        });
+    in_deps && hash_suffixed
+}
+
+/// The binary path out of a command built by [`hook_command`] - the leading
+/// double-quoted segment of `"<exe>" hook <phase>`.
+///
+/// `None` for any other shape (a hand-written shell snippet, for instance),
+/// which callers treat as "no path to vet" rather than as a refusal.
+fn hook_command_exe(pre_cmd: &str) -> Option<&str> {
+    pre_cmd.strip_prefix('"')?.split('"').next()
+}
+
 /// Absolute path to the `belay` binary to embed in installed agent hooks.
 /// Prefers an absolute `$BELAY_BIN`, else the canonicalized current exe.
 /// `None` when neither yields an absolute path (see [`resolve_hook_exe`]).
@@ -113,6 +164,20 @@ const SELF_TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10
 fn self_test_hook(pre_cmd: &str) -> Result<(), String> {
     use std::io::{Read, Write};
     use std::process::{Command, Stdio};
+
+    // Refuse to EXECUTE a Cargo test harness. `protect()` pre-checks this and
+    // reports it accurately, so reaching here means a caller did not - and the
+    // consequence is a fork bomb, not a bad message, so the primitive refuses
+    // on its own rather than trusting every present and future caller to.
+    // See `looks_like_cargo_test_binary` for the failure it prevents.
+    if let Some(exe) = hook_command_exe(pre_cmd) {
+        if looks_like_cargo_test_binary(exe) {
+            return Err(format!(
+                "refused to run the self-test: {exe} is a Cargo test harness, not a \
+                 belay binary; executing it would re-enter the test suite recursively"
+            ));
+        }
+    }
 
     let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
     let mut child = Command::new(shell)
@@ -212,7 +277,20 @@ pub fn protect(agent: &DetectedAgent) -> Result<(), String> {
                         // worse than the uncertainty. But it must be LOUD:
                         // the whole point is that this failure is otherwise
                         // indistinguishable from silence.
-                        if let Err(why) = self_test_hook(&pre) {
+                        if looks_like_cargo_test_binary(&exe) {
+                            // Not a pass and not a failure: the probe was never
+                            // run. Saying so plainly beats both the loud
+                            // "may be UNGATED" warning (wrong - this is a test
+                            // run, not a broken install) and silence (which
+                            // would imply the hook was verified).
+                            eprintln!(
+                                "[belay] note: skipping the hook self-test for '{}' - the \
+                                 resolved binary {exe} is a Cargo test harness, not a belay \
+                                 binary. Nothing was verified. Set $BELAY_BIN to a real \
+                                 binary to exercise the probe.",
+                                agent.name
+                            );
+                        } else if let Err(why) = self_test_hook(&pre) {
                             eprintln!(
                                 "[belay] WARNING: installed the hook for '{}', but the \
                                  self-test could not confirm it runs: {why}\n\
@@ -637,6 +715,76 @@ mod tests {
             self_test_hook(&wrong_shape).is_err(),
             "JSON without a permission decision must not pass"
         );
+    }
+
+    /// The regression guard for the fork bomb.
+    ///
+    /// Before this, `cargo test` resolved `belay_exe()` to the libtest harness
+    /// and the probe shelled out to it; the harness treated `hook pretooluse`
+    /// as test filters, re-ran the suite, and each generation spawned more.
+    /// The probe must now REFUSE rather than execute.
+    #[test]
+    fn the_self_test_refuses_to_execute_a_cargo_test_harness() {
+        let harness = "/home/u/proj/target/debug/deps/belay_manage-e943c5c5ada314bf";
+        let cmd = hook_command(harness, "pretooluse");
+        let err = self_test_hook(&cmd).expect_err("must refuse a test harness");
+
+        // Refused, not merely "ran and failed" - the distinction is the whole
+        // fix, so assert on the reason rather than just on is_err().
+        assert!(
+            err.contains("refused to run the self-test"),
+            "must report a refusal, got: {err}"
+        );
+        assert!(err.contains(harness), "reason must name the path, got: {err}");
+    }
+
+    #[test]
+    fn test_harness_paths_are_recognised_and_real_binaries_are_not() {
+        // Cargo test binaries: in `deps/` AND hash-suffixed.
+        assert!(looks_like_cargo_test_binary(
+            "/p/target/debug/deps/belay_manage-e943c5c5ada314bf"
+        ));
+        assert!(looks_like_cargo_test_binary(
+            "/p/target/release/deps/protect-0123456789abcdef"
+        ));
+
+        // Real binaries must never be skipped - a false positive here silently
+        // disables the probe on a genuine install, which is the bug the probe
+        // exists to catch.
+        assert!(!looks_like_cargo_test_binary("/usr/local/bin/belay"));
+        assert!(!looks_like_cargo_test_binary("/p/target/release/belay"));
+        assert!(!looks_like_cargo_test_binary("/p/target/debug/belay"));
+        assert!(!looks_like_cargo_test_binary(r"C:\Program Files\Belay\belay.exe"));
+
+        // Each signal alone is not enough.
+        assert!(
+            !looks_like_cargo_test_binary("/p/target/debug/deps/belay"),
+            "in deps/ but not hash-suffixed"
+        );
+        assert!(
+            !looks_like_cargo_test_binary("/opt/belay-0123456789abcdef"),
+            "hash-suffixed but not in deps/"
+        );
+
+        // A hyphenated real name must not read as a hash.
+        assert!(!looks_like_cargo_test_binary("/p/target/debug/deps/belay-hook"));
+    }
+
+    #[test]
+    fn hook_command_exe_extracts_the_quoted_path_only() {
+        assert_eq!(
+            hook_command_exe(&hook_command("/usr/local/bin/belay", "pretooluse")),
+            Some("/usr/local/bin/belay")
+        );
+        assert_eq!(
+            hook_command_exe(&hook_command("/opt/my belay/belay", "posttooluse")),
+            Some("/opt/my belay/belay"),
+            "a path with spaces survives, which is why hook_command quotes it"
+        );
+        // Shapes with no leading quoted path yield None, so the existing
+        // shell-snippet probes in these tests stay unaffected by the guard.
+        assert_eq!(hook_command_exe("cat >/dev/null; printf hi"), None);
+        assert_eq!(hook_command_exe(""), None);
     }
 
     #[test]
