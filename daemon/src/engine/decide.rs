@@ -24,7 +24,25 @@ fn decision_rank(d: Decision) -> u8 {
     }
 }
 
+/// Claude Code on Windows has a `PowerShell` tool alongside `Bash`, with the
+/// same `{"command": ...}` input. The catalog's command rules (and the
+/// compiled-in detectors) are keyed to `Bash` — including the rules written
+/// for PowerShell syntax (`Remove-Item -Recurse -Force`, `powershell -enc`) — so
+/// without this a PowerShell-tool call matched nothing and was Allowed: an agent
+/// denied on Bash could retry the same action through PowerShell.
+fn as_shell_call(tc: &ToolCall) -> std::borrow::Cow<'_, ToolCall> {
+    if tc.tool.eq_ignore_ascii_case("powershell") {
+        let mut shell = tc.clone();
+        shell.tool = "Bash".into();
+        std::borrow::Cow::Owned(shell)
+    } else {
+        std::borrow::Cow::Borrowed(tc)
+    }
+}
+
 pub fn decide(rs: &RuleSet, tc: &ToolCall, state: &mut SessionState) -> Verdict {
+    let tc = as_shell_call(tc);
+    let tc: &ToolCall = &tc;
     let mut hits = rs.matches(tc);
     hits.extend(correlate(&hits, state));
     // Compiled-in self-protection backstop — denies direct writes to Belay's
