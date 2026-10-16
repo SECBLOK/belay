@@ -20,7 +20,7 @@ rules:
     applies_to: [Bash]
     match:
       command_regex:
-        - 'rm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|-rf|-fr)\b\s*(/|~|\$HOME|\.|\*)(\s|$)'
+        - 'rm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|-rf|-fr)\b\s*(/\*?|~/?\*?|\$HOME/?\*?|\.|\*)(\s|$)'
         - 'rm\b.*--no-preserve-root'
         # Windows recursive force-delete of a DANGEROUS root (drive root, userprofile, *).
         # Covers Remove-Item's built-in aliases (ri/rm/del/erase/rd/rmdir), not just the
