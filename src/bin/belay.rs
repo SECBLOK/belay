@@ -3642,16 +3642,12 @@ mod tests {
     /// executable is a Linux kernel behaviour; macOS permits the write, so
     /// there `fs::copy` returns `Ok` and there is no failure to assert. That
     /// difference is what broke macOS CI when this test was first written.
-    /// Some newer Linux kernels permit the write too (the ubuntu-latest CI
-    /// runner did), so on Linux the ETXTBSY assertion applies only when the
-    /// copy is refused.
     ///
-    /// The copy never targets `dest`: where it SUCCEEDS it would leave the new
-    /// bytes there, which would make the `stage_binary` assertion below pass
-    /// without proving anything. On Linux it runs against a separate running
-    /// probe copy; elsewhere it is not run at all. Either way the original
-    /// bytes stay at `dest`, so that assertion still has work to do on every
-    /// platform.
+    /// The copy is therefore not merely unasserted off Linux, it is not run at
+    /// all: on macOS it would SUCCEED and leave the new bytes at `dest`, which
+    /// would make the `stage_binary` assertion below pass without proving
+    /// anything. Skipping it keeps the original bytes in place so that
+    /// assertion still has work to do on every platform.
     ///
     /// `stage_binary` itself is correct on both - `rename(2)` is atomic and
     /// ETXTBSY-immune everywhere - so only the precondition is gated, never
@@ -3660,6 +3656,7 @@ mod tests {
     #[test]
     fn staging_replaces_a_binary_that_is_currently_executing() {
         use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::process::CommandExt;
 
         // Needs a REAL executable: ETXTBSY is about a running ELF, and a shell
         // script would not reproduce it (the interpreter reads it, nothing
@@ -3674,7 +3671,12 @@ mod tests {
         std::fs::write(&dest, &real).unwrap();
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).unwrap();
 
+        // argv[0] "sleep": where /bin/sleep is a multi-call binary (uutils
+        // coreutils, the default since Ubuntu 25.10) it picks the utility from
+        // argv[0], and a copy started as "belay" would exit at once instead of
+        // staying resident.
         let mut child = std::process::Command::new(&dest)
+            .arg0("sleep")
             .arg("30")
             .spawn()
             .expect("must be able to run the staged binary");
@@ -3685,41 +3687,24 @@ mod tests {
         new_bytes.extend_from_slice(b"\0belay-upgrade-marker");
         std::fs::write(&src, &new_bytes).unwrap();
 
-        // Half one (Linux only, see the platform note): where the kernel
-        // refuses the old approach, it must refuse for THIS reason. It runs
-        // against a separate running copy, so a kernel that allows the write
-        // cannot touch `dest` and rob half two of its meaning.
+        // Half one (Linux only, see the platform note): the old approach must
+        // fail, and fail for THIS reason. Deliberately not run elsewhere - it
+        // would succeed and rob half two of its meaning.
         #[cfg(target_os = "linux")]
         {
-            let probe = dir.path().join("belay-probe");
-            std::fs::write(&probe, &real).unwrap();
-            std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o755)).unwrap();
-            let mut probe_child = std::process::Command::new(&probe)
-                .arg("30")
-                .spawn()
-                .expect("must be able to run the probe binary");
-            match std::fs::copy(&src, &probe) {
-                Err(err) => {
-                    assert_eq!(
-                        err.raw_os_error(),
-                        Some(26),
-                        "expected ETXTBSY (26), got {err:?}"
-                    );
-                    // The failed copy must not have damaged the binary either.
-                    assert_eq!(
-                        std::fs::read(&probe).unwrap(),
-                        real,
-                        "a refused copy must leave the running binary untouched"
-                    );
-                }
-                // Some newer kernels (seen on the ubuntu-latest CI runner) no
-                // longer refuse writes to a running executable, as macOS
-                // never did. Nothing to assert then; half two still proves
-                // `stage_binary` replaces a live destination.
-                Ok(_) => eprintln!("note: this kernel allows writing to a running executable"),
-            }
-            let _ = probe_child.kill();
-            let _ = probe_child.wait();
+            let old = std::fs::copy(&src, &dest);
+            let err = old.expect_err("fs::copy onto a running binary must fail");
+            assert_eq!(
+                err.raw_os_error(),
+                Some(26),
+                "expected ETXTBSY (26), got {err:?}"
+            );
+            // The failed copy must not have damaged the destination either.
+            assert_eq!(
+                std::fs::read(&dest).unwrap(),
+                real,
+                "a refused copy must leave the running binary untouched"
+            );
         }
 
         // Half two: staging succeeds against the very same live destination.
