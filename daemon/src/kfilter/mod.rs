@@ -345,7 +345,7 @@ mod tests {
         // Belay's own data dir (self) — must never lock itself out.
         assert!(a.is_allowed(r"C:\ProgramData\Belay\audit.ndjson"));
         // A user secret is NOT allowlisted — it's eligible for gating.
-        assert!(!a.is_allowed(r"C:\Users\dennis\project\.env"));
+        assert!(!a.is_allowed(r"C:\Users\jane\project\.env"));
     }
 
     // ── decide_open: the block-before-read core ────────────────────────────────
@@ -413,7 +413,7 @@ mod tests {
         let mut ev = EngineVerdict { state: &mut state };
         let asker = MockAsker::new(KfilterDecision::Deny); // human denies at the prompt
         let d = decide_open(
-            &req(r"C:\Users\dennis\project\.env"),
+            &req(r"C:\Users\jane\project\.env"),
             &Allowlist::system_default(),
             &mut ev,
             &asker,
