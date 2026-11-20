@@ -39,7 +39,7 @@ by the automated suite (CI has no interactive console session, and the daemon
 test process does not run as LocalSystem), so this required a manual pass on a
 real host:
 
-> **console-path-verified-on: `ALDI-DENNIS`**, commit `5a766fc`
+> **console-path-verified-on: `WIN11-TEST-HOST`**, commit `5a766fc`
 > (`feat/windows-scm-phase3`, rebased onto `feat/daemon-transport-seam` @
 > `a4a0a82` — includes both the Phase 3 SCM code and this Task A relaxation).
 > Installed the SCM service (`belay install-service --enable`, elevated) —

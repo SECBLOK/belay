@@ -100,7 +100,7 @@ mod tests {
     fn sensitive_env_read_is_high_ask() {
         let mut st = SessionState::new("s");
         // Native Windows path (backslashes) must fold to match the POSIX-shaped set.
-        let v = evaluate_event(&ev(EventKind::Open, r"C:\Users\dennis\project\.env"), &mut st);
+        let v = evaluate_event(&ev(EventKind::Open, r"C:\Users\jane\project\.env"), &mut st);
         assert_eq!(v.decision, Decision::Ask);
         assert_eq!(v.severity, Severity::High);
         assert!(v.rules.iter().any(|r| r == "secrets.sensitive_path"));
