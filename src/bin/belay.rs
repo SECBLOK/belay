@@ -3660,9 +3660,12 @@ mod tests {
 
         // Needs a REAL executable: ETXTBSY is about a running ELF, and a shell
         // script would not reproduce it (the interpreter reads it, nothing
-        // holds it as an executable image).
-        let Ok(real) = std::fs::read("/bin/sleep") else {
-            eprintln!("skipping: /bin/sleep unavailable");
+        // holds it as an executable image). The shell, not /bin/sleep: a
+        // copied shell blocked on `read` stays resident from any directory,
+        // while uutils coreutils (Ubuntu's default since 25.10) exits with an
+        // error when its sleep is run from a copy outside its install tree.
+        let Ok(real) = std::fs::read("/bin/sh") else {
+            eprintln!("skipping: /bin/sh unavailable");
             return;
         };
 
@@ -3671,13 +3674,14 @@ mod tests {
         std::fs::write(&dest, &real).unwrap();
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        // argv[0] "sleep": where /bin/sleep is a multi-call binary (uutils
-        // coreutils, the default since Ubuntu 25.10) it picks the utility from
-        // argv[0], and a copy started as "belay" would exit at once instead of
-        // staying resident.
+        // argv[0] "sh" so a multi-call /bin/sh (busybox) still runs as the
+        // shell. It blocks on stdin, which stays open until the child is
+        // killed.
         let mut child = std::process::Command::new(&dest)
-            .arg0("sleep")
-            .arg("30")
+            .arg0("sh")
+            .args(["-c", "read _"])
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .spawn()
             .expect("must be able to run the staged binary");
 
@@ -3687,24 +3691,27 @@ mod tests {
         new_bytes.extend_from_slice(b"\0belay-upgrade-marker");
         std::fs::write(&src, &new_bytes).unwrap();
 
+        // Precondition for both halves: the staged binary is actually running.
+        if let Some(status) = child.try_wait().unwrap() {
+            let mut stderr = String::new();
+            if let Some(mut pipe) = child.stderr.take() {
+                use std::io::Read;
+                let _ = pipe.read_to_string(&mut stderr);
+            }
+            panic!("the staged binary exited before the test ran ({status}): {stderr}");
+        }
+
         // Half one (Linux only, see the platform note): the old approach must
         // fail, and fail for THIS reason. Deliberately not run elsewhere - it
         // would succeed and rob half two of its meaning.
         #[cfg(target_os = "linux")]
         {
-            // Recorded before the copy so a failure says whether the staged
-            // binary was still running and what it was.
-            let context = format!(
-                "kernel {:?}, /bin/sleep -> {:?}, staged child before copy: {:?}",
-                std::fs::read_to_string("/proc/sys/kernel/osrelease").map(|s| s.trim().to_string()),
-                std::fs::canonicalize("/bin/sleep"),
-                child.try_wait(),
-            );
             let old = std::fs::copy(&src, &dest);
             let err = match old {
                 Err(err) => err,
                 Ok(n) => panic!(
-                    "fs::copy onto a running binary must fail, but copied {n} bytes ({context})"
+                    "fs::copy onto a running binary must fail, but copied {n} bytes (kernel {:?})",
+                    std::fs::read_to_string("/proc/sys/kernel/osrelease").map(|s| s.trim().to_string()),
                 ),
             };
             assert_eq!(
