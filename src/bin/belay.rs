@@ -3692,8 +3692,21 @@ mod tests {
         // would succeed and rob half two of its meaning.
         #[cfg(target_os = "linux")]
         {
+            // Recorded before the copy so a failure says whether the staged
+            // binary was still running and what it was.
+            let context = format!(
+                "kernel {:?}, /bin/sleep -> {:?}, staged child before copy: {:?}",
+                std::fs::read_to_string("/proc/sys/kernel/osrelease").map(|s| s.trim().to_string()),
+                std::fs::canonicalize("/bin/sleep"),
+                child.try_wait(),
+            );
             let old = std::fs::copy(&src, &dest);
-            let err = old.expect_err("fs::copy onto a running binary must fail");
+            let err = match old {
+                Err(err) => err,
+                Ok(n) => panic!(
+                    "fs::copy onto a running binary must fail, but copied {n} bytes ({context})"
+                ),
+            };
             assert_eq!(
                 err.raw_os_error(),
                 Some(26),
